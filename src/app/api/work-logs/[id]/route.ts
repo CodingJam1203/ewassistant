@@ -19,7 +19,7 @@ export async function PATCH(
     const adminClient = createAdminClient()
     const { data: log, error: fetchError } = await adminClient
       .from('work_logs')
-      .select('user_id, user_email, name, is_deleted, start_time, end_time, work_location, break_time, work_content, ew_value')
+      .select('user_id, user_email, name, is_deleted, leave_date, start_time, end_time, work_location, break_time, work_content, ew_value')
       .eq('id', id)
       .single()
 
