@@ -96,7 +96,8 @@ export async function POST(request: Request) {
     }
 
     // Insert into DB
-    const { data, error } = await supabase
+    const adminClient = createAdminClient()
+    const { data, error } = await adminClient
       .from('work_logs')
       .insert([insertData])
       .select()
@@ -109,7 +110,6 @@ export async function POST(request: Request) {
 
     // ─── 사후 처리: display_name 자동저장 + last_submitted_at 업데이트 ──────
     try {
-      const adminClient = createAdminClient()
 
       // display_name이 비어있으면 이번 제출의 name으로 채움
       const { data: profile } = await adminClient
