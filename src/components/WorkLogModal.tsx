@@ -1,0 +1,102 @@
+'use client'
+
+import { useState, useCallback } from 'react'
+import { X } from 'lucide-react'
+import WorkLogForm from '@/components/WorkLogForm'
+import CalculationPreview from '@/components/CalculationPreview'
+import { EwCalculationResult } from '@/lib/ew-calculator'
+
+interface WorkLogModalProps {
+  date: string           // YYYY-MM-DD — 퇴근 날짜, check-out API에 전달
+  userName: string | null
+  initialStartTime?: string  // 기존 출근보고 start_time (퇴근 버튼에서 pre-fill)
+  initialEndTime?: string    // 기존 출근보고 end_time
+  onClose: () => void
+  onSuccess: () => void  // 폼 제출 + check-out 완료 후 호출
+}
+
+export default function WorkLogModal({
+  date,
+  userName,
+  initialStartTime,
+  initialEndTime,
+  onClose,
+  onSuccess,
+}: WorkLogModalProps) {
+  const [calculationResult, setCalculationResult] = useState<EwCalculationResult | null>(null)
+  const [calculationError, setCalculationError]   = useState<string | null>(null)
+  const [checkingOut, setCheckingOut]             = useState(false)
+
+  const handleCalculate = useCallback(
+    (result: EwCalculationResult | null, error: string | null) => {
+      setCalculationResult(prev => JSON.stringify(prev) === JSON.stringify(result) ? prev : result)
+      setCalculationError(prev => prev === error ? prev : error)
+    },
+    []
+  )
+
+  // WorkLogForm 제출 성공 → check-out API 호출 → 모달 닫기
+  const handleSubmitSuccess = async () => {
+    setCheckingOut(true)
+    try {
+      await fetch('/api/team-status/check-out', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date }),
+      })
+    } catch {
+      // check-out 실패해도 보고서는 저장됐으므로 그냥 진행
+    } finally {
+      setCheckingOut(false)
+    }
+    onSuccess()
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 overflow-y-auto py-6 px-4"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="relative w-full max-w-5xl bg-white rounded-2xl shadow-2xl">
+        {/* 헤더 */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">출퇴근보고 입력</h3>
+            <p className="text-xs text-gray-500 mt-0.5">{date} — 퇴근보고를 작성하면 퇴근 처리됩니다</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* 본문 */}
+        <div className="p-6">
+          {checkingOut ? (
+            <div className="py-12 text-center">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-200 border-t-blue-600 mb-3" />
+              <p className="text-sm text-gray-500">퇴근 처리 중...</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-2">
+                <WorkLogForm
+                  userName={userName}
+                  initialStartTime={initialStartTime}
+                  initialEndTime={initialEndTime}
+                  onCalculate={handleCalculate}
+                  onSubmitSuccess={handleSubmitSuccess}
+                />
+              </div>
+              <div className="lg:col-span-1">
+                <CalculationPreview result={calculationResult} error={calculationError} />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

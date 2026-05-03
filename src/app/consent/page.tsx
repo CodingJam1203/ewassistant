@@ -1,0 +1,127 @@
+'use client'
+
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Loader2 } from 'lucide-react'
+
+export default function ConsentPage() {
+  const [agreedTerms, setAgreedTerms] = useState(false)
+  const [agreedPrivacy, setAgreedPrivacy] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const router = useRouter()
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!agreedTerms || !agreedPrivacy) {
+      setError('모든 필수 항목에 동의해 주세요.')
+      return
+    }
+
+    setIsSubmitting(true)
+    setError('')
+
+    try {
+      const res = await fetch('/api/auth/consent', {
+        method: 'POST',
+      })
+      
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || '동의 처리 중 오류가 발생했습니다.')
+      }
+
+      // API가 반환한 redirectTo 사용 (활성 계정 → /team, 잠금 계정 → /blocked)
+      router.push(data.redirectTo ?? '/team')
+      router.refresh()
+    } catch (err: any) {
+      setError(err.message)
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="min-h-[80vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-xl shadow-sm border border-gray-100">
+        <div>
+          <h2 className="mt-2 text-center text-2xl font-bold text-gray-900 tracking-tight">
+            서비스 이용 동의
+          </h2>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            원활한 서비스 이용을 위해 아래 정책에 동의해 주세요.
+          </p>
+        </div>
+        
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          <div className="space-y-4">
+            <div className="flex items-start">
+              <div className="flex items-center h-5">
+                <input
+                  id="terms"
+                  name="terms"
+                  type="checkbox"
+                  checked={agreedTerms}
+                  onChange={(e) => setAgreedTerms(e.target.checked)}
+                  className="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded"
+                />
+              </div>
+              <div className="ml-3 text-sm flex-1">
+                <label htmlFor="terms" className="font-medium text-gray-700 select-none">
+                  [필수] 이용약관에 동의합니다.
+                </label>
+                <div className="mt-1">
+                  <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-500 text-xs font-semibold">
+                    이용약관 보기 &rarr;
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-start">
+              <div className="flex items-center h-5">
+                <input
+                  id="privacy"
+                  name="privacy"
+                  type="checkbox"
+                  checked={agreedPrivacy}
+                  onChange={(e) => setAgreedPrivacy(e.target.checked)}
+                  className="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded"
+                />
+              </div>
+              <div className="ml-3 text-sm flex-1">
+                <label htmlFor="privacy" className="font-medium text-gray-700 select-none">
+                  [필수] 개인정보 처리방침을 확인하고 동의합니다.
+                </label>
+                <div className="mt-1">
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-500 text-xs font-semibold">
+                    개인정보 처리방침 보기 &rarr;
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <div className="text-sm text-red-600 bg-red-50 p-3 rounded-md">
+              {error}
+            </div>
+          )}
+
+          <div>
+            <button
+              type="submit"
+              disabled={isSubmitting || !agreedTerms || !agreedPrivacy}
+              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? (
+                <Loader2 className="animate-spin w-5 h-5" />
+              ) : (
+                '동의하고 시작하기'
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
