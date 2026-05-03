@@ -23,6 +23,7 @@ interface WorkLog {
   created_at: string
   updated_at: string | null
   user_email: string | null
+  [key: string]: unknown
 }
 
 interface OrgTeam { id: string; division_id: string; name: string }
