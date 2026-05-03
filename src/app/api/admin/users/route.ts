@@ -40,13 +40,34 @@ export async function GET() {
       team: profile.team ?? null,
       role: profile.role,
       is_active: profile.is_active,
+      is_pre_registered: false,
       created_at: profile.created_at,
       last_login_at: profile.last_login_at ?? authUser?.last_sign_in_at ?? null,
       last_submitted_at: profile.last_submitted_at ?? null,
     }
   })
 
-  return NextResponse.json(result)
+  // pre_approved_emails도 포함 (아직 로그인 안 한 사전등록 계정)
+  const { data: preApproved } = await adminClient
+    .from('pre_approved_emails')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  const preResult = (preApproved ?? []).map((p: any) => ({
+    email: p.email,
+    id: null,
+    display_name: p.display_name ?? null,
+    division: p.division ?? null,
+    team: p.team ?? null,
+    role: p.role,
+    is_active: true,
+    is_pre_registered: true,
+    created_at: p.created_at,
+    last_login_at: null,
+    last_submitted_at: null,
+  }))
+
+  return NextResponse.json([...result, ...preResult])
 }
 
 // POST /api/admin/users — 이메일 사전 등록 (관리자 전용)
@@ -66,31 +87,37 @@ export async function POST(request: Request) {
   const normalizedEmail = email.toLowerCase().trim()
   const adminClient = createAdminClient()
 
-  // 이미 등록된 이메일인지 확인
-  const { data: existing } = await adminClient
+  // 이미 user_profiles에 등록된 경우
+  const { data: existingProfile } = await adminClient
     .from('user_profiles')
     .select('email')
     .eq('email', normalizedEmail)
-    .single()
+    .maybeSingle()
 
-  if (existing) {
+  if (existingProfile) {
     return NextResponse.json({ error: '이미 등록된 이메일입니다.' }, { status: 409 })
   }
 
-  // auth.users에 이미 존재하는 경우 id 연결
-  const { data: authData } = await adminClient.auth.admin.listUsers({ perPage: 1000 })
-  const existingAuthUser = authData?.users?.find((u: any) => u.email === normalizedEmail)
+  // 이미 pre_approved_emails에 등록된 경우
+  const { data: existingPre } = await adminClient
+    .from('pre_approved_emails')
+    .select('email')
+    .eq('email', normalizedEmail)
+    .maybeSingle()
 
+  if (existingPre) {
+    return NextResponse.json({ error: '이미 사전 등록된 이메일입니다.' }, { status: 409 })
+  }
+
+  // pre_approved_emails에 사전 등록
   const { data, error } = await adminClient
-    .from('user_profiles')
+    .from('pre_approved_emails')
     .insert({
       email: normalizedEmail,
-      id: existingAuthUser?.id ?? null,
       display_name: display_name?.trim() || null,
       division: division?.trim() || null,
       team: team?.trim() || null,
       role: role === 'admin' ? 'admin' : 'user',
-      is_active: true,
     })
     .select()
     .single()

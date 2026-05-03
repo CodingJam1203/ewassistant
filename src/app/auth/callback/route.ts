@@ -43,29 +43,51 @@ export async function GET(request: Request) {
         .eq('email', user.email)
         .maybeSingle()
 
-      // Auth가 재생성된 케이스 감지: 프로필은 있지만 user.id가 다름
-      const isAuthRecreated = existing && existing.id !== user.id
+      // 케이스 판별
+      const isAuthRecreated = existing && existing.id !== user.id  // Auth 재생성
+      const isLockedRelogin = existing && !isAuthRecreated && existing.is_active === false
 
       if (!existing) {
-        // ── 신규 유저: 프로필 생성 + 잠금 ──────────────────────────────────
-        await adminClient.from('user_profiles').insert({
-          id: user.id,
-          email: user.email,
-          last_login_at: new Date().toISOString(),
-          is_active: false,
-          role: 'user',
-        })
+        // ── 신규 유저: pre_approved_emails 확인 ─────────────────────────────
+        const { data: preApproved } = await adminClient
+          .from('pre_approved_emails')
+          .select('*')
+          .eq('email', user.email)
+          .maybeSingle()
 
-        sendNewAccountApprovalEmail({
-          email: user.email,
-          createdAt: new Date().toISOString(),
-        }).catch(err =>
-          console.error('[Email] 신규 계정 알림 발송 실패:', err)
-        )
+        if (preApproved) {
+          // 사전등록된 유저: is_active=true로 프로필 생성 + pre_approved_emails 삭제
+          await adminClient.from('user_profiles').insert({
+            id: user.id,
+            email: user.email,
+            display_name: preApproved.display_name ?? null,
+            division: preApproved.division ?? null,
+            team: preApproved.team ?? null,
+            role: preApproved.role ?? 'user',
+            is_active: true,
+            last_login_at: new Date().toISOString(),
+          })
+          await adminClient.from('pre_approved_emails').delete().eq('email', user.email)
+          console.log(`[Auth Callback] 사전등록 계정 첫 로그인 승인: ${user.email}`)
+        } else {
+          // 완전 신규: 잠금 + 관리자 알림
+          await adminClient.from('user_profiles').insert({
+            id: user.id,
+            email: user.email,
+            last_login_at: new Date().toISOString(),
+            is_active: false,
+            role: 'user',
+          })
+          sendNewAccountApprovalEmail({
+            email: user.email,
+            createdAt: new Date().toISOString(),
+          }).catch(err =>
+            console.error('[Email] 신규 계정 알림 발송 실패:', err)
+          )
+          console.log(`[Auth Callback] 신규 계정 생성 및 잠금: ${user.email}`)
+        }
 
-        console.log(`[Auth Callback] 신규 계정 생성 및 잠금: ${user.email}`)
-
-      } else if (isAuthRecreated || existing.is_active === false) {
+      } else if (isAuthRecreated || isLockedRelogin) {
         // ── Auth 재생성 또는 잠금 계정 재로그인:
         //    약관 초기화 + 잠금 상태로 리셋 (재가입 취급)
         await adminClient
