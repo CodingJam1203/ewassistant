@@ -4,26 +4,7 @@ import { useState, useEffect } from 'react'
 import { Copy, Check, RefreshCw, Pencil, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import EditLogModal from '@/components/EditLogModal'
-
-interface WorkLog {
-  id: string
-  name: string
-  work_type_label: string
-  leave_date: string
-  start_time: string
-  end_time: string
-  actual_work_time: string
-  break_time: string
-  break_reason: string | null
-  ew_value: string
-  work_location: string
-  work_content: string | null
-  attendance_record_type: string | null
-  copy_text: string
-  created_at: string
-  updated_at: string | null
-  updated_by: string | null   // null이면 한 번도 수정 안 된 것
-}
+import type { WorkLog } from '@/types/work-log'
 
 function CopyCell({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)

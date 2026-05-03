@@ -2,22 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { X, Loader2 } from 'lucide-react'
-
-interface WorkLog {
-  id: string
-  name: string
-  work_type_label: string
-  leave_date: string
-  start_time: string
-  end_time: string
-  break_time: string
-  break_reason: string | null
-  work_content: string | null
-  work_location: string
-  ew_value: string
-  copy_text: string
-  [key: string]: unknown
-}
+import type { WorkLog } from '@/types/work-log'
 
 interface EditLogModalProps {
   log: WorkLog
