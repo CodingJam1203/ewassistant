@@ -228,8 +228,7 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
       })
       await navigator.clipboard.writeText(result.copyText)
       setShowEwPopup(true)
-
-      onSubmitSuccess()
+      // onSubmitSuccess는 팝업 버튼 클릭 후 호출 (팝업이 닫히면서 호출)
     } catch (err: any) {
       setSubmitError(err.message)
     } finally {
@@ -248,7 +247,7 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
             </p>
             <div className="flex gap-3">
               <button
-                onClick={() => setShowEwPopup(false)}
+                onClick={() => { setShowEwPopup(false); onSubmitSuccess() }}
                 className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
               >
                 취소
@@ -257,7 +256,7 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
                 href="https://working.univ.me/Home"
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={() => setShowEwPopup(false)}
+                onClick={() => { setShowEwPopup(false); onSubmitSuccess() }}
                 className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-center"
               >
                 이동하기
