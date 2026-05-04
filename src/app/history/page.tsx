@@ -142,7 +142,7 @@ export default function HistoryPage() {
       )}
 
       <div className="sm:flex sm:items-center sm:justify-between">
-        <h2 className="text-2xl font-bold leading-7 text-gray-900">전체 제출 내역</h2>
+        <h2 className="text-2xl font-bold leading-7 text-gray-900">전체 신청내역</h2>
       </div>
 
       {/* 필터 */}

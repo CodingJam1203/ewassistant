@@ -352,7 +352,7 @@ export default function TeamPage() {
     <div className="space-y-5">
       {/* 제목 */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-gray-900">팀원 둘러보기</h2>
+        <h2 className="text-xl font-bold text-gray-900">상태 둘러보기</h2>
         <div className="flex items-center gap-2">
           <button
             onClick={fetchCards}
