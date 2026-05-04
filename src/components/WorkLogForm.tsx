@@ -78,6 +78,7 @@ const endTimeOptions = generateTimeOptions(16)
 export default function WorkLogForm({ userName, initialStartTime, initialEndTime, onCalculate, onSubmitSuccess }: WorkLogFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [showEwPopup, setShowEwPopup] = useState(false)
   const nameDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 최초 자동완성 여부 추적 (userName prop이 로드되면 한 번만 setValue)
   const nameInitialized = useRef(false)
@@ -226,6 +227,7 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
         breakReason: showBreakReason ? data.breakReason : undefined,
       })
       await navigator.clipboard.writeText(result.copyText)
+      setShowEwPopup(true)
 
       onSubmitSuccess()
     } catch (err: any) {
@@ -236,7 +238,35 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-8 bg-white p-6 sm:p-8 rounded-lg border border-gray-200 shadow-sm">
+    <>
+      {showEwPopup && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">EW 페이지로 이동할까요?</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              복사한 내용을 Enjoy Working 페이지에 붙여넣어 등록할 수 있습니다.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowEwPopup(false)}
+                className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                취소
+              </button>
+              <a
+                href="https://working.univ.me/Home"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setShowEwPopup(false)}
+                className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-center"
+              >
+                이동하기
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-8 bg-white p-6 sm:p-8 rounded-lg border border-gray-200 shadow-sm">
 
       {/* 1. 기본 정보 섹션 */}
       <div>
@@ -522,5 +552,6 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
         </button>
       </div>
     </form>
+    </>
   )
 }

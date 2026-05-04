@@ -86,13 +86,12 @@ export default function CheckInModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <div>
-            <h3 className="text-base font-semibold text-gray-900">출근보고 작성하기</h3>
-            <p className="text-xs text-gray-500 mt-0.5">{date} — 출퇴근보고가 없어 예정시간을 입력해주세요</p>
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">출근보고 작성하기</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{date} — 출퇴근보고가 없어 예정시간을 입력해주세요</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="h-5 w-5" />
@@ -102,22 +101,22 @@ export default function CheckInModal({
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
           {/* 이름 */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">이름 *</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">이름 *</label>
             <input
               type="text"
               value={form.name}
               onChange={e => set('name', e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           {/* 근무장소 */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">근무장소 *</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">근무장소 *</label>
             <select
               value={form.location_type}
               onChange={e => set('location_type', e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
             </select>
@@ -135,31 +134,31 @@ export default function CheckInModal({
           {/* 출퇴근 예정시간 — 30분 단위 */}
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">출근 예정</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">출근 예정</label>
               <select
                 value={form.start_time}
                 onChange={e => set('start_time', e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {START_OPTS.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">퇴근 예정</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">퇴근 예정</label>
               <select
                 value={form.end_time}
                 onChange={e => set('end_time', e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {END_OPTS.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">휴게시간</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">휴게시간</label>
               <select
                 value={form.break_time}
                 onChange={e => set('break_time', e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {BREAK_OPTS.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
@@ -168,23 +167,23 @@ export default function CheckInModal({
 
           {/* 메모 */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">메모</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">메모</label>
             <textarea
               value={form.work_content}
               onChange={e => set('work_content', e.target.value)}
               rows={2}
               placeholder="비고"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
             />
           </div>
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+            <p className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded-lg px-3 py-2">{error}</p>
           )}
 
           <div className="flex justify-end gap-3 pt-1">
             <button type="button" onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600">
               취소
             </button>
             <button type="submit" disabled={saving}

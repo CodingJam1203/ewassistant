@@ -170,17 +170,16 @@ export default function EditLogModal({ log, onClose, onSave }: EditLogModalProps
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">제출 내역 수정</h3>
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">제출 내역 수정</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="flex border-b border-gray-200">
+        <div className="flex border-b border-gray-200 dark:border-gray-700">
           {(['report', 'checkin'] as const).map(tab => (
             <button
               key={tab}
@@ -188,7 +187,7 @@ export default function EditLogModal({ log, onClose, onSave }: EditLogModalProps
               className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
                 activeTab === tab
                   ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
               }`}
             >
               {tab === 'report' ? '출퇴근보고' : '실제 출퇴근 시각'}
@@ -199,38 +198,38 @@ export default function EditLogModal({ log, onClose, onSave }: EditLogModalProps
         {activeTab === 'report' && (
           <form onSubmit={handleSubmitReport} className="px-6 py-5 space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">이름 *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">이름 *</label>
               <input type="text" value={form.name} onChange={e => set('name', e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">근무유형 *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">근무유형 *</label>
                 <select value={form.workTypeLabel} onChange={e => set('workTypeLabel', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                   {WORK_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">근무일 *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">근무일 *</label>
                 <input type="date" value={form.leaveDate} onChange={e => set('leaveDate', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">출근시간 *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">출근시간 *</label>
                 <select value={form.startTime} onChange={e => set('startTime', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                   {WORK_TIME_OPTS.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">퇴근시간 *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">퇴근시간 *</label>
                 <select value={form.endTime} onChange={e => set('endTime', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                   {WORK_TIME_OPTS.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
@@ -238,27 +237,27 @@ export default function EditLogModal({ log, onClose, onSave }: EditLogModalProps
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">휴게시간 *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">휴게시간 *</label>
                 <select value={form.breakTime} onChange={e => set('breakTime', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                   {BREAK_TIMES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
               {showBreakReason && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">휴게사유</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">휴게사유</label>
                   <input type="text" value={form.breakReason} onChange={e => set('breakReason', e.target.value)}
                     placeholder="점심 등"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               )}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">근무장소 *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">근무장소 *</label>
               <div className="flex gap-2">
                 <select value={form.locationType} onChange={e => set('locationType', e.target.value)}
-                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  className="flex-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                   <option value="">선택</option>
                   {WORK_LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
                 </select>
@@ -271,19 +270,19 @@ export default function EditLogModal({ log, onClose, onSave }: EditLogModalProps
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">근무내용 *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">근무내용 *</label>
               <textarea value={form.workContent} onChange={e => set('workContent', e.target.value)}
                 rows={3} placeholder="주요 업무 내용을 입력하세요"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+                className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
             </div>
 
             {error && (
-              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+              <p className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded-lg px-3 py-2">{error}</p>
             )}
 
             <div className="flex justify-end gap-3 pt-2">
               <button type="button" onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
                 취소
               </button>
               <button type="submit" disabled={saving}
@@ -308,35 +307,35 @@ export default function EditLogModal({ log, onClose, onSave }: EditLogModalProps
               </div>
             ) : (
               <>
-                <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2">
                   팀원 둘러보기에 표시되는 실제 출근/퇴근 시각을 수정합니다.
                   출퇴근보고의 예정 시간과는 별개입니다.
                 </p>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">실제 출근 시각</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">실제 출근 시각</label>
                     <select value={actualCheckIn} onChange={e => setActualCheckIn(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                      className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                       {TIME_OPTS.map(t => <option key={t} value={t}>{t || '(미기록)'}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">실제 퇴근 시각</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">실제 퇴근 시각</label>
                     <select value={actualCheckOut} onChange={e => setActualCheckOut(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                       {TIME_OPTS.map(t => <option key={t} value={t}>{t || '(미기록)'}</option>)}
                     </select>
                   </div>
                 </div>
 
                 {error && (
-                  <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+                  <p className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded-lg px-3 py-2">{error}</p>
                 )}
 
                 <div className="flex justify-end gap-3 pt-2">
                   <button type="button" onClick={onClose}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                    className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
                     닫기
                   </button>
                   <button type="button" onClick={handleSaveActual} disabled={saving}

@@ -1,8 +1,11 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { LogOut } from 'lucide-react'
+import { LogOut, ExternalLink } from 'lucide-react'
 import { ADMIN_EMAIL } from '@/lib/admin-check'
+import NClickLogo from '@/components/NClickLogo'
+
+const EW_URL = 'https://working.univ.me/Home'
 
 export default async function Navbar() {
   const supabase = await createClient()
@@ -10,7 +13,6 @@ export default async function Navbar() {
 
   if (!user) return null
 
-  // 관리자 여부: 이메일 OR role (테이블 미생성 시 에러 무시)
   let isAdmin = user.email === ADMIN_EMAIL
   if (!isAdmin) {
     try {
@@ -20,26 +22,24 @@ export default async function Navbar() {
         .eq('id', user.id)
         .single()
       isAdmin = profile?.role === 'admin'
-    } catch {
-      // user_profiles 테이블 미생성 시 무시
-    }
+    } catch {}
   }
 
   const navLinks = [
-    { href: '/team',    label: '팀원 둘러보기' },
-    { href: '/my-logs', label: '내 제출 내역' },
-    { href: '/history', label: '전체 제출 내역' },
+    { href: '/team',    label: '상태 둘러보기' },
+    { href: '/my-logs', label: 'My Page' },
+    { href: '/history', label: '전체 신청내역' },
     ...(isAdmin ? [{ href: '/admin', label: '관리자' }] : []),
   ]
 
   return (
-    <nav className="bg-white shadow-sm border-b border-gray-200">
+    <nav className="bg-white dark:bg-gray-900 shadow-sm border-b border-gray-200 dark:border-gray-700">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex">
             <div className="flex-shrink-0 flex items-center">
-              <Link href="/team" className="text-xl font-bold text-blue-600 hover:text-blue-700 transition-colors">
-                EW Assistant
+              <Link href="/team" className="flex items-center">
+                <NClickLogo className="h-8 w-auto" />
               </Link>
             </div>
             <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
@@ -47,14 +47,22 @@ export default async function Navbar() {
                 <Link
                   key={href}
                   href={href}
-                  className="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors"
+                  className="border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 hover:text-gray-700 dark:hover:text-gray-200 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors"
                 >
                   {label}
                 </Link>
               ))}
+              <a
+                href={EW_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="border-transparent text-blue-500 hover:text-blue-700 inline-flex items-center gap-1 px-1 pt-1 border-b-2 text-sm font-medium transition-colors"
+              >
+                EW 바로가기
+                <ExternalLink className="h-3 w-3" />
+              </a>
             </div>
           </div>
-
           <div className="flex items-center space-x-4">
             <span className="text-sm text-gray-700 hidden sm:block">{user.email}</span>
             <form action={async () => {
@@ -70,14 +78,22 @@ export default async function Navbar() {
           </div>
         </div>
       </div>
-
       {/* Mobile nav */}
-      <div className="sm:hidden flex overflow-x-auto border-t border-gray-100 py-2 px-4 space-x-4">
+      <div className="sm:hidden flex overflow-x-auto border-t border-gray-100 dark:border-gray-700 py-2 px-4 space-x-4">
         {navLinks.map(({ href, label }) => (
-          <Link key={href} href={href} className="text-sm font-medium text-gray-600 whitespace-nowrap">
+          <Link key={href} href={href} className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">
             {label}
           </Link>
         ))}
+        <a
+          href={EW_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm font-medium text-blue-600 whitespace-nowrap flex items-center gap-1"
+        >
+          EW 바로가기
+          <ExternalLink className="h-3 w-3" />
+        </a>
       </div>
     </nav>
   )

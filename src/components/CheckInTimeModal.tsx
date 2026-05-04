@@ -80,13 +80,12 @@ export default function CheckInTimeModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-xs">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900">출근 시각 선택</h3>
-            <p className="text-xs text-gray-400 mt-0.5">{date}</p>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">출근 시각 선택</h3>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{date}</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="h-4 w-4" />
@@ -95,11 +94,11 @@ export default function CheckInTimeModal({
 
         <div className="px-5 py-5 space-y-4">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">출근 시각</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5">출근 시각</label>
             <select
               value={time}
               onChange={e => setTime(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             >
               {TIME_OPTIONS.map(t => (
                 <option key={t} value={t}>{t}</option>
@@ -121,7 +120,7 @@ export default function CheckInTimeModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600"
             >
               취소
             </button>

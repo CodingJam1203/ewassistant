@@ -55,14 +55,13 @@ export default function WorkLogModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 overflow-y-auto py-6 px-4"
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="relative w-full max-w-5xl bg-white rounded-2xl shadow-2xl">
+      <div className="relative w-full max-w-5xl bg-white dark:bg-gray-800 rounded-2xl shadow-2xl">
         {/* 헤더 */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <div>
-            <h3 className="text-base font-semibold text-gray-900">출퇴근보고 입력</h3>
-            <p className="text-xs text-gray-500 mt-0.5">{date} — 퇴근보고를 작성하면 퇴근 처리됩니다</p>
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">출퇴근보고 입력</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{date} — 퇴근보고를 작성하면 퇴근 처리됩니다</p>
           </div>
           <button
             onClick={onClose}
