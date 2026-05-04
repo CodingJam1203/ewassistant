@@ -428,9 +428,10 @@ export default function TeamPage() {
 
       {/* 카드 그리드 */}
       {loading ? (
-        <div className="py-16 text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-200 border-t-blue-600" />
-          <p className="mt-2 text-sm text-gray-500">불러오는 중...</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mt-4">
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="h-40 bg-gray-100 dark:bg-gray-700 rounded-xl animate-pulse" />
+          ))}
         </div>
       ) : cards.length === 0 ? (
         <div className="py-16 text-center text-sm text-gray-500">

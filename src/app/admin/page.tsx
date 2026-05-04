@@ -635,8 +635,7 @@ export default function AdminPage() {
   }, [])
 
   useEffect(() => {
-    fetchOrg()
-    fetchUsers()
+    Promise.all([fetchOrg(), fetchUsers()])
   }, [fetchOrg, fetchUsers])
 
   const fmt = (dt: string | null) => dt ? format(new Date(dt), 'MM/dd HH:mm') : '-'

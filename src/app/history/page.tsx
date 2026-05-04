@@ -55,26 +55,18 @@ export default function HistoryPage() {
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  // 관리자 여부 확인 + 조직 목록 + 내 프로필 기본값
+  // 관리자 여부 확인 + 조직 목록 + 내 프로필 기본값 — 병렬 호출
   useEffect(() => {
-    fetch('/api/admin/check')
-      .then(r => r.json())
-      .then(d => setIsAdmin(d.isAdmin ?? false))
-      .catch(() => setIsAdmin(false))
-
-    fetch('/api/org')
-      .then(r => r.ok ? r.json() : [])
-      .then((data: OrgDivision[]) => setOrg(data))
-      .catch(() => {})
-
-    // 내 프로필에서 본부/팀 기본값 로드
-    fetch('/api/auth/profile')
-      .then(r => r.ok ? r.json() : null)
-      .then(profile => {
-        if (profile?.division) setFilterDivision(profile.division)
-        if (profile?.team) setFilterTeam(profile.team)
-      })
-      .catch(() => {})
+    Promise.all([
+      fetch('/api/admin/check').then(r => r.json()).catch(() => ({ isAdmin: false })),
+      fetch('/api/org').then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch('/api/auth/profile').then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([adminData, orgData, profile]) => {
+      setIsAdmin(adminData?.isAdmin ?? false)
+      setOrg(orgData as OrgDivision[])
+      if (profile?.division) setFilterDivision(profile.division)
+      if (profile?.team) setFilterTeam(profile.team)
+    })
   }, [])
 
   // 본부 변경 시 팀 초기화
@@ -95,6 +87,7 @@ export default function HistoryPage() {
         if (filterDivision) url.searchParams.append('division', filterDivision)
         if (filterTeam) url.searchParams.append('team', filterTeam)
       }
+      url.searchParams.append('limit', '200')
       const res = await fetch(url.toString())
       const data = await res.json()
       if (res.ok) setLogs(data)
@@ -233,9 +226,10 @@ export default function HistoryPage() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-200 border-t-blue-600" />
-          <p className="mt-2 text-sm text-gray-500">데이터를 불러오는 중...</p>
+        <div className="space-y-2 mt-4">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-10 bg-gray-100 dark:bg-gray-700 rounded animate-pulse" />
+          ))}
         </div>
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">

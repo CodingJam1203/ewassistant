@@ -56,7 +56,7 @@ export default function MyLogsPage() {
   const fetchLogs = async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/work-logs?mine=true')
+      const res = await fetch('/api/work-logs?mine=true&limit=100')
       const data = await res.json()
       if (res.ok) setLogs(data)
       else console.error('Failed:', data.error)
@@ -132,9 +132,10 @@ export default function MyLogsPage() {
       </div>
 
       {loading ? (
-        <div className="text-center py-16">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-200 border-t-blue-600" />
-          <p className="mt-2 text-sm text-gray-500">불러오는 중...</p>
+        <div className="space-y-2 mt-4">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-10 bg-gray-100 dark:bg-gray-700 rounded animate-pulse" />
+          ))}
         </div>
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">

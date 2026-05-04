@@ -192,6 +192,8 @@ export async function GET(request: Request) {
     const mine = searchParams.get('mine') === 'true'
     const filterDivision = searchParams.get('division') ?? ''
     const filterTeam = searchParams.get('team') ?? ''
+    const limitParam = searchParams.get('limit')
+    const limit = limitParam ? Math.min(Number(limitParam), 1000) : 500
 
     let query = supabase
       .from('work_logs')
@@ -199,6 +201,7 @@ export async function GET(request: Request) {
       .eq('is_deleted', false)           // 소프트 삭제된 레코드 제외
       .order('leave_date', { ascending: false })
       .order('created_at', { ascending: false })
+      .limit(limit)
 
     if (mine) {
       query = query.eq('user_id', user.id)
