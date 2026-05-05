@@ -206,20 +206,21 @@ export async function GET(request: Request) {
         if (stdType) leaveType = stdType
       }
 
-      // 분류
+      // 분류 — TypeScript narrowing을 위해 leaveType을 직접 비교
       const hasCheckin = !!checkinInfo
-      const isFullDay = leaveType === 'full_day'
-      const isMorningHalf = leaveType === 'morning_half'
-      const isAfternoonHalf = leaveType === 'afternoon_half'
 
-      if (isFullDay) {
+      if (leaveType === 'full_day') {
         // 종일 휴가 — 휴가 섹션만, 출근보고 필요 안 함
         leaveSection.push({ name, label: leaveLabel || '휴가', leaveType })
         continue
       }
 
-      if (isMorningHalf || isAfternoonHalf) {
-        leaveSection.push({ name, label: leaveLabel || (isMorningHalf ? '오전반차' : '오후반차'), leaveType })
+      if (leaveType === 'morning_half' || leaveType === 'afternoon_half') {
+        leaveSection.push({
+          name,
+          label: leaveLabel || (leaveType === 'morning_half' ? '오전반차' : '오후반차'),
+          leaveType,
+        })
       }
 
       if (hasCheckin) {
@@ -227,7 +228,7 @@ export async function GET(request: Request) {
           ? `${checkinInfo.expected_work_location} ${checkinInfo.expected_work_time}~`
           : '작성됨'
         completedSection.push({ name, status })
-      } else if (isMorningHalf) {
+      } else if (leaveType === 'morning_half') {
         // 오전반차 + 출근보고 미작성 → 오후 출근보고 필요
         needAfterSection.push({ name, label: leaveLabel || '오전반차' })
       } else {
