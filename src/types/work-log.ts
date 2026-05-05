@@ -1,3 +1,5 @@
+import type { WorkLocationTimeline } from './work-location-timeline'
+
 export interface WorkLog {
   id: string
   name: string
@@ -17,5 +19,10 @@ export interface WorkLog {
   updated_at: string | null
   updated_by?: string | null
   user_email?: string | null
+  /** 출근보고 근무장소 타임라인 (신규, NULL 가능 — legacy 레코드는 NULL) */
+  expected_work_location_timeline?: WorkLocationTimeline | null
+  expected_work_location?: string | null
+  expected_work_time?: string | null
+  expected_start_date?: string | null
   [key: string]: unknown
 }

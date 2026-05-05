@@ -1,3 +1,5 @@
+import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+
 // ─── 이벤트 타입 ─────────────────────────────────────────────────────────────
 
 export type EventType =
@@ -33,6 +35,13 @@ export interface WorklogNotifyPayload {
   expectedStartDate?: string | null
   expectedWorkTime?: string | null
   expectedWorkLocation?: string | null
+  /**
+   * 출근보고 근무장소 타임라인 (신규).
+   * - 1개 work_location + 1개 expected_checkout: 메시지에서 한 줄로 표시
+   * - 2개 이상 work_location: 멀티라인 표시
+   * - undefined/null: 기존 expectedWorkLocation/expectedWorkTime로 fallback
+   */
+  expectedTimeline?: WorkLocationTimeline | null
   division?: string | null
   team?: string | null
 }

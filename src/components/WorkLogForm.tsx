@@ -8,6 +8,9 @@ import { calculateEw, EwCalculationResult } from '@/lib/ew-calculator'
 import { Loader2, Copy } from 'lucide-react'
 import { format, addDays } from 'date-fns'
 import { getKstTodayDateString, toKstDateString } from '@/lib/utils/date'
+import WorkLocationTimelineInput, { defaultTimeline } from '@/components/WorkLocationTimelineInput'
+import { validateTimeline } from '@/lib/work-location-timeline'
+import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 
 const formSchema = z.object({
   name: z.string().min(1, '이름을 입력해주세요'),
@@ -26,9 +29,21 @@ const formSchema = z.object({
   lateReason: z.string().optional(),
   attendanceRecordType: z.enum(['출근보고 진행 (주말출근, 휴가 포함)', '스킵(누락퇴근보고, 퇴근보고 수정)']),
   expectedStartDate: z.string().optional(),
-  expectedWorkTime: z.string().optional(),
-  expectedWorkLocationType: z.enum(['사무실', '재택', '외근', '기타']).optional(),
-  expectedWorkLocation: z.string().optional(),
+  expectedTimeline: z.array(
+    z.discriminatedUnion('kind', [
+      z.object({
+        kind: z.literal('work_location'),
+        type: z.enum(['office', 'remote', 'field', 'custom']),
+        label: z.string(),
+        customLabel: z.string().nullable(),
+        startTime: z.string(),
+      }),
+      z.object({
+        kind: z.literal('expected_checkout'),
+        startTime: z.string(),
+      }),
+    ])
+  ).optional(),
   thanksMacaron: z.string().optional(),
   sendTeams: z.boolean().optional(),
 }).superRefine((data, ctx) => {
@@ -42,11 +57,16 @@ const formSchema = z.object({
   }
   if (data.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)') {
     if (!data.expectedStartDate) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '필수 입력', path: ['expectedStartDate'] })
-    if (!data.expectedWorkTime) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '필수 입력', path: ['expectedWorkTime'] })
-    if (!data.expectedWorkLocationType) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '필수 입력', path: ['expectedWorkLocationType'] })
-    if (data.expectedWorkLocationType === '기타' && !data.expectedWorkLocation) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '상세 장소를 입력해주세요', path: ['expectedWorkLocation'] })
-    }
+    const tlErrors = validateTimeline((data.expectedTimeline ?? []) as WorkLocationTimeline)
+    tlErrors.forEach(err => {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: err.message,
+        path: typeof err.index === 'number'
+          ? ['expectedTimeline', err.index]
+          : ['expectedTimeline'],
+      })
+    })
   }
 })
 
@@ -106,9 +126,7 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
       lateOrAttendanceStatus: '아니오',
       attendanceRecordType: '출근보고 진행 (주말출근, 휴가 포함)',
       expectedStartDate: toKstDateString(addDays(new Date(), 1)),
-      expectedWorkTime: '09:00',
-      expectedWorkLocationType: '사무실',
-      expectedWorkLocation: '',
+      expectedTimeline: defaultTimeline(),
       sendTeams: true,
     },
   })
@@ -199,10 +217,7 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
 
     try {
       const finalWorkLocation = data.workLocationType === '기타' ? data.workLocationCustom : data.workLocationType;
-      const finalExpectedWorkLocation =
-        data.expectedWorkLocationType === '기타'
-          ? data.expectedWorkLocation
-          : data.expectedWorkLocationType;
+      // expectedTimeline 기반으로 변경됨 — 출근 예정 장소 미러링은 서버에서 timeline의 첫 work_location 항목으로 처리합니다.
 
       // 브라우저 포커스 유실을 방지하기 위해 비동기 API 통신 전 클립보드 복사를 먼저 실행합니다.
       const result = calculateEw({
@@ -226,7 +241,7 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
       const res = await fetch('/api/work-logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...data, finalWorkLocation, finalExpectedWorkLocation, resubmitLogId }),
+        body: JSON.stringify({ ...data, finalWorkLocation, resubmitLogId }),
       })
 
       const resData = await res.json()
@@ -465,45 +480,29 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
             </select>
 
             {formValues.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' && (
-              <div className="mt-4 grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2">
+              <div className="mt-4 space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-500">출근 예정 날짜 *</label>
                   <p className="text-xs text-gray-400 mt-0.5">내일 출근 날짜를 입력해주세요</p>
-                  <input type="date" {...register('expectedStartDate')} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border" />
+                  <input type="date" {...register('expectedStartDate')} className="mt-1 block w-full sm:w-1/2 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border" />
                   {errors.expectedStartDate && <p className="mt-1 text-xs text-red-600">{errors.expectedStartDate.message as string}</p>}
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500">출근 예정 시간 *</label>
-                  <p className="text-xs text-gray-400 mt-0.5">내일 출근 예정 시간을 입력해주세요</p>
-                  <select {...register('expectedWorkTime')} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border bg-white">
-                    {startTimeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
-                  {errors.expectedWorkTime && <p className="mt-1 text-xs text-red-600">{errors.expectedWorkTime.message as string}</p>}
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-gray-500">출퇴근 예정 장소 *</label>
-                  <p className="text-xs text-gray-400 mt-0.5">예) 사무실 / 재택 / 외근 / 기타(상세 입력)</p>
-                  <select
-                    {...register('expectedWorkLocationType')}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border bg-white"
-                  >
-                    <option value="사무실">사무실</option>
-                    <option value="재택">재택</option>
-                    <option value="외근">외근</option>
-                    <option value="기타">기타 (직접 입력)</option>
-                  </select>
-                  {errors.expectedWorkLocationType && <p className="mt-1 text-xs text-red-600">{errors.expectedWorkLocationType.message as string}</p>}
 
-                  {formValues.expectedWorkLocationType === '기타' && (
-                    <div className="mt-2">
-                      <input
-                        type="text"
-                        placeholder="장소 직접 입력 (예: 외근(현대모비스 본사), 재택(삼성역 카페))"
-                        {...register('expectedWorkLocation')}
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-                      />
-                      {errors.expectedWorkLocation && <p className="mt-1 text-xs text-red-600">{errors.expectedWorkLocation.message as string}</p>}
-                    </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">근무장소 타임라인 *</label>
+                  <p className="text-xs text-gray-400 mb-2">
+                    하루 안에 여러 장소에서 근무하는 경우 <span className="font-medium">근무장소 추가</span>로 행을 늘리고, 마지막에 <span className="font-medium">퇴근예정</span> 시간을 입력하세요.
+                  </p>
+                  <WorkLocationTimelineInput
+                    value={(formValues.expectedTimeline ?? defaultTimeline()) as WorkLocationTimeline}
+                    onChange={next => setValue('expectedTimeline', next, { shouldValidate: false, shouldDirty: true })}
+                    errors={validateTimeline((formValues.expectedTimeline ?? []) as WorkLocationTimeline)}
+                  />
+                  {/* zod 단계의 array 레벨 에러 (제출 시점) */}
+                  {(errors as { expectedTimeline?: { message?: string } }).expectedTimeline?.message && (
+                    <p className="mt-1 text-xs text-red-600">
+                      {(errors as { expectedTimeline?: { message?: string } }).expectedTimeline?.message}
+                    </p>
                   )}
                 </div>
               </div>

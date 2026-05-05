@@ -16,6 +16,7 @@ import type {
   DailyCheckinReminderData,
   MorningSummaryData,
 } from './types'
+import { formatTimelineForTeams, getWorkLocations } from '@/lib/work-location-timeline'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -85,15 +86,7 @@ function worklogBody(prefix: string, p: WorklogNotifyPayload): string {
     : (p.lateReason ?? '')
   const lateStr = `${lateStatus} / ${prevTime} / ${currTime}`
 
-  let nextCheckin = '미작성'
-  if (
-    p.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' &&
-    p.expectedStartDate
-  ) {
-    const loc = p.expectedWorkLocation || '미입력'
-    const st  = p.expectedWorkTime ? fmtTime(p.expectedWorkTime) : '???'
-    nextCheckin = `${p.expectedStartDate} / ${loc} ${st}~???`
-  }
+  const checkinLines = buildNextCheckinLines(p)
 
   return [
     `${prefix} / ${p.leaveDate}`,
@@ -103,10 +96,48 @@ function worklogBody(prefix: string, p: WorklogNotifyPayload): string {
     `🔹휴게시간 : ${breakDisplay}`,
     `🔹지각/당일 수정 : ${lateStr}`,
     `🔹근무내용 : ${p.workContent || '미입력'}`,
-    `🕛 출근보고 : ${nextCheckin}`,
+    ...checkinLines,
     '🧡',
     cta(),
   ].join('\n')
+}
+
+/**
+ * 출근보고 라인 생성
+ * - 미작성: ['🕛 출근보고 : 미작성']
+ * - 단일 (timeline 1 work_location 또는 legacy fields): ['🕛 출근보고 : 2026-05-06 / 사무실 09:00~18:00']
+ * - 멀티 (timeline 2+ work_location): ['🕛 출근보고 : 2026-05-06', '1. 사무실 09:00~', '2. 재택 14:00~', '3. 퇴근예정 18:00']
+ */
+function buildNextCheckinLines(p: WorklogNotifyPayload): string[] {
+  if (
+    p.attendanceRecordType !== '출근보고 진행 (주말출근, 휴가 포함)' ||
+    !p.expectedStartDate
+  ) {
+    return ['🕛 출근보고 : 미작성']
+  }
+
+  const timeline = p.expectedTimeline
+  const wlCount = timeline ? getWorkLocations(timeline).length : 0
+
+  // 멀티라인: work_location 2개 이상
+  if (timeline && wlCount >= 2) {
+    const formatted = formatTimelineForTeams(timeline)
+    return [
+      `🕛 출근보고 : ${p.expectedStartDate}`,
+      ...formatted.lines,
+    ]
+  }
+
+  // 단일라인 (timeline 1개): "사무실 09:00~18:00" 형식
+  if (timeline && wlCount === 1) {
+    const formatted = formatTimelineForTeams(timeline)
+    return [`🕛 출근보고 : ${p.expectedStartDate} / ${formatted.lines[0]}`]
+  }
+
+  // legacy fallback (timeline 미전송): 기존 포맷 유지
+  const loc = p.expectedWorkLocation || '미입력'
+  const st  = p.expectedWorkTime ? fmtTime(p.expectedWorkTime) : '???'
+  return [`🕛 출근보고 : ${p.expectedStartDate} / ${loc} ${st}~???`]
 }
 
 // ─── cron helpers (also used by cron routes) ─────────────────────────────────

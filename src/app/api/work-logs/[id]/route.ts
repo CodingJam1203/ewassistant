@@ -6,6 +6,12 @@ import { calculateEw } from '@/lib/ew-calculator'
 import { notifyWorkLogUpdated, notifyWorkLogDeleted } from '@/lib/notifications/teams'
 import type { ChangedField } from '@/lib/notifications/types'
 import { fmtTime, fmtBreak } from '@/lib/notifications/messages'
+import {
+  validateTimeline,
+  firstWorkLocation,
+  displayLocation,
+} from '@/lib/work-location-timeline'
+import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 
 // ─── PATCH /api/work-logs/[id] ───────────────────────────────────────────────
 export async function PATCH(
@@ -44,12 +50,35 @@ export async function PATCH(
         ? (body.workLocationCustom ?? body.workLocation ?? '')
         : (body.workLocationType ?? body.workLocation ?? '')
 
-    const finalExpectedWorkLocation: string | null =
-      body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
-        ? body.expectedWorkLocationType === '기타'
-          ? (body.expectedWorkLocation ?? null)
-          : (body.expectedWorkLocationType ?? body.expectedWorkLocation ?? null)
-        : null
+    // ─── 출근보고 타임라인 처리 (PATCH) ──────────────────────────────────────
+    // body.expectedTimeline이 명시적으로 전달된 경우에만 timeline 업데이트.
+    // 미전달 시(EditLogModal 등 기존 호출) 기존 expected_* 컬럼만 변경되도록 유지.
+    let expectedTimelinePatch: WorkLocationTimeline | null | undefined = undefined  // undefined = 미변경
+    let mirrorExpectedWorkLocation: string | null | undefined = undefined
+    let mirrorExpectedWorkTime: string | null | undefined = undefined
+
+    if (body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)') {
+      if (Array.isArray(body.expectedTimeline)) {
+        const tlErrors = validateTimeline(body.expectedTimeline as WorkLocationTimeline)
+        if (tlErrors.length > 0) {
+          return NextResponse.json(
+            { error: '출근 예정 타임라인이 올바르지 않습니다: ' + tlErrors.map(e => e.message).join(', ') },
+            { status: 400 }
+          )
+        }
+        expectedTimelinePatch = body.expectedTimeline as WorkLocationTimeline
+        const first = firstWorkLocation(expectedTimelinePatch)
+        mirrorExpectedWorkLocation = first ? displayLocation(first) : null
+        mirrorExpectedWorkTime = first?.startTime ?? null
+      } else if (body.expectedWorkLocationType !== undefined || body.expectedWorkLocation !== undefined || body.expectedWorkTime !== undefined) {
+        // legacy 단일 필드 변경
+        mirrorExpectedWorkLocation =
+          body.expectedWorkLocationType === '기타'
+            ? (body.expectedWorkLocation ?? null)
+            : (body.expectedWorkLocationType ?? body.expectedWorkLocation ?? null)
+        mirrorExpectedWorkTime = body.expectedWorkTime ?? null
+      }
+    }
 
     const calcResult = calculateEw({
       name: body.name,
@@ -63,7 +92,7 @@ export async function PATCH(
       breakReason: body.breakReason,
     })
 
-    const updates = {
+    const updates: Record<string, unknown> = {
       name: body.name,
       work_type_label: body.workTypeLabel,
       work_type_code: calcResult.workTypeCode,
@@ -83,6 +112,22 @@ export async function PATCH(
       copy_text: calcResult.copyText,
       updated_at: new Date().toISOString(),
       updated_by: user.id,
+    }
+
+    // 출근보고 timeline / mirror 값은 body가 명시적으로 보낸 경우에만 업데이트
+    if (expectedTimelinePatch !== undefined) {
+      updates.expected_work_location_timeline = expectedTimelinePatch
+    }
+    if (mirrorExpectedWorkLocation !== undefined) {
+      updates.expected_work_location = mirrorExpectedWorkLocation
+    }
+    if (mirrorExpectedWorkTime !== undefined) {
+      updates.expected_work_time = mirrorExpectedWorkTime
+    }
+    if (body.attendanceRecordType !== undefined && body.expectedStartDate !== undefined) {
+      updates.expected_start_date = body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
+        ? body.expectedStartDate
+        : null
     }
 
     const { data, error } = await adminClient
@@ -169,14 +214,15 @@ export async function PATCH(
         }
       }
       if (isCheckin) {
-        if (!strEq(log.expected_start_date, body.expectedStartDate)) {
+        // body가 명시적으로 보낸 필드만 변경 감지 (보내지 않은 필드는 미변경으로 간주)
+        if (body.expectedStartDate !== undefined && !strEq(log.expected_start_date, body.expectedStartDate)) {
           changedFields.push({ label: '출근예정일', before: log.expected_start_date || '미입력', after: body.expectedStartDate || '미입력' })
         }
-        if (!strEq(log.expected_work_time, body.expectedWorkTime)) {
-          changedFields.push({ label: '출근예정시각', before: fmtTime(log.expected_work_time || ''), after: fmtTime(body.expectedWorkTime || '') })
+        if (mirrorExpectedWorkTime !== undefined && !strEq(log.expected_work_time, mirrorExpectedWorkTime)) {
+          changedFields.push({ label: '출근예정시각', before: fmtTime(log.expected_work_time || ''), after: fmtTime(mirrorExpectedWorkTime || '') })
         }
-        if (!strEq(log.expected_work_location, finalExpectedWorkLocation)) {
-          changedFields.push({ label: '출근예정장소', before: log.expected_work_location || '미입력', after: finalExpectedWorkLocation || '미입력' })
+        if (mirrorExpectedWorkLocation !== undefined && !strEq(log.expected_work_location, mirrorExpectedWorkLocation)) {
+          changedFields.push({ label: '출근예정장소', before: log.expected_work_location || '미입력', after: mirrorExpectedWorkLocation || '미입력' })
         }
       }
 

@@ -4,6 +4,12 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateEw } from '@/lib/ew-calculator'
 import { requireActiveUser } from '@/lib/admin-check'
 import { notifyWorkLogSubmitted, notifyCheckoutResubmitted } from '@/lib/notifications/teams'
+import {
+  validateTimeline,
+  firstWorkLocation,
+  displayLocation,
+} from '@/lib/work-location-timeline'
+import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 
 export async function POST(request: Request) {
   try {
@@ -19,12 +25,37 @@ export async function POST(request: Request) {
         ? (body.workLocationCustom ?? '')
         : (body.workLocationType ?? '')
 
-    const finalExpectedWorkLocation: string | null =
-      body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
-        ? body.expectedWorkLocationType === '기타'
-          ? (body.expectedWorkLocation ?? null)
-          : (body.expectedWorkLocationType ?? body.expectedWorkLocation ?? null)
-        : null
+    // ─── 출근보고 타임라인 처리 ──────────────────────────────────────────────
+    // 신규: body.expectedTimeline (배열) — 우선 사용
+    // 구버전 fallback: body.expectedWorkLocationType / expectedWorkLocation / expectedWorkTime
+    //   → timeline이 없을 때만 단일 항목으로 간주
+    let expectedTimeline: WorkLocationTimeline | null = null
+    let mirrorExpectedWorkLocation: string | null = null
+    let mirrorExpectedWorkTime: string | null = null
+
+    if (body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)') {
+      if (Array.isArray(body.expectedTimeline)) {
+        const timelineErrors = validateTimeline(body.expectedTimeline as WorkLocationTimeline)
+        if (timelineErrors.length > 0) {
+          return NextResponse.json(
+            { error: '출근 예정 타임라인이 올바르지 않습니다: ' + timelineErrors.map(e => e.message).join(', ') },
+            { status: 400 }
+          )
+        }
+        expectedTimeline = body.expectedTimeline as WorkLocationTimeline
+        const first = firstWorkLocation(expectedTimeline)
+        mirrorExpectedWorkLocation = first ? displayLocation(first) : null
+        mirrorExpectedWorkTime = first?.startTime ?? null
+      } else {
+        // legacy body — timeline 없이 단일 필드로 들어온 경우
+        mirrorExpectedWorkLocation =
+          body.expectedWorkLocationType === '기타'
+            ? (body.expectedWorkLocation ?? null)
+            : (body.expectedWorkLocationType ?? body.expectedWorkLocation ?? null)
+        mirrorExpectedWorkTime = body.expectedWorkTime ?? null
+      }
+    }
+    const finalExpectedWorkLocation: string | null = mirrorExpectedWorkLocation
 
     const calcResult = calculateEw({
       name: body.name,
@@ -76,8 +107,9 @@ export async function POST(request: Request) {
       late_reason: body.lateOrAttendanceStatus === '예' ? body.lateReason : null,
       attendance_record_type: body.attendanceRecordType || null,
       expected_start_date: body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' ? body.expectedStartDate : null,
-      expected_work_time: body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' ? body.expectedWorkTime : null,
+      expected_work_time: mirrorExpectedWorkTime,
       expected_work_location: finalExpectedWorkLocation,
+      expected_work_location_timeline: expectedTimeline,
       thanks_macaron: body.thanksMacaron || null,
       deduction_time: `${calcResult.deductionMinutes} minutes`,
       actual_work_time: `${calcResult.actualWorkMinutes} minutes`,
@@ -142,8 +174,9 @@ export async function POST(request: Request) {
       workContent: body.workContent || null,
       attendanceRecordType: body.attendanceRecordType || null,
       expectedStartDate:    body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' ? (body.expectedStartDate ?? null) : null,
-      expectedWorkTime:     body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' ? (body.expectedWorkTime ?? null) : null,
+      expectedWorkTime:     mirrorExpectedWorkTime,
       expectedWorkLocation: finalExpectedWorkLocation,
+      expectedTimeline,
       division: userDivision,
       team: userTeam,
     }
