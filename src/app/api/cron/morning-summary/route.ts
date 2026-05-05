@@ -1,6 +1,7 @@
 /**
  * GET /api/cron/morning-summary
  * 매일 07:00 KST (22:00 UTC 전날) — 오늘 출근보고 + 전일 퇴근보고 요약
+ * 팀별로 라우팅 테이블을 사용해 각 팀의 출근보고 스레드에 개별 발송
  */
 
 import { NextResponse } from 'next/server'
@@ -25,12 +26,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ skipped: true, reason: 'ENABLE_DAILY_REMINDER_NOTIFY=false' })
   }
 
-  const todayDate     = getKstDate(0)   // 오늘 KST
-  const yesterdayDate = getKstDate(-1)  // 어제 KST
+  const todayDate     = getKstDate(0)
+  const yesterdayDate = getKstDate(-1)
 
   const adminClient = createAdminClient()
 
-  // 활성 사용자 목록
   const { data: users } = await adminClient
     .from('user_profiles')
     .select('email, display_name, division, team, display_order')
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ skipped: true, reason: 'no active users' })
   }
 
-  // 오늘 출근보고 (expected_start_date = 오늘)
+  // 오늘 출근보고
   const { data: checkins } = await adminClient
     .from('work_logs')
     .select('user_email, expected_work_location, expected_work_time, created_at')
@@ -63,7 +63,7 @@ export async function GET(request: Request) {
     }
   }
 
-  // 전일 퇴근보고 (leave_date = 어제)
+  // 전일 퇴근보고
   const { data: workLogs } = await adminClient
     .from('work_logs')
     .select('user_email, start_time, end_time, break_time, work_location, created_at')
@@ -83,17 +83,38 @@ export async function GET(request: Request) {
     }
   }
 
-  const todayCheckins = users.map(u => ({
-    name:   u.display_name || u.email,
-    status: formatMorningCheckinStatus(checkinMap.get(u.email)),
-  }))
+  // 팀별 그루핑
+  const teamGroups = new Map<string, { division: string; team: string; users: typeof users }>()
+  for (const u of users) {
+    if (!u.division || !u.team) continue
+    const key = `${u.division}||${u.team}`
+    if (!teamGroups.has(key)) {
+      teamGroups.set(key, { division: u.division, team: u.team, users: [] })
+    }
+    teamGroups.get(key)!.users.push(u)
+  }
 
-  const yesterdayWorkLogs = users.map(u => ({
-    name:   u.display_name || u.email,
-    status: formatMorningWorklogStatus(workLogMap.get(u.email)),
-  }))
+  // 팀별 발송
+  const promises = Array.from(teamGroups.values()).map(group => {
+    const todayCheckins = group.users.map(u => ({
+      name:   u.display_name || u.email,
+      status: formatMorningCheckinStatus(checkinMap.get(u.email)),
+    }))
+    const yesterdayWorkLogs = group.users.map(u => ({
+      name:   u.display_name || u.email,
+      status: formatMorningWorklogStatus(workLogMap.get(u.email)),
+    }))
+    return notifyMorningSummary({
+      division:   group.division,
+      team:       group.team,
+      todayDate,
+      yesterdayDate,
+      todayCheckins,
+      yesterdayWorkLogs,
+    })
+  })
 
-  await notifyMorningSummary({ todayDate, yesterdayDate, todayCheckins, yesterdayWorkLogs })
+  await Promise.allSettled(promises)
 
-  return NextResponse.json({ ok: true, todayDate, yesterdayDate, userCount: users.length })
+  return NextResponse.json({ ok: true, todayDate, yesterdayDate, teamCount: teamGroups.size, userCount: users.length })
 }
