@@ -50,6 +50,7 @@ export interface WorklogUpdateNotifyPayload {
   updatedByEmail: string
   originalReportType: '출근보고' | '퇴근보고'
   scheduledWorkDate?: string | null
+  scheduledWorkTime?: string | null
   changedFields: ChangedField[]
 }
 
@@ -107,7 +108,13 @@ export interface DailyCheckinReminderData {
   targetDate: string
   members: Array<{
     name: string
-    status: string
+    division: string
+    team: string
+    scheduledWorkDate: string
+    scheduledWorkTime: string
+    scheduledWorkLocation: string
+    attendanceRecordType: string
+    status: string // fallback display string
   }>
 }
 

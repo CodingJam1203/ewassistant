@@ -44,18 +44,20 @@ export async function GET(request: Request) {
 
   const { data: checkins } = await adminClient
     .from('work_logs')
-    .select('user_email, expected_work_location, expected_work_time, created_at')
+    .select('user_email, expected_work_location, expected_work_time, attendance_record_type, expected_start_date, created_at')
     .eq('expected_start_date', targetDate)
     .eq('attendance_record_type', '출근보고 진행 (주말출근, 휴가 포함)')
     .eq('is_deleted', false)
     .order('created_at', { ascending: false })
 
-  const checkinMap = new Map<string, { expected_work_location: string | null; expected_work_time: string | null }>()
+  const checkinMap = new Map<string, any>()
   for (const c of checkins ?? []) {
     if (!checkinMap.has(c.user_email)) {
       checkinMap.set(c.user_email, {
         expected_work_location: c.expected_work_location,
         expected_work_time:     c.expected_work_time,
+        attendance_record_type: c.attendance_record_type,
+        expected_start_date:    c.expected_start_date,
       })
     }
   }
@@ -73,10 +75,19 @@ export async function GET(request: Request) {
 
   // 팀별 발송
   const promises = Array.from(teamGroups.values()).map(group => {
-    const members = group.users.map(u => ({
-      name:   u.display_name || u.email,
-      status: formatNightlyCheckinStatus(checkinMap.get(u.email)),
-    }))
+    const members = group.users.map(u => {
+      const c = checkinMap.get(u.email) || {}
+      return {
+        name:   u.display_name || u.email,
+        division: u.division || '미입력',
+        team: u.team || '미입력',
+        scheduledWorkDate: c.expected_start_date || targetDate,
+        scheduledWorkTime: c.expected_work_time || '',
+        scheduledWorkLocation: c.expected_work_location || '미입력',
+        attendanceRecordType: c.attendance_record_type || '미입력',
+        status: formatNightlyCheckinStatus(c) // fallback
+      }
+    })
     return notifyDailyCheckinReminder('daily_checkin_reminder_20', {
       division:   group.division,
       team:       group.team,

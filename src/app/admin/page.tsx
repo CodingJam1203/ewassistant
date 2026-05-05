@@ -6,6 +6,7 @@ import {
   ChevronDown, ChevronRight, Plus, X, Pencil, Loader2, Building2
 } from 'lucide-react'
 import { format } from 'date-fns'
+import Link from 'next/link'
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
 
@@ -690,7 +691,12 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">관리자 — 계정 관리</h2>
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-gray-900">관리자 — 계정 관리</h2>
+        <Link href="/admin/notifications" className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200">
+          알림 발송 내역 보기
+        </Link>
+      </div>
 
       {/* 조직 구조 관리 */}
       <OrgManager org={org} onOrgChange={fetchOrg} />

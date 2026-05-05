@@ -13,9 +13,11 @@ import { buildMessage } from './messages'
 import {
   getTeamsReplyTarget,
   resolveTeamsRouteReportType,
+  normalizeTeamName,
   type TeamsReplyTarget,
   type ReportType,
 } from './teams-routing'
+import { createAdminClient } from '@/lib/supabase/admin'
 import type {
   EventType,
   WorklogNotifyPayload,
@@ -56,9 +58,40 @@ interface MakePayload {
   channelId: string
   messageId: string
   message: string
+  eventType: EventType
 }
 
-async function sendToMake(eventType: EventType, payload: MakePayload): Promise<void> {
+async function logNotification(
+  eventType: string,
+  status: 'SUCCESS' | 'FAILURE' | 'SKIPPED',
+  department: string | null,
+  teamName: string | null,
+  targetId: string | null,
+  payload: any,
+  errorMessage: string | null
+) {
+  try {
+    const adminClient = createAdminClient()
+    await adminClient.from('notification_logs').insert({
+      event_type: eventType,
+      status,
+      department,
+      team_name: teamName,
+      target_id: targetId,
+      payload,
+      error_message: errorMessage,
+    })
+  } catch (err) {
+    console.error('[Teams] Failed to log notification to DB:', err)
+  }
+}
+
+async function sendToMake(
+  eventType: EventType,
+  payload: MakePayload,
+  department: string,
+  teamName: string
+): Promise<void> {
   const webhookUrl = process.env.MAKE_WEBHOOK_URL
   if (!webhookUrl) {
     console.log('[Teams] MAKE_WEBHOOK_URL not set — skipping ' + eventType)
@@ -67,6 +100,8 @@ async function sendToMake(eventType: EventType, payload: MakePayload): Promise<v
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 3000)
+
+  console.log('[Teams] Webhook Payload:', JSON.stringify(payload, null, 2))
 
   try {
     const res = await fetch(webhookUrl, {
@@ -77,13 +112,20 @@ async function sendToMake(eventType: EventType, payload: MakePayload): Promise<v
     })
     if (!res.ok) {
       const text = await res.text().catch(() => '(no response)')
-      console.warn('[Teams] Make error ' + eventType + ' HTTP ' + res.status + ': ' + text)
+      const errorMsg = 'HTTP ' + res.status + ': ' + text
+      console.warn('[Teams] Make error ' + eventType + ' ' + errorMsg)
+      await logNotification(eventType, 'FAILURE', department, teamName, payload.channelId, payload, errorMsg)
+    } else {
+      await logNotification(eventType, 'SUCCESS', department, teamName, payload.channelId, payload, null)
     }
   } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err)
     if (err instanceof Error && err.name === 'AbortError') {
       console.warn('[Teams] Make timeout — ' + eventType)
+      await logNotification(eventType, 'FAILURE', department, teamName, payload.channelId, payload, 'Timeout')
     } else {
       console.warn('[Teams] Make request failed — ' + eventType + ':', err)
+      await logNotification(eventType, 'FAILURE', department, teamName, payload.channelId, payload, errMsg)
     }
   } finally {
     clearTimeout(timer)
@@ -102,21 +144,26 @@ async function routeAndSend(
   if (!isEnabled(eventType)) return
 
   if (!department || !teamName) {
-    console.log('[Teams] No division/team — skipping ' + eventType)
+    console.log('User organization is missing for Teams routing:', { department, teamName, eventType })
+    await logNotification(eventType, 'SKIPPED', department || null, teamName || null, null, messagePayload, 'Missing organization')
     return
   }
 
-  const target = getTeamsReplyTarget({ department, teamName, reportType })
+  const normalizedTeam = normalizeTeamName(teamName)
+  const target = getTeamsReplyTarget({ department, teamName: normalizedTeam, reportType })
   if (!target) {
-    console.log('[Teams] Route target not found — ' + eventType + ' / ' + department + ' / ' + teamName + ' / ' + reportType)
+    console.log('Teams route target not found:', { department, teamName: normalizedTeam, reportType })
+    await logNotification(eventType, 'SKIPPED', department, normalizedTeam, null, messagePayload, 'Route target not found')
     return
   }
 
   try {
     const message = buildMessage(eventType, messagePayload)
-    await sendToMake(eventType, { ...target, message })
+    await sendToMake(eventType, { ...target, message, eventType }, department, normalizedTeam)
   } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err)
     console.warn('[Teams] Message build/send failed — ' + eventType + ':', err)
+    await logNotification(eventType, 'FAILURE', department, normalizedTeam, target.channelId, messagePayload, 'Build failed: ' + errMsg)
   }
 }
 

@@ -155,9 +155,16 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       const p = payload as WorklogUpdateNotifyPayload
       const reportLabel = p.originalReportType === '출근보고' ? '출근보고' : '퇴근보고'
       const header = `[수정] ${p.name} ${reportLabel} 수정 / ${koreanDate(p.leaveDate)}`
-      const rows = p.changedFields.map(f => `🔹${f.label} : ${f.before} → ${f.after}`).join('\n')
-      const footer = `🔹수정자 : ${p.updatedByEmail}`
-      return [header, rows, footer, cta()].join('\n')
+      
+      const fixedRows = [
+        `출근 예정 날짜: ${p.scheduledWorkDate || '미입력'}`,
+        `출근 예정 시간: ${p.scheduledWorkTime ? fmtTime(p.scheduledWorkTime) : '미입력'}`
+      ].join('\n')
+
+      const changedRows = p.changedFields.map(f => `${f.label}: ${f.before} → ${f.after}`).join('\n')
+      const footer = `수정자: ${p.updatedByEmail}`
+      
+      return [header, fixedRows, changedRows, footer, cta()].filter(Boolean).join('\n')
     }
 
     case 'worklog_deleted': {
@@ -229,8 +236,18 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
     case 'daily_checkin_reminder_22': {
       const p = payload as DailyCheckinReminderData
       const header = `🕘[ ${koreanDate(p.targetDate)} 출근 보고 ]`
-      const rows   = p.members.map(m => `🔹 ${m.name} : ${m.status}`).join('\n')
-      return [header, rows, cta()].join('\n')
+      const memberBlocks = p.members.map(m => {
+        return [
+          `🔹 ${m.name}`,
+          `- 본부: ${m.division}`,
+          `- 팀명: ${m.team}`,
+          `- 출근 예정 날짜: ${m.scheduledWorkDate}`,
+          `- 출근 예정 시간: ${fmtTime(m.scheduledWorkTime)}`,
+          `- 출퇴근 예정 장소: ${m.scheduledWorkLocation}`,
+          `- 출근기록 선택 유형: ${m.attendanceRecordType}`
+        ].join('\n')
+      }).join('\n\n')
+      return [header, memberBlocks, cta()].join('\n\n')
     }
 
     case 'daily_morning_summary': {
