@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { withSessionCookieDefaults } from './cookie-options'
 
 const CURRENT_TERMS_VERSION   = '2026.1'
 const CURRENT_PRIVACY_VERSION = '2026.1'
@@ -14,10 +15,12 @@ export async function updateSession(request: NextRequest) {
       cookies: {
         getAll() { return request.cookies.getAll() },
         setAll(cookiesToSet) {
+          // request side는 쿠키 값만 갱신 (옵션 무관)
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({ request })
+          // response side — 30일 maxAge + 보안 옵션 강제
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            supabaseResponse.cookies.set(name, value, withSessionCookieDefaults(options))
           )
         },
       },

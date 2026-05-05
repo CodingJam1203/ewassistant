@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { withSessionCookieDefaults } from './cookie-options'
 
 export async function createClient() {
   const cookieStore = await cookies()
@@ -14,13 +15,13 @@ export async function createClient() {
         },
         setAll(cookiesToSet) {
           try {
+            // 30일 maxAge + 보안 옵션 강제
             cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options)
+              cookieStore.set(name, value, withSessionCookieDefaults(options))
             })
-          } catch (error) {
+          } catch {
             // The `set` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing
-            // user sessions.
+            // This can be ignored if you have middleware refreshing user sessions.
           }
         },
       },
