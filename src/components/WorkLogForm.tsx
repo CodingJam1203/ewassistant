@@ -274,7 +274,11 @@ export default function WorkLogForm({
       ? {
           // 수정 모드 — editingLog의 모든 필드 prefill
           name: editingLog.name,
-          workTypeLabel: (editingLog.work_type_label as 'WorkLogFormData["workTypeLabel"]') ?? '기본근무 등록',
+          workTypeLabel: (
+            editingLog.work_type_label === '간주근로 등록' || editingLog.work_type_label === '공휴일근로 등록'
+              ? editingLog.work_type_label
+              : '기본근무 등록'
+          ) as '기본근무 등록' | '간주근로 등록' | '공휴일근로 등록',
           leaveDate: editingLog.leave_date,
           workLocationTimeline: buildEditTimeline(editingLog),
           leaveTimeline: (editingLog.leave_timeline ?? []) as LeaveTimeline,
