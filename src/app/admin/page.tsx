@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useSearchParams } from 'next/navigation'
 import {
   Lock, Unlock, RefreshCw, UserPlus, Trash2,
   ChevronDown, ChevronRight, Plus, X, Pencil, Loader2, Building2
@@ -616,10 +615,17 @@ export default function AdminPage() {
   const [togglingEmail, setTogglingEmail] = useState<string | null>(null)
 
   // ?highlight=email — 신규 가입 알림 메일 링크에서 진입 시 해당 row 강조 + 자동 스크롤
-  const searchParams = useSearchParams()
-  const highlightEmail = (searchParams.get('highlight') || '').toLowerCase().trim()
+  // useSearchParams 대신 window.location 사용 (Next.js 16 prerender Suspense 회피)
+  const [highlightEmail, setHighlightEmail] = useState('')
   const [highlightActive, setHighlightActive] = useState(false)
   const highlightRowRef = useRef<HTMLTableRowElement | null>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const v = (params.get('highlight') || '').toLowerCase().trim()
+    if (v) setHighlightEmail(v)
+  }, [])
 
   const fetchOrg = useCallback(async () => {
     try {
@@ -887,7 +893,6 @@ export default function AdminPage() {
                 })}
               </tbody>
             </table>
-
             {users.length === 0 && (
               <div className="py-12 text-center text-sm text-gray-500">계정이 없습니다.</div>
             )}
