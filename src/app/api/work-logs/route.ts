@@ -127,8 +127,6 @@ export async function POST(request: Request) {
       // 비핵심 처리 — 실패 무시
     }
 
-    }
-
     const notifyPayload = {
       name: body.name ?? '',
       leaveDate: body.leaveDate ?? '',

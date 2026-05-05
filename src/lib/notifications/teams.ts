@@ -156,6 +156,7 @@ async function routeAndSend(
   department: string | null | undefined,
   teamName: string | null | undefined,
   reportType: ReportType,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   messagePayload: any
 ): Promise<void> {
   if (!isEnabled(eventType)) return
