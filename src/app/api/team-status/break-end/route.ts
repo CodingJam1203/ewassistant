@@ -3,6 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyBreakEnded } from '@/lib/notifications/teams'
 import { getKstTodayDateString } from '@/lib/utils/date'
+import {
+  calculateBreakAutoMinutesFromIso,
+  accumulateBreakAuto,
+} from '@/lib/leave-timeline'
 
 export async function POST(request: Request) {
   try {
@@ -49,13 +53,48 @@ export async function POST(request: Request) {
 
     if (error) throw error
 
+    // ─── 휴게 자동값 누적 (break_auto_actual_minutes / break_auto_rounded_minutes) ─
+    let breakSessionMinutes = 0
+    if (existing.break_started_at) {
+      breakSessionMinutes = calculateBreakAutoMinutesFromIso(
+        existing.break_started_at as string,
+        now
+      )
+    }
+
+    if (existing.work_log_id && breakSessionMinutes > 0) {
+      try {
+        const { data: wLog } = await adminClient
+          .from('work_logs')
+          .select('break_auto_actual_minutes')
+          .eq('id', existing.work_log_id)
+          .single()
+
+        const accumulated = accumulateBreakAuto(
+          (wLog?.break_auto_actual_minutes as number | null) ?? 0,
+          breakSessionMinutes
+        )
+
+        await adminClient
+          .from('work_logs')
+          .update({
+            break_auto_actual_minutes:  accumulated.actual,
+            break_auto_rounded_minutes: accumulated.rounded,
+          })
+          .eq('id', existing.work_log_id)
+      } catch (e) {
+        // 누적 실패는 알림 흐름을 방해하지 않음
+        console.warn('[break-end] auto break accumulation failed:', e)
+      }
+    }
+
     await adminClient.from('work_status_events').insert({
       work_date:       date,
       user_email:      user.email!,
       user_profile_id: profile?.id ?? null,
       work_log_id:     existing.work_log_id ?? null,
       event_type:      'break_end',
-      event_value:     {},
+      event_value:     { session_minutes: breakSessionMinutes },
       event_at:        now,
       created_by:      user.email!,
     })

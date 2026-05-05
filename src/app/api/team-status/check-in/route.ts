@@ -12,7 +12,13 @@ import {
   buildLocationSummary,
   legacyToTimeline,
 } from '@/lib/work-location-timeline'
+import {
+  validateLeaveTimeline,
+  isFullDayLeave,
+  totalLeaveRoundedMinutes,
+} from '@/lib/leave-timeline'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+import type { LeaveTimeline } from '@/types/leave-timeline'
 
 export async function POST(request: Request) {
   try {
@@ -32,12 +38,27 @@ export async function POST(request: Request) {
       .eq('email', user.email!)
       .single()
 
-    // ─── 타임라인 결정 ─────────────────────────────────────────────────────────
+    // ─── 휴가 타임라인 ─────────────────────────────────────────────────────────
+    let leaveTimeline: LeaveTimeline | null = null
+    if (Array.isArray(body.leaveTimeline) && body.leaveTimeline.length > 0) {
+      const leErrors = validateLeaveTimeline(body.leaveTimeline as LeaveTimeline)
+      if (leErrors.length > 0) {
+        return NextResponse.json(
+          { error: '휴가/반차 정보가 올바르지 않습니다: ' + leErrors.map(e => e.message).join(', ') },
+          { status: 400 }
+        )
+      }
+      leaveTimeline = body.leaveTimeline as LeaveTimeline
+    }
+    const isAllDayLeave = isFullDayLeave(leaveTimeline ?? [])
+
+    // ─── 근무장소 타임라인 결정 ──────────────────────────────────────────────
     // 신규: body.workLocationTimeline (배열) — 우선
     // 구버전 fallback: body.work_location/work_location_type/start_time/end_time
+    // 종일 휴가일 때는 빈 배열 허용 (일하지 않으므로)
     let timeline: WorkLocationTimeline | null = null
 
-    if (Array.isArray(body.workLocationTimeline)) {
+    if (Array.isArray(body.workLocationTimeline) && body.workLocationTimeline.length > 0) {
       const tlErrors = validateTimeline(body.workLocationTimeline as WorkLocationTimeline)
       if (tlErrors.length > 0) {
         return NextResponse.json(
@@ -46,8 +67,8 @@ export async function POST(request: Request) {
         )
       }
       timeline = body.workLocationTimeline as WorkLocationTimeline
-    } else if (body.work_location || body.work_location_type || body.start_time) {
-      // legacy body 자동 합성
+    } else if (!isAllDayLeave && (body.work_location || body.work_location_type || body.start_time)) {
+      // legacy body 자동 합성 (종일 휴가 케이스 제외)
       timeline = legacyToTimeline({
         expectedWorkLocation: body.work_location ?? null,
         expectedWorkLocationType: body.work_location_type ?? null,
@@ -55,6 +76,13 @@ export async function POST(request: Request) {
         fallbackCheckoutTime: body.end_time ?? null,
         asExpected: true,
       })
+    }
+    // 종일 휴가가 아닌데 timeline이 비었으면 에러
+    if (!isAllDayLeave && (!timeline || timeline.length === 0)) {
+      return NextResponse.json(
+        { error: '근무장소 타임라인이 필요합니다 (종일 휴가가 아닌 경우).' },
+        { status: 400 }
+      )
     }
 
     let workLogId: string | null = body.work_log_id ?? null
@@ -75,13 +103,28 @@ export async function POST(request: Request) {
       const workContent  = body.work_content  ?? ''
       const name         = body.name ?? profile?.display_name ?? user.email!
 
-      // timeline에서 start/end/work_location 도출
+      // timeline에서 start/end/work_location 도출 (종일 휴가는 09:00~18:00 가정)
       const first  = timeline ? firstWorkLocation(timeline) : null
       const endIt  = timeline ? endItemOf(timeline) : null
-      const startTime    = first?.startTime ?? body.start_time ?? '09:00'
-      const endTime      = endIt?.startTime ?? body.end_time ?? '18:00'
-      const workLocation = first ? displayLocation(first) : (body.work_location ?? '사무실')
-      const locationSummary = timeline ? (buildLocationSummary(timeline) || workLocation) : workLocation
+      const startTime    = isAllDayLeave ? '09:00' : (first?.startTime ?? body.start_time ?? '09:00')
+      const endTime      = isAllDayLeave ? '18:00' : (endIt?.startTime ?? body.end_time ?? '18:00')
+      const workLocation = isAllDayLeave
+        ? '휴가'
+        : (first ? displayLocation(first) : (body.work_location ?? '사무실'))
+      const locationSummary = isAllDayLeave
+        ? '휴가'
+        : (timeline ? (buildLocationSummary(timeline) || workLocation) : workLocation)
+
+      const leaveMinutes = totalLeaveRoundedMinutes(leaveTimeline ?? [])
+      const leaveCoversLunch = (() => {
+        // 12:00~13:00을 포함하는 휴가가 있으면 true
+        if (!leaveTimeline) return false
+        return leaveTimeline.some(it => {
+          const sH = parseInt(it.startTime.split(':')[0], 10)
+          const eH = parseInt(it.endTime.split(':')[0], 10)
+          return sH <= 12 && eH >= 13
+        })
+      })()
 
       const calcResult = calculateEw({
         name,
@@ -92,6 +135,8 @@ export async function POST(request: Request) {
         breakTime,
         workLocation: locationSummary,
         workContent,
+        leaveMinutes,
+        leaveIncludesLunch: leaveCoversLunch,
       })
 
       const { data: newLog, error: logErr } = await adminClient
@@ -110,9 +155,11 @@ export async function POST(request: Request) {
           break_time:     `${breakTime}:00`,
           work_content:   workContent || null,
           work_location:  workLocation,
-          work_location_type: first?.type === 'custom' ? '기타' : (first?.label ?? '사무실'),
+          work_location_type: first?.type === 'custom' ? '기타' : (first?.label ?? (isAllDayLeave ? null : '사무실')),
           work_location_custom: first?.type === 'custom' ? (first.customLabel ?? null) : null,
           work_location_timeline: timeline,
+          // 휴가
+          leave_timeline: leaveTimeline,
           late_or_attendance_status: '아니오',
           attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
           deduction_time: `${calcResult.deductionMinutes} minutes`,
@@ -182,6 +229,7 @@ export async function POST(request: Request) {
       checkedInAt,
       workLocation: currentLocation,
       timeline: timeline ?? undefined,
+      leaveTimeline: leaveTimeline ?? undefined,
       division: profile?.division ?? null,
       team: profile?.team ?? null,
     })

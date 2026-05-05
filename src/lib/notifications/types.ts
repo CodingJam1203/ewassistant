@@ -1,4 +1,5 @@
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+import type { LeaveTimeline } from '@/types/leave-timeline'
 
 // ─── 이벤트 타입 ─────────────────────────────────────────────────────────────
 
@@ -26,6 +27,20 @@ export interface WorklogNotifyPayload {
   workLocation: string
   /** 본문 근무장소 타임라인 (퇴근보고 — 마지막은 'checkout' kind). null이면 단일 workLocation으로 fallback. */
   workLocationTimeline?: WorkLocationTimeline | null
+  /** 본문 휴가/반차 타임라인 */
+  leaveTimeline?: LeaveTimeline | null
+  /** 휴게 자동 누적 실제 분 */
+  breakAutoActualMinutes?: number | null
+  /** 휴게 자동 30분 올림 분 */
+  breakAutoRoundedMinutes?: number | null
+  /** EW 계산에 실제 사용된 휴게 분 */
+  breakFinalRoundedMinutes?: number | null
+  /** 사용자가 휴게시간을 수정했는지 (Teams 메시지 표시용) */
+  breakIsManual?: boolean
+  /** 실근무시간 (분 단위) — Teams 메시지 표시용 */
+  actualWorkMinutes?: number | null
+  /** 휴가 차감 분 (Teams 메시지 표시용) */
+  leaveMinutes?: number | null
   startTime: string
   endTime: string
   breakTime: string
@@ -86,6 +101,8 @@ export interface CheckinNotifyPayload {
   workLocation: string
   /** 출근 시점의 work_location_timeline (멀티라인 메시지 표시용) */
   timeline?: WorkLocationTimeline | null
+  /** 출근 시점의 leave_timeline (휴가/반차) */
+  leaveTimeline?: LeaveTimeline | null
   division?: string | null
   team?: string | null
 }

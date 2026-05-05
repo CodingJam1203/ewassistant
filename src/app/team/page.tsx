@@ -484,6 +484,8 @@ export default function TeamPage() {
           date={date}
           userName={myProfile?.display_name ?? null}
           initialTimeline={checkOutTarget.work_location_timeline ?? null}
+          initialLeaveTimeline={checkOutTarget.leave_timeline ?? null}
+          initialBreakAutoActualMinutes={checkOutTarget.break_auto_actual_minutes ?? null}
           initialStartTime={
             // 출근 버튼으로 찍은 시각 우선 → 없으면 출근보고 예정 시각 (legacy)
             toHHmm(checkOutTarget.checked_in_at) ?? checkOutTarget.start_time ?? undefined

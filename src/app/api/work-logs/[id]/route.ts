@@ -13,7 +13,15 @@ import {
   displayLocation,
   buildLocationSummary,
 } from '@/lib/work-location-timeline'
+import {
+  validateLeaveTimeline,
+  isFullDayLeave,
+  totalLeaveRoundedMinutes,
+  leaveIncludesLunch as leaveIncludesLunchHelper,
+  ceilTo30Min,
+} from '@/lib/leave-timeline'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+import type { LeaveTimeline } from '@/types/leave-timeline'
 
 // ─── PATCH /api/work-logs/[id] ───────────────────────────────────────────────
 export async function PATCH(
@@ -46,6 +54,47 @@ export async function PATCH(
     }
 
     const body = await request.json()
+
+    // ─── 휴가 타임라인 처리 (PATCH) ────────────────────────────────────────
+    let leaveTimelinePatch: LeaveTimeline | null | undefined = undefined
+    if (body.leaveTimeline !== undefined) {
+      if (Array.isArray(body.leaveTimeline) && body.leaveTimeline.length > 0) {
+        const leErrors = validateLeaveTimeline(body.leaveTimeline as LeaveTimeline)
+        if (leErrors.length > 0) {
+          return NextResponse.json(
+            { error: '휴가/반차 정보가 올바르지 않습니다: ' + leErrors.map(e => e.message).join(', ') },
+            { status: 400 }
+          )
+        }
+        leaveTimelinePatch = body.leaveTimeline as LeaveTimeline
+      } else {
+        leaveTimelinePatch = null
+      }
+    }
+
+    // 다음 출근 예정 휴가
+    let expectedLeaveTimelinePatch: LeaveTimeline | null | undefined = undefined
+    if (body.expectedLeaveTimeline !== undefined) {
+      if (Array.isArray(body.expectedLeaveTimeline) && body.expectedLeaveTimeline.length > 0) {
+        const exLeErrors = validateLeaveTimeline(body.expectedLeaveTimeline as LeaveTimeline)
+        if (exLeErrors.length > 0) {
+          return NextResponse.json(
+            { error: '다음 출근 예정 휴가 정보가 올바르지 않습니다: ' + exLeErrors.map(e => e.message).join(', ') },
+            { status: 400 }
+          )
+        }
+        expectedLeaveTimelinePatch = body.expectedLeaveTimeline as LeaveTimeline
+      } else {
+        expectedLeaveTimelinePatch = null
+      }
+    }
+
+    const effectiveLeaveTimeline: LeaveTimeline =
+      (leaveTimelinePatch ?? null) as LeaveTimeline | null
+      ?? []
+    const leaveAllDay = isFullDayLeave(effectiveLeaveTimeline)
+    const leaveMinutesEff = totalLeaveRoundedMinutes(effectiveLeaveTimeline)
+    const leaveCoversLunchEff = leaveIncludesLunchHelper(effectiveLeaveTimeline)
 
     // ─── 본문 근무장소 타임라인 처리 (PATCH) ────────────────────────────────
     // body.workLocationTimeline이 명시적으로 전달된 경우에만 업데이트.
@@ -116,16 +165,37 @@ export async function PATCH(
       }
     }
 
+    // 휴게 4분리 (PATCH도 동일 규칙)
+    const breakAutoActualMin: number = Number.isFinite(body.breakAutoActualMinutes)
+      ? Math.max(0, Number(body.breakAutoActualMinutes)) : 0
+    const breakAutoRoundedMin: number = Number.isFinite(body.breakAutoRoundedMinutes)
+      ? Math.max(0, Number(body.breakAutoRoundedMinutes)) : ceilTo30Min(breakAutoActualMin)
+    const breakManualRoundedMin: number | null = (
+      body.breakManualRoundedMinutes !== undefined && body.breakManualRoundedMinutes !== null
+    ) ? Math.max(0, Number(body.breakManualRoundedMinutes)) : null
+    const breakFinalRoundedMin: number = Number.isFinite(body.breakFinalRoundedMinutes)
+      ? Math.max(0, Number(body.breakFinalRoundedMinutes))
+      : (breakManualRoundedMin ?? breakAutoRoundedMin)
+
+    const breakHHForCalc: string = (() => {
+      const m = breakFinalRoundedMin
+      const h = Math.floor(m / 60)
+      const mm = m % 60
+      return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+    })()
+
     const calcResult = calculateEw({
       name: body.name,
       workTypeLabel: body.workTypeLabel,
       leaveDate: body.leaveDate,
       startTime: finalStartTime,
       endTime: finalEndTime,
-      breakTime: body.breakTime || '00:00',
+      breakTime: body.breakTime ? body.breakTime : breakHHForCalc,
       workLocation: locationSummary,
       workContent: body.workContent,
       breakReason: body.breakReason,
+      leaveMinutes: leaveMinutesEff,
+      leaveIncludesLunch: leaveCoversLunchEff,
     })
 
     const updates: Record<string, unknown> = {
@@ -153,6 +223,28 @@ export async function PATCH(
     // 본문 work_location_timeline은 body가 명시적으로 보낸 경우에만 업데이트
     if (workLocationTimelinePatch !== undefined) {
       updates.work_location_timeline = workLocationTimelinePatch
+    }
+
+    // leave_timeline / expected_leave_timeline은 body가 명시적으로 보낸 경우에만 업데이트
+    if (leaveTimelinePatch !== undefined) {
+      updates.leave_timeline = leaveTimelinePatch
+    }
+    if (expectedLeaveTimelinePatch !== undefined) {
+      updates.expected_leave_timeline = expectedLeaveTimelinePatch
+    }
+
+    // 휴게 4분리 — body가 명시적으로 보낸 경우에만 업데이트
+    if (body.breakAutoActualMinutes !== undefined) {
+      updates.break_auto_actual_minutes = breakAutoActualMin
+    }
+    if (body.breakAutoRoundedMinutes !== undefined) {
+      updates.break_auto_rounded_minutes = breakAutoRoundedMin
+    }
+    if (body.breakManualRoundedMinutes !== undefined) {
+      updates.break_manual_rounded_minutes = breakManualRoundedMin
+    }
+    if (body.breakFinalRoundedMinutes !== undefined) {
+      updates.break_final_rounded_minutes = breakFinalRoundedMin
     }
 
     // 출근보고 timeline / mirror 값은 body가 명시적으로 보낸 경우에만 업데이트

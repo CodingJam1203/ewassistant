@@ -6,10 +6,22 @@ export interface EwInput {
   leaveDate: string;
   startTime: string; // "HH:mm"
   endTime: string; // "HH:mm"
-  breakTime: string; // "HH:mm"
+  breakTime: string; // "HH:mm"  (= 30분 단위 올림 처리된 휴게 반영값)
   workLocation: string;
   workContent?: string;
   breakReason?: string;
+  /**
+   * 휴가/반차 차감 분 (30분 단위 합계).
+   * 예: 오전반차 → 300, 오후반차 → 240, 종일 → 480.
+   * 미지정 시 0.
+   */
+  leaveMinutes?: number;
+  /**
+   * 휴가 시간이 점심시간(12:00~13:00)을 포함하는지 여부.
+   * true이면 점심 1H 자동 차감을 건너뜀 (중복 차감 방지).
+   * 미지정 시 false.
+   */
+  leaveIncludesLunch?: boolean;
 }
 
 export interface EwCalculationResult {
@@ -87,13 +99,18 @@ export function diffMinutes(startMinutes: number, endMinutes: number): number {
 }
 
 // 7.3 실근무시간 Y
+//
+// 실근무시간 = (퇴근 - 출근) - 휴게(30분 올림) - 휴가(차감) - 점심(자동, 단 휴가가 점심 포함하면 0)
 export function getActualWorkMinutes(
   startMinutes: number,
   endMinutes: number,
   breakMinutes: number,
-  deductionMinutes: number
+  deductionMinutes: number,
+  leaveMinutes: number = 0,
+  leaveIncludesLunch: boolean = false
 ): number {
-  return diffMinutes(startMinutes, endMinutes) - breakMinutes - deductionMinutes;
+  const lunchDeduction = leaveIncludesLunch ? 0 : deductionMinutes;
+  return diffMinutes(startMinutes, endMinutes) - breakMinutes - leaveMinutes - lunchDeduction;
 }
 
 // 7.4 날짜 표시값 Z
@@ -200,23 +217,37 @@ export function buildCopyText(params: {
 export function calculateEw(input: EwInput): EwCalculationResult {
   const workTypeCode = getWorkTypeCode(input.workTypeLabel);
   const deductionMinutes = getDeductionMinutes(workTypeCode);
-  
+
   const startMinutes = parseTimeHHMM(input.startTime);
   const endMinutes = parseTimeHHMM(input.endTime);
   const breakMinutes = parseTimeHHMM(input.breakTime || "00:00");
-  
-  const actualWorkMinutes = getActualWorkMinutes(startMinutes, endMinutes, breakMinutes, deductionMinutes);
+
+  const leaveMinutes = Number.isFinite(input.leaveMinutes) ? Math.max(0, Number(input.leaveMinutes)) : 0;
+  const leaveIncludesLunch = !!input.leaveIncludesLunch;
+
+  // 휴가가 점심을 포함하면 자동 점심 1H 차감을 끔 (중복 차감 방지)
+  const lunchDeduction = leaveIncludesLunch ? 0 : deductionMinutes;
+
+  const actualWorkMinutes = getActualWorkMinutes(
+    startMinutes,
+    endMinutes,
+    breakMinutes,
+    deductionMinutes,
+    leaveMinutes,
+    leaveIncludesLunch,
+  );
   const actualWorkText = formatDurationHHMM(actualWorkMinutes);
-  
+
   const ewStartMinutes = getEwStartMinutes(startMinutes);
-  const ewEndMinutes = getEwEndMinutes(ewStartMinutes, actualWorkMinutes, deductionMinutes);
-  
+  // EW 종료시간/간주근로 EW는 점심 자동 차감을 그대로 사용 (휴가가 점심 포함하면 lunchDeduction = 0)
+  const ewEndMinutes = getEwEndMinutes(ewStartMinutes, actualWorkMinutes, lunchDeduction);
+
   let deemedWorkEwValue: string | null = null;
   if (workTypeCode === 2) {
-    const acMinutes = getAcMinutes(startMinutes, actualWorkMinutes, deductionMinutes);
+    const acMinutes = getAcMinutes(startMinutes, actualWorkMinutes, lunchDeduction);
     deemedWorkEwValue = getDeemedWorkEwValue(actualWorkMinutes, acMinutes, ewEndMinutes);
   }
-  
+
   const ewValue = getFinalEwValue(workTypeCode, ewStartMinutes, ewEndMinutes, deemedWorkEwValue);
   const dateText = formatKoreanDate(input.leaveDate);
   const breakTimeText = formatDurationHHMM(breakMinutes);

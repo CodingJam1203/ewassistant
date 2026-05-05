@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+import type { LeaveTimeline } from '@/types/leave-timeline'
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,11 @@ export interface TeamMemberCard {
   location_history: LocationHistoryEntry[]
   /** 오늘 실제 근무장소 타임라인 (퇴근보고 모달 prefill용) */
   work_location_timeline: WorkLocationTimeline | null
+  /** 오늘 휴가/반차 타임라인 */
+  leave_timeline: LeaveTimeline | null
+  /** 휴게 자동 누적 — 퇴근보고 폼 prefill용 */
+  break_auto_actual_minutes: number | null
+  break_auto_rounded_minutes: number | null
 }
 
 // ─── 상태/색상 계산 ───────────────────────────────────────────────────────────
@@ -135,7 +141,7 @@ export async function GET(request: Request) {
     // ── 해당 날짜 work_logs 일괄 조회 ─────────────────────────────────────────
     const { data: workLogs } = await adminClient
       .from('work_logs')
-      .select('id, user_email, start_time, end_time, work_location, work_content, location_history, work_location_timeline, leave_date')
+      .select('id, user_email, start_time, end_time, work_location, work_content, location_history, work_location_timeline, leave_timeline, break_auto_actual_minutes, break_auto_rounded_minutes, leave_date')
       .in('user_email', emails)
       .eq('leave_date', dateParam)
       .eq('is_deleted', false)
@@ -213,6 +219,12 @@ export async function GET(request: Request) {
         location_history: (workLog?.location_history as LocationHistoryEntry[]) ?? [],
         work_location_timeline:
           (workLog?.work_location_timeline as WorkLocationTimeline | null | undefined) ?? null,
+        leave_timeline:
+          (workLog?.leave_timeline as LeaveTimeline | null | undefined) ?? null,
+        break_auto_actual_minutes:
+          (workLog?.break_auto_actual_minutes as number | null | undefined) ?? null,
+        break_auto_rounded_minutes:
+          (workLog?.break_auto_rounded_minutes as number | null | undefined) ?? null,
       }
     })
 

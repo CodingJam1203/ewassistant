@@ -19,6 +19,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import { legacyToTimeline, prefillFromExpected } from '@/lib/work-location-timeline'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+import type { LeaveTimeline } from '@/types/leave-timeline'
 
 export async function GET(request: Request) {
   try {
@@ -33,7 +34,7 @@ export async function GET(request: Request) {
 
     const { data: log, error } = await adminClient
       .from('work_logs')
-      .select('expected_work_location_timeline, expected_work_location, expected_work_location_type, expected_work_time')
+      .select('expected_work_location_timeline, expected_work_location, expected_work_location_type, expected_work_time, expected_leave_timeline')
       .eq('user_email', user.email!)
       .eq('expected_start_date', date)
       .eq('is_deleted', false)
@@ -43,32 +44,37 @@ export async function GET(request: Request) {
 
     if (error) {
       console.error('expected-timeline lookup error:', error)
-      return NextResponse.json({ timeline: null })
+      return NextResponse.json({ timeline: null, leaveTimeline: null })
     }
     if (!log) {
-      return NextResponse.json({ timeline: null })
+      return NextResponse.json({ timeline: null, leaveTimeline: null })
     }
 
     let timeline: WorkLocationTimeline | null = null
 
     if (Array.isArray(log.expected_work_location_timeline) && log.expected_work_location_timeline.length > 0) {
-      // expected → CheckInModal prefill 변환 (마지막 항목을 expected_checkout으로 통일)
       timeline = prefillFromExpected(log.expected_work_location_timeline as WorkLocationTimeline)
     } else if (log.expected_work_location || log.expected_work_time) {
-      // legacy fallback: 단일 항목 timeline 합성
       timeline = legacyToTimeline({
         expectedWorkLocation: log.expected_work_location ?? null,
         expectedWorkLocationType: (log as { expected_work_location_type?: string | null }).expected_work_location_type ?? null,
         expectedWorkTime: log.expected_work_time ?? null,
-        // 종료 시간 정보가 없으면 expected_checkout 미생성 (CheckInModal에서 기본값 18:00 추가)
         asExpected: true,
       })
     }
 
-    return NextResponse.json({ timeline })
+    // 휴가는 그대로 (D-1에서 D-day로 source: 'expected'로 옮김)
+    const expectedLeave = Array.isArray(log.expected_leave_timeline)
+      ? (log.expected_leave_timeline as LeaveTimeline)
+      : null
+    const leaveTimeline: LeaveTimeline | null = expectedLeave && expectedLeave.length > 0
+      ? expectedLeave.map(it => ({ ...it, source: 'expected' as const }))
+      : null
+
+    return NextResponse.json({ timeline, leaveTimeline })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('expected-timeline GET error:', message)
-    return NextResponse.json({ timeline: null }, { status: 200 })
+    return NextResponse.json({ timeline: null, leaveTimeline: null }, { status: 200 })
   }
 }

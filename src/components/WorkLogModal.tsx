@@ -6,12 +6,17 @@ import WorkLogForm from '@/components/WorkLogForm'
 import CalculationPreview from '@/components/CalculationPreview'
 import { EwCalculationResult } from '@/lib/ew-calculator'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+import type { LeaveTimeline } from '@/types/leave-timeline'
 
 interface WorkLogModalProps {
   date: string           // YYYY-MM-DD — 퇴근 날짜, check-out API에 전달
   userName: string | null
   /** 오늘의 실제 work_location_timeline (출근보고/근무지변경 누적분) */
   initialTimeline?: WorkLocationTimeline | null
+  /** 오늘의 leave_timeline (휴가/반차) */
+  initialLeaveTimeline?: LeaveTimeline | null
+  /** 휴게 시작/종료 로그 누적 실제 분 (휴게 자동 계산값) */
+  initialBreakAutoActualMinutes?: number | null
   initialStartTime?: string  // legacy fallback
   initialEndTime?: string    // legacy fallback
   resubmitWorkLogId?: string | null // 퇴근취소 후 재제출일 때 기존 로그 ID
@@ -23,6 +28,8 @@ export default function WorkLogModal({
   date,
   userName,
   initialTimeline,
+  initialLeaveTimeline,
+  initialBreakAutoActualMinutes,
   initialStartTime,
   initialEndTime,
   resubmitWorkLogId,
@@ -90,6 +97,8 @@ export default function WorkLogModal({
                 <WorkLogForm
                   userName={userName}
                   initialTimeline={initialTimeline}
+                  initialLeaveTimeline={initialLeaveTimeline}
+                  initialBreakAutoActualMinutes={initialBreakAutoActualMinutes}
                   initialStartTime={initialStartTime}
                   initialEndTime={initialEndTime}
                   resubmitLogId={resubmitWorkLogId}

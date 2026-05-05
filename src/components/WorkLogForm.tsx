@@ -9,6 +9,7 @@ import { Loader2, Copy } from 'lucide-react'
 import { format, addDays } from 'date-fns'
 import { getKstTodayDateString, toKstDateString } from '@/lib/utils/date'
 import WorkLocationTimelineInput, { defaultTimeline, defaultCheckoutTimeline } from '@/components/WorkLocationTimelineInput'
+import LeaveTimelineInput from '@/components/LeaveTimelineInput'
 import {
   validateTimeline,
   firstWorkLocation,
@@ -17,7 +18,16 @@ import {
   buildLocationSummary,
   legacyToTimeline,
 } from '@/lib/work-location-timeline'
+import {
+  validateLeaveTimeline,
+  totalLeaveRoundedMinutes,
+  leaveIncludesLunch as leaveIncludesLunchHelper,
+  isFullDayLeave,
+  ceilTo30Min,
+  minutesToDisplay,
+} from '@/lib/leave-timeline'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+import type { LeaveTimeline } from '@/types/leave-timeline'
 
 const workLocationItemZ = z.object({
   kind: z.literal('work_location'),
@@ -36,12 +46,26 @@ const checkoutZ = z.object({
 })
 const timelineEntryZ = z.discriminatedUnion('kind', [workLocationItemZ, expectedCheckoutZ, checkoutZ])
 
+// 휴가 항목 zod 스키마
+const leaveItemZ = z.object({
+  kind: z.literal('leave'),
+  leaveType: z.enum(['full_day', 'morning_half', 'afternoon_half']),
+  label: z.string(),
+  startTime: z.string(),
+  endTime: z.string(),
+  actualMinutes: z.number(),
+  roundedMinutes: z.number(),
+  source: z.enum(['manual', 'calendar', 'expected']).optional(),
+})
+
 const formSchema = z.object({
   name: z.string().min(1, '이름을 입력해주세요'),
   workTypeLabel: z.enum(['기본근무 등록', '간주근로 등록', '공휴일근로 등록']),
   leaveDate: z.string().min(1, '퇴근일자를 입력해주세요'),
   // 본문 근무장소 타임라인 (마지막은 'checkout' = 실제 퇴근)
   workLocationTimeline: z.array(timelineEntryZ).optional(),
+  // 본문 휴가/반차 타임라인
+  leaveTimeline: z.array(leaveItemZ).optional(),
   breakTime: z.string().min(1, '휴게시간을 선택해주세요'),
   breakReason: z.string().optional(),
   workContent: z.string().min(1, '근무내용을 입력해주세요'),
@@ -53,28 +77,46 @@ const formSchema = z.object({
   expectedStartDate: z.string().optional(),
   // 다음 출근 예정 타임라인 (마지막은 'expected_checkout' = 퇴근예정)
   expectedTimeline: z.array(timelineEntryZ).optional(),
+  // 다음 출근 예정 휴가/반차
+  expectedLeaveTimeline: z.array(leaveItemZ).optional(),
   thanksMacaron: z.string().optional(),
   sendTeams: z.boolean().optional(),
 }).superRefine((data, ctx) => {
-  // 본문 근무장소 타임라인 검증
-  const wlTimelineErrors = validateTimeline((data.workLocationTimeline ?? []) as WorkLocationTimeline)
-  wlTimelineErrors.forEach(err => {
+  const leaveTl = (data.leaveTimeline ?? []) as LeaveTimeline
+  const isAllDay = isFullDayLeave(leaveTl)
+
+  // 휴가 자체 검증
+  const leaveErrors = validateLeaveTimeline(leaveTl)
+  leaveErrors.forEach(err => {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: err.message,
       path: typeof err.index === 'number'
-        ? ['workLocationTimeline', err.index]
-        : ['workLocationTimeline'],
+        ? ['leaveTimeline', err.index]
+        : ['leaveTimeline'],
     })
   })
-  // 본문 마지막 항목은 'checkout' (실제 퇴근)이어야 함
+
+  // 본문 근무장소 타임라인 검증 — 종일 휴가일 때는 비어있어도 OK
   const wlTl = (data.workLocationTimeline ?? []) as WorkLocationTimeline
-  if (wlTl.length > 0 && wlTl[wlTl.length - 1].kind !== 'checkout') {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: '퇴근보고의 마지막 항목은 퇴근(실제) 시간이어야 합니다.',
-      path: ['workLocationTimeline'],
+  if (!isAllDay) {
+    const wlTimelineErrors = validateTimeline(wlTl)
+    wlTimelineErrors.forEach(err => {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: err.message,
+        path: typeof err.index === 'number'
+          ? ['workLocationTimeline', err.index]
+          : ['workLocationTimeline'],
+      })
     })
+    if (wlTl.length > 0 && wlTl[wlTl.length - 1].kind !== 'checkout') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: '퇴근보고의 마지막 항목은 퇴근(실제) 시간이어야 합니다.',
+        path: ['workLocationTimeline'],
+      })
+    }
   }
 
   if (data.lateOrAttendanceStatus === '예') {
@@ -112,6 +154,10 @@ interface WorkLogFormProps {
   userName: string | null
   /** 퇴근보고 모달 진입 시 미리 받아온 오늘의 work_location_timeline (마지막은 'checkout') */
   initialTimeline?: WorkLocationTimeline | null
+  /** 오늘의 leave_timeline (휴가/반차) — WorkLogModal hydration */
+  initialLeaveTimeline?: LeaveTimeline | null
+  /** 휴게 시작/종료 로그 누적 실제 분 */
+  initialBreakAutoActualMinutes?: number | null
   /** legacy: timeline이 없을 때만 사용. 첫 work_location.startTime으로 prefill */
   initialStartTime?: string
   /** legacy: timeline이 없을 때만 사용. checkout.startTime으로 prefill */
@@ -155,7 +201,27 @@ function buildInitialTimeline(
   return synth ?? defaultCheckoutTimeline()
 }
 
-export default function WorkLogForm({ userName, initialTimeline, initialStartTime, initialEndTime, resubmitLogId, onCalculate, onSubmitSuccess }: WorkLogFormProps) {
+export default function WorkLogForm({
+  userName,
+  initialTimeline,
+  initialLeaveTimeline,
+  initialBreakAutoActualMinutes,
+  initialStartTime,
+  initialEndTime,
+  resubmitLogId,
+  onCalculate,
+  onSubmitSuccess,
+}: WorkLogFormProps) {
+  // 휴게 자동값 (props에서 받음)
+  const breakAutoActualMinutes = initialBreakAutoActualMinutes ?? 0
+  const breakAutoRoundedMinutes = ceilTo30Min(breakAutoActualMinutes)
+  /** 자동 계산값을 'HH:mm'으로 표현 (폼 default용) */
+  const breakAutoHHmm = (() => {
+    const m = breakAutoRoundedMinutes
+    const h = Math.floor(m / 60)
+    const mm = m % 60
+    return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+  })()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [showEwPopup, setShowEwPopup] = useState(false)
@@ -176,12 +242,15 @@ export default function WorkLogForm({ userName, initialTimeline, initialStartTim
       workTypeLabel: '기본근무 등록',
       leaveDate: getKstTodayDateString(),
       workLocationTimeline: buildInitialTimeline(initialTimeline, initialStartTime, initialEndTime),
-      breakTime: '00:00',
+      leaveTimeline: (initialLeaveTimeline ?? []) as LeaveTimeline,
+      // 휴게 자동값이 있으면 그것을 기본값으로, 없으면 00:00
+      breakTime: breakAutoRoundedMinutes > 0 ? breakAutoHHmm : '00:00',
       workContent: '',
       lateOrAttendanceStatus: '아니오',
       attendanceRecordType: '출근보고 진행 (주말출근, 휴가 포함)',
       expectedStartDate: toKstDateString(addDays(new Date(), 1)),
       expectedTimeline: defaultTimeline(),
+      expectedLeaveTimeline: [] as LeaveTimeline,
       sendTeams: true,
     },
   })
@@ -196,8 +265,17 @@ export default function WorkLogForm({ userName, initialTimeline, initialStartTim
   const derivedEndTime = endIt?.startTime ?? ''
   const derivedWorkLocationSummary = buildLocationSummary(workTimeline)
 
+  // 휴가 관련 도출값
+  const leaveTl = (formValues.leaveTimeline ?? []) as LeaveTimeline
+  const leaveMinutesTotal = totalLeaveRoundedMinutes(leaveTl)
+  const leaveCoversLunch = leaveIncludesLunchHelper(leaveTl)
+  const isAllDay = isFullDayLeave(leaveTl)
+
   // 휴게사유 표시 여부: 휴게시간 30분 이상
   const showBreakReason = formValues.breakTime && formValues.breakTime !== '00:00'
+
+  // 휴게 사용자 수정 여부 — 자동 계산값과 다르면 manual로 간주
+  const breakUserChanged = (formValues.breakTime ?? '00:00') !== breakAutoHHmm && breakAutoRoundedMinutes > 0
 
   // ── userName prop이 비동기로 로드되면 이름 필드에 자동완성 (최초 1회) ───────
   useEffect(() => {
@@ -235,25 +313,30 @@ export default function WorkLogForm({ userName, initialTimeline, initialStartTim
   useEffect(() => {
     try {
       const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/
+      // 종일 휴가일 땐 work_location 시간 검증을 스킵하고 09:00~18:00을 가정
+      const calcStart = isAllDay ? '09:00' : derivedStartTime
+      const calcEnd   = isAllDay ? '18:00' : derivedEndTime
+      const calcLocation = isAllDay ? '휴가' : (derivedWorkLocationSummary || '사무실')
+
       if (
         formValues.name &&
         formValues.workTypeLabel &&
         formValues.leaveDate &&
-        derivedStartTime &&
-        derivedEndTime &&
-        timeRegex.test(derivedStartTime) &&
-        timeRegex.test(derivedEndTime)
+        calcStart && calcEnd &&
+        timeRegex.test(calcStart) && timeRegex.test(calcEnd)
       ) {
         const result = calculateEw({
           name: formValues.name,
           workTypeLabel: formValues.workTypeLabel,
           leaveDate: formValues.leaveDate,
-          startTime: derivedStartTime,
-          endTime: derivedEndTime,
+          startTime: calcStart,
+          endTime: calcEnd,
           breakTime: formValues.breakTime || '00:00',
-          workLocation: derivedWorkLocationSummary || '사무실',
+          workLocation: calcLocation,
           workContent: formValues.workContent,
           breakReason: showBreakReason ? formValues.breakReason : undefined,
+          leaveMinutes: leaveMinutesTotal,
+          leaveIncludesLunch: leaveCoversLunch,
         })
         onCalculate(result, null)
       } else {
@@ -265,8 +348,9 @@ export default function WorkLogForm({ userName, initialTimeline, initialStartTim
   }, [
     formValues.name, formValues.workTypeLabel, formValues.leaveDate,
     derivedStartTime, derivedEndTime, derivedWorkLocationSummary,
-    formValues.breakTime,
-    formValues.workContent, formValues.breakReason, onCalculate, showBreakReason
+    formValues.breakTime, formValues.workContent, formValues.breakReason,
+    leaveMinutesTotal, leaveCoversLunch, isAllDay,
+    onCalculate, showBreakReason
   ])
 
   const onSubmit = async (data: WorkLogFormData) => {
@@ -274,13 +358,30 @@ export default function WorkLogForm({ userName, initialTimeline, initialStartTim
     setSubmitError(null)
 
     try {
+      const submittedLeave = (data.leaveTimeline ?? []) as LeaveTimeline
+      const submittedIsAllDay = isFullDayLeave(submittedLeave)
+      const submittedLeaveMinutes = totalLeaveRoundedMinutes(submittedLeave)
+      const submittedLeaveCoversLunch = leaveIncludesLunchHelper(submittedLeave)
+
       const submittedTimeline = (data.workLocationTimeline ?? []) as WorkLocationTimeline
       const submittedFirst = firstWorkLocation(submittedTimeline)
       const submittedEnd = endItemOf(submittedTimeline)
-      const submittedStartTime = submittedFirst?.startTime ?? '09:00'
-      const submittedEndTime = submittedEnd?.startTime ?? '18:00'
-      const submittedWorkLocation = submittedFirst ? displayLocation(submittedFirst) : '사무실'
-      const submittedLocationSummary = buildLocationSummary(submittedTimeline) || submittedWorkLocation
+      // 종일 휴가일 때는 09:00~18:00 가정 (EW/legacy mirror용)
+      const submittedStartTime = submittedIsAllDay ? '09:00' : (submittedFirst?.startTime ?? '09:00')
+      const submittedEndTime   = submittedIsAllDay ? '18:00' : (submittedEnd?.startTime ?? '18:00')
+      const submittedWorkLocation = submittedIsAllDay
+        ? '휴가'
+        : (submittedFirst ? displayLocation(submittedFirst) : '사무실')
+      const submittedLocationSummary = submittedIsAllDay
+        ? '휴가'
+        : (buildLocationSummary(submittedTimeline) || submittedWorkLocation)
+
+      // 휴게: manual = breakTime, auto = breakAutoRoundedMinutes
+      const breakManualHHmm = data.breakTime || '00:00'
+      const [bH, bM] = breakManualHHmm.split(':').map(Number)
+      const breakManualMinutes = (Number.isFinite(bH) ? bH : 0) * 60 + (Number.isFinite(bM) ? bM : 0)
+      const breakIsManual = breakManualMinutes !== breakAutoRoundedMinutes
+      const breakFinalRoundedMinutes = breakManualMinutes  // 화면값이 곧 최종 반영값
 
       // 브라우저 포커스 유실을 방지하기 위해 비동기 API 통신 전 클립보드 복사를 먼저 실행합니다.
       const result = calculateEw({
@@ -289,10 +390,12 @@ export default function WorkLogForm({ userName, initialTimeline, initialStartTim
         leaveDate: data.leaveDate,
         startTime: submittedStartTime,
         endTime: submittedEndTime,
-        breakTime: data.breakTime || '00:00',
+        breakTime: breakManualHHmm,
         workLocation: submittedLocationSummary,
         workContent: data.workContent,
         breakReason: showBreakReason ? data.breakReason : undefined,
+        leaveMinutes: submittedLeaveMinutes,
+        leaveIncludesLunch: submittedLeaveCoversLunch,
       })
 
       try {
@@ -308,11 +411,17 @@ export default function WorkLogForm({ userName, initialTimeline, initialStartTim
           ...data,
           // 서버 호환: timeline에서 도출된 값을 함께 전달
           workLocationTimeline: submittedTimeline,
+          leaveTimeline: submittedLeave,
           startTime: submittedStartTime,
           endTime: submittedEndTime,
           workLocationType: submittedFirst?.type === 'custom' ? '기타' : (submittedFirst?.label ?? '사무실'),
           workLocationCustom: submittedFirst?.type === 'custom' ? (submittedFirst.customLabel ?? '') : '',
           finalWorkLocation: submittedWorkLocation,
+          // 휴게 분리 값
+          breakAutoActualMinutes: breakAutoActualMinutes,
+          breakAutoRoundedMinutes: breakAutoRoundedMinutes,
+          breakManualRoundedMinutes: breakIsManual ? breakManualMinutes : null,
+          breakFinalRoundedMinutes: breakFinalRoundedMinutes,
           resubmitLogId,
         }),
       })
@@ -401,26 +510,42 @@ export default function WorkLogForm({ userName, initialTimeline, initialStartTim
         </div>
       </div>
 
-      {/* 2. 근무장소 타임라인 (출근시간/퇴근시간 자동 도출) */}
+      {/* 2. 휴가/반차 */}
       <div>
-        <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 border-b pb-2">근무장소 타임라인</h3>
-        <p className="text-xs text-gray-500 mb-3">
-          하루 안에 여러 장소에서 근무한 경우 <span className="font-medium">근무장소 추가</span>로 행을 늘리고, 마지막 항목에 <span className="font-medium">실제 퇴근 시간</span>을 입력하세요. 시간은 30분 단위입니다.
-        </p>
-        <p className="text-xs text-gray-400 mb-3">
-          ※ 첫 항목 시각이 출근시간, 마지막 <span className="font-medium">퇴근</span> 항목 시각이 퇴근시간으로 EW 계산에 사용됩니다.
-        </p>
-        <WorkLocationTimelineInput
-          value={(formValues.workLocationTimeline ?? []) as WorkLocationTimeline}
-          onChange={next => setValue('workLocationTimeline', next, { shouldValidate: false, shouldDirty: true })}
-          errors={validateTimeline((formValues.workLocationTimeline ?? []) as WorkLocationTimeline)}
+        <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 border-b pb-2">휴가/반차</h3>
+        <LeaveTimelineInput
+          value={(formValues.leaveTimeline ?? []) as LeaveTimeline}
+          onChange={next => setValue('leaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
         />
-        {(errors as { workLocationTimeline?: { message?: string } }).workLocationTimeline?.message && (
+        {(errors as { leaveTimeline?: { message?: string } }).leaveTimeline?.message && (
           <p className="mt-1 text-xs text-red-600">
-            {(errors as { workLocationTimeline?: { message?: string } }).workLocationTimeline?.message}
+            {(errors as { leaveTimeline?: { message?: string } }).leaveTimeline?.message}
           </p>
         )}
       </div>
+
+      {/* 3. 근무장소 타임라인 — 종일 휴가가 아닐 때만 노출 */}
+      {!isAllDay && (
+        <div>
+          <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 border-b pb-2">근무장소 타임라인</h3>
+          <p className="text-xs text-gray-500 mb-3">
+            하루 안에 여러 장소에서 근무한 경우 <span className="font-medium">근무장소 추가</span>로 행을 늘리고, 마지막 항목에 <span className="font-medium">실제 퇴근 시간</span>을 입력하세요. 시간은 30분 단위입니다.
+          </p>
+          <p className="text-xs text-gray-400 mb-3">
+            ※ 첫 항목 시각이 출근시간, 마지막 <span className="font-medium">퇴근</span> 항목 시각이 퇴근시간으로 EW 계산에 사용됩니다.
+          </p>
+          <WorkLocationTimelineInput
+            value={(formValues.workLocationTimeline ?? []) as WorkLocationTimeline}
+            onChange={next => setValue('workLocationTimeline', next, { shouldValidate: false, shouldDirty: true })}
+            errors={validateTimeline((formValues.workLocationTimeline ?? []) as WorkLocationTimeline)}
+          />
+          {(errors as { workLocationTimeline?: { message?: string } }).workLocationTimeline?.message && (
+            <p className="mt-1 text-xs text-red-600">
+              {(errors as { workLocationTimeline?: { message?: string } }).workLocationTimeline?.message}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* 3. 휴게/근무내용 섹션 */}
       <div>
@@ -428,6 +553,12 @@ export default function WorkLogForm({ userName, initialTimeline, initialStartTim
         <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-2">
           <div>
             <label className="block text-sm font-medium text-gray-700">휴게시간 *</label>
+            {breakAutoRoundedMinutes > 0 && (
+              <p className="mt-1 mb-1 text-xs text-gray-500">
+                자동 계산 (휴게 시작/종료 로그): 실제 {breakAutoActualMinutes}분 / 30분 올림 {minutesToDisplay(breakAutoRoundedMinutes)}
+                {breakUserChanged && <span className="ml-1 text-amber-600 font-medium">— 수정됨</span>}
+              </p>
+            )}
             <select
               {...register('breakTime')}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border bg-white"
@@ -530,6 +661,14 @@ export default function WorkLogForm({ userName, initialTimeline, initialStartTim
                   <p className="text-xs text-gray-400 mt-0.5">내일 출근 날짜를 입력해주세요</p>
                   <input type="date" {...register('expectedStartDate')} className="mt-1 block w-full sm:w-1/2 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border" />
                   {errors.expectedStartDate && <p className="mt-1 text-xs text-red-600">{errors.expectedStartDate.message as string}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">다음 출근일 휴가/반차</label>
+                  <LeaveTimelineInput
+                    value={(formValues.expectedLeaveTimeline ?? []) as LeaveTimeline}
+                    onChange={next => setValue('expectedLeaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
+                  />
                 </div>
 
                 <div>

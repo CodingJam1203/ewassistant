@@ -3,8 +3,11 @@
 import { useEffect, useState } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import WorkLocationTimelineInput, { defaultTimeline } from '@/components/WorkLocationTimelineInput'
+import LeaveTimelineInput from '@/components/LeaveTimelineInput'
 import { validateTimeline } from '@/lib/work-location-timeline'
+import { isFullDayLeave, validateLeaveTimeline } from '@/lib/leave-timeline'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+import type { LeaveTimeline } from '@/types/leave-timeline'
 
 interface CheckInModalProps {
   date: string
@@ -34,6 +37,7 @@ export default function CheckInModal({
   const [name, setName] = useState<string>(userName ?? '')
   const [breakTime, setBreakTime] = useState<string>('00:00')
   const [workContent, setWorkContent] = useState<string>('')
+  const [leaveTimeline, setLeaveTimeline] = useState<LeaveTimeline>([])
   const [timeline, setTimeline] = useState<WorkLocationTimeline>(() => {
     // 임시 기본값 (이후 어제 expected가 있으면 fetch 결과로 교체)
     const base = defaultTimeline()
@@ -61,10 +65,16 @@ export default function CheckInModal({
       try {
         const res = await fetch(`/api/team-status/expected-timeline?date=${encodeURIComponent(date)}`)
         if (!res.ok) return
-        const data = await res.json() as { timeline: WorkLocationTimeline | null }
+        const data = await res.json() as {
+          timeline: WorkLocationTimeline | null
+          leaveTimeline?: LeaveTimeline | null
+        }
         if (cancelled) return
         if (data.timeline && data.timeline.length > 0) {
           setTimeline(data.timeline)
+        }
+        if (Array.isArray(data.leaveTimeline) && data.leaveTimeline.length > 0) {
+          setLeaveTimeline(data.leaveTimeline)
         }
       } catch {
         // prefill 실패는 무시 (기본값 유지)
@@ -76,7 +86,11 @@ export default function CheckInModal({
     return () => { cancelled = true }
   }, [date])
 
-  const validationErrors = validateTimeline(timeline)
+  const isAllDayLeave = isFullDayLeave(leaveTimeline)
+  // 종일 휴가가 아니면 work_location_timeline 검증, 종일이면 비어있어도 OK
+  const workTimelineErrors = isAllDayLeave ? [] : validateTimeline(timeline)
+  const leaveErrors = validateLeaveTimeline(leaveTimeline)
+  const validationErrors = [...workTimelineErrors, ...leaveErrors]
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -94,7 +108,9 @@ export default function CheckInModal({
         body: JSON.stringify({
           date,
           name:                 name.trim(),
-          workLocationTimeline: timeline,
+          // 종일 휴가일 때는 근무장소 timeline을 빈 배열로 전송
+          workLocationTimeline: isAllDayLeave ? [] : timeline,
+          leaveTimeline,
           break_time:           breakTime,
           work_content:         workContent.trim() || null,
         }),
@@ -139,21 +155,29 @@ export default function CheckInModal({
             />
           </div>
 
-          {/* 근무장소 타임라인 */}
+          {/* 휴가/반차 */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">근무장소 타임라인 *</label>
-            <p className="text-xs text-gray-400 mb-2">
-              하루 안에 여러 장소에서 근무하는 경우 <span className="font-medium">근무장소 추가</span>로 행을 늘리고, 마지막에 <span className="font-medium">퇴근예정</span> 시간을 입력하세요. 시간은 30분 단위입니다.
-            </p>
-            {loadingPrefill && (
-              <p className="text-xs text-gray-400 mb-2">어제 퇴근보고의 출근 예정 정보를 불러오는 중...</p>
-            )}
-            <WorkLocationTimelineInput
-              value={timeline}
-              onChange={setTimeline}
-              errors={validationErrors}
-            />
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">휴가/반차</label>
+            <LeaveTimelineInput value={leaveTimeline} onChange={setLeaveTimeline} />
           </div>
+
+          {/* 근무장소 타임라인 — 종일 휴가가 아닐 때만 활성 */}
+          {!isAllDayLeave && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">근무장소 타임라인 *</label>
+              <p className="text-xs text-gray-400 mb-2">
+                하루 안에 여러 장소에서 근무하는 경우 <span className="font-medium">근무장소 추가</span>로 행을 늘리고, 마지막에 <span className="font-medium">퇴근예정</span> 시간을 입력하세요. 시간은 30분 단위입니다.
+              </p>
+              {loadingPrefill && (
+                <p className="text-xs text-gray-400 mb-2">어제 퇴근보고의 출근 예정 정보를 불러오는 중...</p>
+              )}
+              <WorkLocationTimelineInput
+                value={timeline}
+                onChange={setTimeline}
+                errors={workTimelineErrors}
+              />
+            </div>
+          )}
 
           {/* 휴게시간 */}
           <div>

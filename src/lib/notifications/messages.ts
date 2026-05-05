@@ -17,6 +17,12 @@ import type {
   MorningSummaryData,
 } from './types'
 import { formatTimelineForTeams, getWorkLocations } from '@/lib/work-location-timeline'
+import {
+  formatLeaveLines,
+  isFullDayLeave,
+  minutesToDisplay,
+  totalLeaveRoundedMinutes,
+} from '@/lib/leave-timeline'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -75,10 +81,6 @@ function cta(): string {
 // ─── worklog body (submit) ────────────────────────────────────────────────────
 
 function worklogBody(prefix: string, p: WorklogNotifyPayload): string {
-  const breakStr = fmtBreak(p.breakTime)
-  const breakHM  = fmtTime(breakStr)
-  const breakDisplay = `${breakHM} / 휴게`
-
   const lateStatus = p.lateOrAttendanceStatus === '예' ? '예' : '아니오'
   const prevTime   = p.previousReportTime ? fmtTime(p.previousReportTime) : ''
   const currTime   = p.currentReportTime
@@ -87,20 +89,64 @@ function worklogBody(prefix: string, p: WorklogNotifyPayload): string {
   const lateStr = `${lateStatus} / ${prevTime} / ${currTime}`
 
   const checkinLines = buildNextCheckinLines(p)
+  const leaveLines = buildLeaveLines(p.leaveTimeline)
   const workLocationLines = buildWorkLocationLines(p)
+  const breakLine = buildBreakLine(p)
+  const leaveTimeLine = buildLeaveTimeLine(p.leaveTimeline)
+  const actualWorkLine = buildActualWorkLine(p)
 
   return [
     `${prefix} / ${p.leaveDate}`,
     `🔹근무유형 : ${p.workTypeLabel || '미입력'}`,
+    ...leaveLines,
     ...workLocationLines,
     `🔹근무시간 : ${fmtTime(p.startTime)} ~ ${fmtTime(p.endTime)}`,
-    `🔹휴게시간 : ${breakDisplay}`,
+    breakLine,
+    ...(leaveTimeLine ? [leaveTimeLine] : []),
+    ...(actualWorkLine ? [actualWorkLine] : []),
     `🔹지각/당일 수정 : ${lateStr}`,
     `🔹근무내용 : ${p.workContent || '미입력'}`,
     ...checkinLines,
     '🧡',
     cta(),
   ].join('\n')
+}
+
+/** 본문 휴가/반차 라인 */
+function buildLeaveLines(timeline: WorklogNotifyPayload['leaveTimeline']): string[] {
+  const lines = formatLeaveLines(timeline ?? null)
+  if (lines.length === 0) return []
+  if (lines.length === 1) return [`🔹휴가/반차 : ${lines[0]}`]
+  // 거의 없겠지만 여러 항목 시 멀티라인
+  return ['🔹휴가/반차', ...lines.map((l, i) => `${i + 1}. ${l}`)]
+}
+
+/** 휴게시간 라인 — 자동/사용자 수정 표시 */
+function buildBreakLine(p: WorklogNotifyPayload): string {
+  const finalMin = p.breakFinalRoundedMinutes
+  if (typeof finalMin === 'number' && finalMin >= 0) {
+    const display = minutesToDisplay(finalMin)
+    return p.breakIsManual
+      ? `🔹휴게시간 : ${display} (수정)`
+      : `🔹휴게시간 : ${display}`
+  }
+  // legacy fallback: breakTime
+  const breakStr = fmtBreak(p.breakTime)
+  const breakHM  = fmtTime(breakStr)
+  return `🔹휴게시간 : ${breakHM} / 휴게`
+}
+
+/** 휴가시간 라인 — 휴가가 있을 때만 */
+function buildLeaveTimeLine(timeline: WorklogNotifyPayload['leaveTimeline']): string | null {
+  const total = totalLeaveRoundedMinutes(timeline ?? null)
+  if (total <= 0) return null
+  return `🔹휴가시간 : ${minutesToDisplay(total)}`
+}
+
+/** 실근무시간 라인 (계산 결과가 들어왔을 때만) */
+function buildActualWorkLine(p: WorklogNotifyPayload): string | null {
+  if (typeof p.actualWorkMinutes !== 'number') return null
+  return `🔹실근무시간 : ${minutesToDisplay(Math.max(0, p.actualWorkMinutes))}`
 }
 
 /**
@@ -200,11 +246,21 @@ export function formatMorningWorklogStatus(
 export function buildMessage(eventType: EventType, payload: unknown): string {
   switch (eventType) {
 
-    case 'worklog_submitted':
-      return worklogBody(`🍀${(payload as WorklogNotifyPayload).name} 퇴근!`, payload as WorklogNotifyPayload)
+    case 'worklog_submitted': {
+      const p = payload as WorklogNotifyPayload
+      const allDay = isFullDayLeave(p.leaveTimeline ?? null)
+      const prefix = allDay ? `🍀${p.name} 휴가!` : `🍀${p.name} 퇴근!`
+      return worklogBody(prefix, p)
+    }
 
-    case 'checkout_resubmitted':
-      return worklogBody(`📌 ${(payload as WorklogNotifyPayload).name} 퇴근보고 재제출`, payload as WorklogNotifyPayload)
+    case 'checkout_resubmitted': {
+      const p = payload as WorklogNotifyPayload
+      const allDay = isFullDayLeave(p.leaveTimeline ?? null)
+      const prefix = allDay
+        ? `📌 ${p.name} 휴가 보고 재제출`
+        : `📌 ${p.name} 퇴근보고 재제출`
+      return worklogBody(prefix, p)
+    }
 
     case 'worklog_updated': {
       const p = payload as WorklogUpdateNotifyPayload
@@ -239,17 +295,43 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
 
     case 'checkin_submitted': {
       const p = payload as CheckinNotifyPayload
-      const tl = p.timeline
-      if (tl && getWorkLocations(tl).length >= 2) {
-        const formatted = formatTimelineForTeams(tl)
+      const allDay = isFullDayLeave(p.leaveTimeline ?? null)
+      const leaveLines = formatLeaveLines(p.leaveTimeline ?? null)
+
+      // 종일 휴가 — 출근이 아니라 휴가 알림
+      if (allDay) {
         return [
-          `${p.name} : ${shortKoreanDate(p.date)} ${kstHHmm(p.checkedInAt)} 출근`,
-          '🔹근무장소',
-          ...formatted.lines,
+          `🍀${p.name} 휴가! / ${p.date}`,
+          ...(leaveLines.length === 1
+              ? [`🔹휴가/반차 : ${leaveLines[0]}`]
+              : ['🔹휴가/반차', ...leaveLines]),
           cta(),
         ].join('\n')
       }
-      // 단일 모드: 기존 한 줄
+
+      // 휴가 + 출근 (반차)
+      const tl = p.timeline
+      const hasMultiLoc = !!(tl && getWorkLocations(tl).length >= 2)
+      const lines: string[] = []
+      lines.push(`${p.name} : ${shortKoreanDate(p.date)} ${kstHHmm(p.checkedInAt)} 출근`)
+      if (leaveLines.length > 0) {
+        lines.push(...(leaveLines.length === 1
+            ? [`🔹휴가/반차 : ${leaveLines[0]}`]
+            : ['🔹휴가/반차', ...leaveLines]))
+      }
+      if (hasMultiLoc && tl) {
+        const formatted = formatTimelineForTeams(tl)
+        lines.push('🔹근무장소', ...formatted.lines)
+        lines.push(cta())
+        return lines.join('\n')
+      }
+      // 단일 근무장소: 한 줄로 합쳐서 압축 (휴가 라인이 있으면 별도, 없으면 기존 형식)
+      if (leaveLines.length > 0) {
+        lines.push(`🔹근무장소 : ${p.workLocation || '미입력'}`)
+        lines.push(cta())
+        return lines.join('\n')
+      }
+      // 휴가 없고 단일 — 기존 한 줄 형식
       return `${p.name} : ${shortKoreanDate(p.date)} ${kstHHmm(p.checkedInAt)} ${p.workLocation || '미입력'} 출근`
     }
 

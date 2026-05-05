@@ -11,7 +11,15 @@ import {
   displayLocation,
   buildLocationSummary,
 } from '@/lib/work-location-timeline'
+import {
+  validateLeaveTimeline,
+  isFullDayLeave,
+  totalLeaveRoundedMinutes,
+  leaveIncludesLunch as leaveIncludesLunchHelper,
+  ceilTo30Min,
+} from '@/lib/leave-timeline'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+import type { LeaveTimeline } from '@/types/leave-timeline'
 
 export async function POST(request: Request) {
   try {
@@ -21,6 +29,35 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
+
+    // ─── 휴가 타임라인 처리 ─────────────────────────────────────────────────
+    let leaveTimeline: LeaveTimeline | null = null
+    if (Array.isArray(body.leaveTimeline) && body.leaveTimeline.length > 0) {
+      const leErrors = validateLeaveTimeline(body.leaveTimeline as LeaveTimeline)
+      if (leErrors.length > 0) {
+        return NextResponse.json(
+          { error: '휴가/반차 정보가 올바르지 않습니다: ' + leErrors.map(e => e.message).join(', ') },
+          { status: 400 }
+        )
+      }
+      leaveTimeline = body.leaveTimeline as LeaveTimeline
+    }
+    const leaveAllDay = isFullDayLeave(leaveTimeline ?? [])
+    const leaveMinutes = totalLeaveRoundedMinutes(leaveTimeline ?? [])
+    const leaveCoversLunch = leaveIncludesLunchHelper(leaveTimeline ?? [])
+
+    // ─── 다음 출근 예정 휴가 타임라인 처리 ─────────────────────────────────────
+    let expectedLeaveTimeline: LeaveTimeline | null = null
+    if (Array.isArray(body.expectedLeaveTimeline) && body.expectedLeaveTimeline.length > 0) {
+      const exLeErrors = validateLeaveTimeline(body.expectedLeaveTimeline as LeaveTimeline)
+      if (exLeErrors.length > 0) {
+        return NextResponse.json(
+          { error: '다음 출근 예정 휴가 정보가 올바르지 않습니다: ' + exLeErrors.map(e => e.message).join(', ') },
+          { status: 400 }
+        )
+      }
+      expectedLeaveTimeline = body.expectedLeaveTimeline as LeaveTimeline
+    }
 
     // ─── 본문 근무장소 타임라인 처리 (퇴근보고용) ────────────────────────────
     // 신규: body.workLocationTimeline 우선
@@ -38,7 +75,7 @@ export async function POST(request: Request) {
         )
       }
       workLocationTimeline = body.workLocationTimeline as WorkLocationTimeline
-      // 퇴근보고는 마지막 항목이 'checkout' (실제 퇴근)이어야 함
+      // 퇴근보고는 마지막 항목이 'checkout' (실제 퇴근)이어야 함 (단, 종일 휴가 예외)
       const last = workLocationTimeline[workLocationTimeline.length - 1]
       if (last.kind !== 'checkout') {
         return NextResponse.json(
@@ -48,20 +85,45 @@ export async function POST(request: Request) {
       }
       workTimelineFirst = firstWorkLocation(workLocationTimeline)
       workTimelineEnd = endItemOf(workLocationTimeline)
+    } else if (leaveAllDay) {
+      // 종일 휴가는 work_location_timeline 비어도 OK
+      workLocationTimeline = null
     }
 
     // 폼 클라이언트에서 workLocationType/Custom/Time도 timeline으로부터 도출해 보내옴.
     // timeline이 없는 (legacy) 클라이언트의 경우만 body 단일 필드를 그대로 사용.
-    const finalWorkLocation: string = workTimelineFirst
-      ? displayLocation(workTimelineFirst)
-      : (body.workLocationType === '기타'
-          ? (body.workLocationCustom ?? '')
-          : (body.workLocationType ?? ''))
-    const finalStartTime: string = workTimelineFirst?.startTime ?? body.startTime ?? '09:00'
-    const finalEndTime: string = workTimelineEnd?.startTime ?? body.endTime ?? '18:00'
-    const locationSummary: string = workLocationTimeline
-      ? (buildLocationSummary(workLocationTimeline) || finalWorkLocation)
-      : finalWorkLocation
+    // 종일 휴가는 09:00~18:00 가정 + workLocation = '휴가'
+    const finalWorkLocation: string = leaveAllDay
+      ? '휴가'
+      : (workTimelineFirst
+          ? displayLocation(workTimelineFirst)
+          : (body.workLocationType === '기타'
+              ? (body.workLocationCustom ?? '')
+              : (body.workLocationType ?? '')))
+    const finalStartTime: string = leaveAllDay
+      ? '09:00'
+      : (workTimelineFirst?.startTime ?? body.startTime ?? '09:00')
+    const finalEndTime: string = leaveAllDay
+      ? '18:00'
+      : (workTimelineEnd?.startTime ?? body.endTime ?? '18:00')
+    const locationSummary: string = leaveAllDay
+      ? '휴가'
+      : (workLocationTimeline
+          ? (buildLocationSummary(workLocationTimeline) || finalWorkLocation)
+          : finalWorkLocation)
+
+    // ─── 휴게 4분리 ─────────────────────────────────────────────────────────
+    const breakAutoActualMin: number = Number.isFinite(body.breakAutoActualMinutes)
+      ? Math.max(0, Number(body.breakAutoActualMinutes)) : 0
+    const breakAutoRoundedMin: number = Number.isFinite(body.breakAutoRoundedMinutes)
+      ? Math.max(0, Number(body.breakAutoRoundedMinutes)) : ceilTo30Min(breakAutoActualMin)
+    const breakManualRoundedMin: number | null = (
+      body.breakManualRoundedMinutes !== undefined && body.breakManualRoundedMinutes !== null
+    ) ? Math.max(0, Number(body.breakManualRoundedMinutes)) : null
+    // body.breakFinalRoundedMinutes 우선, 없으면 manual ?? auto
+    const breakFinalRoundedMin: number = Number.isFinite(body.breakFinalRoundedMinutes)
+      ? Math.max(0, Number(body.breakFinalRoundedMinutes))
+      : (breakManualRoundedMin ?? breakAutoRoundedMin)
 
     // ─── 출근보고 (다음 출근 예정) 타임라인 처리 ──────────────────────────────
     // 신규: body.expectedTimeline (배열) — 우선 사용
@@ -95,16 +157,26 @@ export async function POST(request: Request) {
     }
     const finalExpectedWorkLocation: string | null = mirrorExpectedWorkLocation
 
+    // EW 계산 시 휴게는 break_final_rounded_minutes를 'HH:mm'으로 환산해 사용
+    const breakHHForCalc: string = (() => {
+      const m = breakFinalRoundedMin
+      const h = Math.floor(m / 60)
+      const mm = m % 60
+      return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+    })()
+
     const calcResult = calculateEw({
       name: body.name,
       workTypeLabel: body.workTypeLabel,
       leaveDate: body.leaveDate,
       startTime: finalStartTime,
       endTime: finalEndTime,
-      breakTime: body.breakTime || '00:00',
+      breakTime: breakHHForCalc,
       workLocation: locationSummary,
       workContent: body.workContent,
       breakReason: body.breakReason,
+      leaveMinutes,
+      leaveIncludesLunch: leaveCoversLunch,
     })
 
     let userDivision: string | null = null
@@ -149,6 +221,13 @@ export async function POST(request: Request) {
       expected_work_time: mirrorExpectedWorkTime,
       expected_work_location: finalExpectedWorkLocation,
       expected_work_location_timeline: expectedTimeline,
+      expected_leave_timeline: expectedLeaveTimeline,
+      // 휴가/휴게 분리
+      leave_timeline: leaveTimeline,
+      break_auto_actual_minutes:    breakAutoActualMin,
+      break_auto_rounded_minutes:   breakAutoRoundedMin,
+      break_manual_rounded_minutes: breakManualRoundedMin,
+      break_final_rounded_minutes:  breakFinalRoundedMin,
       thanks_macaron: body.thanksMacaron || null,
       deduction_time: `${calcResult.deductionMinutes} minutes`,
       actual_work_time: `${calcResult.actualWorkMinutes} minutes`,
@@ -204,9 +283,16 @@ export async function POST(request: Request) {
       workTypeLabel: body.workTypeLabel ?? '',
       workLocation: finalWorkLocation,
       workLocationTimeline,
+      leaveTimeline,
+      breakAutoActualMinutes: breakAutoActualMin,
+      breakAutoRoundedMinutes: breakAutoRoundedMin,
+      breakFinalRoundedMinutes: breakFinalRoundedMin,
+      breakIsManual: breakManualRoundedMin !== null,
+      actualWorkMinutes: calcResult.actualWorkMinutes,
+      leaveMinutes,
       startTime: finalStartTime,
       endTime: finalEndTime,
-      breakTime: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
+      breakTime: breakHHForCalc + ':00',
       lateOrAttendanceStatus: body.lateOrAttendanceStatus || '아니오',
       previousReportTime: body.lateOrAttendanceStatus === '예' ? (body.previousReportTime ?? null) : null,
       currentReportTime:  body.lateOrAttendanceStatus === '예' ? (body.currentReportTime ?? null) : null,
