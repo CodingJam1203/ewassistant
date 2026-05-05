@@ -1,12 +1,16 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireActiveUser } from '@/lib/admin-check'
 
-// GET /api/org — 본부+팀 전체 구조 (로그인 사용자 공통)
+// GET /api/org — 본부+팀 전체 구조 (활성 로그인 사용자 공통)
 export async function GET() {
   try {
+    const user = await requireActiveUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized or inactive account' }, { status: 403 })
+    }
+
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { data: divisions, error: divError } = await supabase
       .from('org_divisions')
@@ -31,7 +35,9 @@ export async function GET() {
     }))
 
     return NextResponse.json(result)
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[/api/org GET]', message)
+    return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
   }
 }

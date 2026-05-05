@@ -123,7 +123,8 @@ export async function POST(request: Request) {
     .single()
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error('[admin/users POST] error:', error)
+    return NextResponse.json({ error: '사용자 추가에 실패했습니다.' }, { status: 500 })
   }
 
   return NextResponse.json(data, { status: 201 })

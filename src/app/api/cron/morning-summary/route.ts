@@ -39,7 +39,12 @@ interface UserRow {
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
   const secret = process.env.CRON_SECRET
-  if (secret && authHeader !== `Bearer ${secret}`) {
+  // FAIL-CLOSE: env가 비어있으면 무조건 거부 (이전엔 secret 미설정 시 모두 통과 — 심각한 취약점)
+  if (!secret) {
+    console.error('[cron/morning-summary] CRON_SECRET env not set — rejecting all requests')
+    return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
+  }
+  if (authHeader !== `Bearer ${secret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

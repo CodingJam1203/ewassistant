@@ -4,6 +4,7 @@ import { getKstTodayDateString } from '@/lib/utils/date'
 import { requireAdmin, requireActiveUser } from '@/lib/admin-check'
 import { calculateEw } from '@/lib/ew-calculator'
 import { notifyWorkLogUpdated, notifyWorkLogDeleted } from '@/lib/notifications/teams'
+import { recordAudit, extractRequestMeta } from '@/lib/audit-log'
 import type { ChangedField } from '@/lib/notifications/types'
 import { fmtTime, fmtBreak } from '@/lib/notifications/messages'
 import {
@@ -270,7 +271,8 @@ export async function PATCH(
       .single()
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('[work-logs PATCH] update error:', error)
+      return NextResponse.json({ error: '저장 중 오류가 발생했습니다.' }, { status: 500 })
     }
 
     // ─── daily_work_status 동기화 (비동기, 실패 무관) ─────────────────────────
@@ -387,7 +389,24 @@ export async function PATCH(
         scheduledWorkDate,
         changedFields,
       })
-    } catch { /* 알림 실패 무시 */ }
+
+      // 감사 로그 — 수정자 + 변경된 필드 라벨만 기록 (값에는 PII 가능)
+      const auditMeta = extractRequestMeta(request)
+      recordAudit({
+        actorId: user.id,
+        actorEmail: user.email ?? null,
+        action: isOwner ? 'work_log_self_update' : 'work_log_admin_update',
+        targetTable: 'work_logs',
+        targetId: id,
+        details: {
+          leaveDate: log.leave_date,
+          isCheckin,
+          changedLabels: changedFields.map(f => f.label),
+        },
+        ipAddress: auditMeta.ipAddress,
+        userAgent: auditMeta.userAgent,
+      })
+    } catch { /* 알림/감사 실패 무시 */ }
 
     return NextResponse.json(data)
   } catch (err: unknown) {
@@ -467,6 +486,21 @@ export async function DELETE(
       division: log.division ?? null,
       team: log.team ?? null,
     })
+
+    // 감사 로그
+    try {
+      const meta = extractRequestMeta(request)
+      recordAudit({
+        actorId: user.id,
+        actorEmail: user.email ?? null,
+        action: isOwner ? 'work_log_self_delete' : 'work_log_admin_delete',
+        targetTable: 'work_logs',
+        targetId: id,
+        details: { leaveDate: log.leave_date, name: log.name },
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+      })
+    } catch { /* audit 실패 무시 */ }
 
     return NextResponse.json({ success: true })
   } catch (err: unknown) {

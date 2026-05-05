@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { LogOut, ExternalLink } from 'lucide-react'
-import { ADMIN_EMAIL } from '@/lib/admin-check'
+import { isBootstrapAdmin } from '@/lib/admin-check'
 import NClickLogo from '@/components/NClickLogo'
 
 const EW_URL = 'https://working.univ.me/Home'
@@ -13,16 +13,18 @@ export default async function Navbar() {
 
   if (!user) return null
 
-  let isAdmin = user.email === ADMIN_EMAIL
+  let isAdmin = isBootstrapAdmin(user.email)
   if (!isAdmin) {
     try {
-      const { data: profile } = await supabase
+      const { data: profile, error } = await supabase
         .from('user_profiles')
         .select('role')
         .eq('id', user.id)
         .single()
-      isAdmin = profile?.role === 'admin'
-    } catch {}
+      if (!error) isAdmin = profile?.role === 'admin'
+    } catch (err) {
+      console.warn('[Navbar] role fetch failed', err)
+    }
   }
 
   const navLinks = [

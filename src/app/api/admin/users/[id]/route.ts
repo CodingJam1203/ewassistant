@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
-import { requireAdmin, ADMIN_EMAIL } from '@/lib/admin-check'
+import { requireAdmin, isBootstrapAdmin } from '@/lib/admin-check'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { recordAudit, extractRequestMeta } from '@/lib/audit-log'
 
 // PATCH /api/admin/users/[id]
 // [id] 파라미터는 URL-encoded email 값입니다 (email이 PK)
@@ -30,8 +31,8 @@ export async function PATCH(
     return NextResponse.json({ error: '계정을 찾을 수 없습니다.' }, { status: 404 })
   }
 
-  // 관리자 계정 보호
-  const isProtectedAdmin = target.email === ADMIN_EMAIL || target.role === 'admin'
+  // 관리자 계정 보호 (부트스트랩 admin 또는 DB role='admin')
+  const isProtectedAdmin = isBootstrapAdmin(target.email) || target.role === 'admin'
 
   if (body.is_active === false && isProtectedAdmin) {
     return NextResponse.json({ error: '관리자 계정은 비활성화할 수 없습니다.' }, { status: 400 })
@@ -44,7 +45,7 @@ export async function PATCH(
     if (!newEmail.includes('@')) {
       return NextResponse.json({ error: '유효한 이메일 형식이 아닙니다.' }, { status: 400 })
     }
-    if (target.email === ADMIN_EMAIL) {
+    if (isBootstrapAdmin(target.email)) {
       return NextResponse.json({ error: '관리자 이메일은 변경할 수 없습니다.' }, { status: 400 })
     }
 
@@ -101,7 +102,7 @@ export async function PATCH(
     if (typeof body.team === 'string') updates.team = body.team.trim() || null
     if (typeof body.is_active === 'boolean') updates.is_active = body.is_active
     if (typeof body.display_order === 'number') updates.display_order = body.display_order
-    if (typeof body.role === 'string' && target.email !== ADMIN_EMAIL) {
+    if (typeof body.role === 'string' && !isBootstrapAdmin(target.email)) {
       updates.role = body.role === 'admin' ? 'admin' : 'user'
     }
 
@@ -126,7 +127,7 @@ export async function PATCH(
   if (typeof body.team === 'string') updates.team = body.team.trim() || null
   if (typeof body.is_active === 'boolean') updates.is_active = body.is_active
   if (typeof body.display_order === 'number') updates.display_order = body.display_order
-  if (typeof body.role === 'string' && target.email !== ADMIN_EMAIL) {
+  if (typeof body.role === 'string' && !isBootstrapAdmin(target.email)) {
     updates.role = body.role === 'admin' ? 'admin' : 'user'
   }
 
@@ -145,6 +146,19 @@ export async function PATCH(
     console.error('Admin PATCH Error:', error)
     return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
   }
+
+  // 감사 로그 — 변경된 필드 키만 기록 (값에는 PII 가능성 있어 키만 저장)
+  const meta = extractRequestMeta(request)
+  recordAudit({
+    actorId: adminUser.id,
+    actorEmail: adminUser.email ?? null,
+    action: 'admin_user_update',
+    targetTable: 'user_profiles',
+    targetId: target.id ?? targetEmail,
+    details: { changedKeys: Object.keys(updates) },
+    ipAddress: meta.ipAddress,
+    userAgent: meta.userAgent,
+  })
 
   return NextResponse.json(data)
 }
@@ -169,8 +183,19 @@ export async function DELETE(
 
   if (fetchError || !target) return NextResponse.json({ error: '계정을 찾을 수 없습니다.' }, { status: 404 })
 
-  if (target.email === ADMIN_EMAIL || target.role === 'admin') {
+  if (isBootstrapAdmin(target.email) || target.role === 'admin') {
     return NextResponse.json({ error: '관리자 계정은 삭제할 수 없습니다.' }, { status: 400 })
+  }
+
+  const meta = extractRequestMeta(request)
+  const auditCommon = {
+    actorId: adminUser.id,
+    actorEmail: adminUser.email ?? null,
+    action: 'admin_user_delete',
+    targetTable: 'user_profiles',
+    targetId: target.id ?? targetEmail,
+    ipAddress: meta.ipAddress,
+    userAgent: meta.userAgent,
   }
 
   // auth.users 삭제 (ON DELETE CASCADE → user_profiles 자동 삭제됨)
@@ -179,6 +204,7 @@ export async function DELETE(
     if (authDeleteError) {
       return NextResponse.json({ error: 'Auth 삭제 실패 (서버 에러)' }, { status: 500 })
     }
+    recordAudit({ ...auditCommon, details: { mode: 'auth+cascade' } })
     // CASCADE로 user_profiles도 삭제됨
     return NextResponse.json({ success: true })
   }
@@ -190,5 +216,6 @@ export async function DELETE(
     return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
   }
 
+  recordAudit({ ...auditCommon, details: { mode: 'profile-only' } })
   return NextResponse.json({ success: true })
 }

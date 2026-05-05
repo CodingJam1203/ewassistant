@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+
+const profilePatchSchema = z.object({
+  display_name: z.string().trim().min(1, '이름을 입력해주세요.').max(50, '이름은 50자 이하로 입력해주세요.'),
+})
 
 /**
  * GET /api/auth/profile
@@ -38,7 +43,7 @@ export async function GET() {
     }
 
     return NextResponse.json(profile)
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Profile GET Error:', err)
     return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
   }
@@ -59,11 +64,12 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json()
-    const display_name = typeof body.display_name === 'string' ? body.display_name.trim() : null
-
-    if (!display_name) {
-      return NextResponse.json({ error: '이름을 입력해주세요.' }, { status: 400 })
+    const parsed = profilePatchSchema.safeParse(body)
+    if (!parsed.success) {
+      const firstIssue = parsed.error.issues[0]
+      return NextResponse.json({ error: firstIssue?.message ?? '입력값이 올바르지 않습니다.' }, { status: 400 })
     }
+    const { display_name } = parsed.data
 
     const adminClient = createAdminClient()
 
@@ -81,12 +87,13 @@ export async function PATCH(request: Request) {
         .eq('email', user.email)
 
       if (error2) {
-        return NextResponse.json({ error: error2.message }, { status: 500 })
+        console.error('[auth/profile PATCH] error:', error2)
+        return NextResponse.json({ error: '프로필 수정에 실패했습니다.' }, { status: 500 })
       }
     }
 
     return NextResponse.json({ display_name })
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Profile PATCH Error:', err)
     return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
   }

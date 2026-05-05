@@ -49,7 +49,7 @@ export async function POST() {
 
     const redirectTo = profile?.is_active === false ? '/blocked' : '/team'
     return NextResponse.json({ success: true, redirectTo })
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Consent API Error:', err)
     return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
   }

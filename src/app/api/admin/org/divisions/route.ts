@@ -8,7 +8,12 @@ export async function POST(request: Request) {
   if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { name } = await request.json()
-  if (!name?.trim()) return NextResponse.json({ error: '본부명을 입력해주세요.' }, { status: 400 })
+  if (typeof name !== 'string' || !name.trim()) {
+    return NextResponse.json({ error: '본부명을 입력해주세요.' }, { status: 400 })
+  }
+  if (name.trim().length > 100) {
+    return NextResponse.json({ error: '본부명은 100자 이하로 입력해주세요.' }, { status: 400 })
+  }
 
   const adminClient = createAdminClient()
   const { data, error } = await adminClient
@@ -19,7 +24,8 @@ export async function POST(request: Request) {
 
   if (error) {
     if (error.code === '23505') return NextResponse.json({ error: '이미 존재하는 본부명입니다.' }, { status: 409 })
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error('[admin/org/divisions POST] error:', error)
+    return NextResponse.json({ error: '본부 추가에 실패했습니다.' }, { status: 500 })
   }
   return NextResponse.json(data, { status: 201 })
 }
