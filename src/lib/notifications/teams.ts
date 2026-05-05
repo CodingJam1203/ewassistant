@@ -284,8 +284,7 @@ export function notifyCheckoutResubmitted(payload: WorklogNotifyPayload): void {
 export function notifyWorkLogUpdated(payload: WorklogUpdateNotifyPayload): void {
   const reportType = resolveTeamsRouteReportType({
     action: 'update',
-    originalReportType: payload.originalReportType,
-    scheduledWorkDate: payload.scheduledWorkDate ?? undefined,
+    leaveDate: payload.leaveDate,
   })
   routeAndSend(
     'worklog_updated',
@@ -321,7 +320,7 @@ export function notifyLocationChanged(payload: LocationChangedNotifyPayload): vo
     'location_changed',
     payload.division,
     payload.team,
-    '퇴근보고',
+    '출근보고',
     payload
   ).catch(err => console.warn('[Teams] location_changed failed:', err))
 }
@@ -331,7 +330,7 @@ export function notifyBreakStarted(payload: BreakNotifyPayload): void {
     'break_started',
     payload.division,
     payload.team,
-    '퇴근보고',
+    '출근보고',
     payload
   ).catch(err => console.warn('[Teams] break_started failed:', err))
 }
@@ -341,7 +340,7 @@ export function notifyBreakEnded(payload: BreakNotifyPayload): void {
     'break_ended',
     payload.division,
     payload.team,
-    '퇴근보고',
+    '출근보고',
     payload
   ).catch(err => console.warn('[Teams] break_ended failed:', err))
 }

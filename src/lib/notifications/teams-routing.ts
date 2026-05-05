@@ -13,8 +13,8 @@ export interface TeamsReplyTarget {
 
 export interface NotificationContext {
   action: NotificationAction
-  originalReportType: ReportType
-  scheduledWorkDate?: string   // 출근 예정 날짜 YYYY-MM-DD
+  /** work_log의 leave_date (YYYY-MM-DD, KST 기준). update 분기에 사용. */
+  leaveDate?: string
 }
 
 // ─── 라우팅 테이블 ────────────────────────────────────────────────────────────
@@ -110,40 +110,37 @@ export function getTeamsReplyTarget(params: {
 // ─── 라우팅용 reportType 결정 ────────────────────────────────────────────────
 
 /**
- * 수정 건의 경우 "출근 예정 날짜"(scheduledWorkDate) 기준으로 라우팅 채널 결정
+ * 퇴근보고 수정(update) 알림이 어느 채널로 갈지 결정합니다.
  *
- * - create:  originalReportType 그대로
- * - update / 퇴근보고: 퇴근보고 채널
- * - update / 출근보고 + scheduledWorkDate < today: 퇴근보고 채널 (전일 수정)
- * - update / 출근보고 + scheduledWorkDate >= today: 출근보고 채널 (당일 또는 미래)
+ * 정책:
+ *   - leave_date == today (KST): 퇴근보고 채널
+ *       (같은 날 작성·수정 → 그날의 퇴근 thread에 함께 묶이도록)
+ *   - leave_date != today (이전 날짜를 오늘 정정): 출근보고 채널
+ *       (오늘 출근 thread에 어제/그제 보고가 정정됐음을 노출)
+ *
+ * 호출처는 현재 notifyWorkLogUpdated 한 곳입니다.
+ * action='create' 인 경우는 호출자가 직접 reportType을 지정하므로 이 함수를 거치지 않습니다.
  */
 export function resolveTeamsRouteReportType(context: NotificationContext): ReportType {
   const todayKST = getTodayKST()
-  let resolvedReportType: ReportType = context.originalReportType
+  const leaveDate = context.leaveDate ?? ''
 
-  if (context.action === 'create') {
-    resolvedReportType = context.originalReportType
-  } else if (context.action === 'update') {
-    if (context.originalReportType === '퇴근보고') {
-      resolvedReportType = '퇴근보고'
-    } else if (context.originalReportType === '출근보고' && context.scheduledWorkDate) {
-      if (context.scheduledWorkDate < todayKST) {
-        resolvedReportType = '퇴근보고'
-      } else {
-        resolvedReportType = '출근보고'
-      }
-    } else {
-      resolvedReportType = '출근보고'
-    }
+  let resolvedReportType: ReportType
+  if (leaveDate && leaveDate === todayKST) {
+    resolvedReportType = '퇴근보고'
+  } else if (leaveDate) {
+    resolvedReportType = '출근보고'
+  } else {
+    // leaveDate를 받지 못한 예외 케이스 — 안전하게 퇴근보고로
+    resolvedReportType = '퇴근보고'
   }
 
   console.log('[Teams routing date check]', {
     nowUTC: new Date().toISOString(),
     todayKST,
-    scheduledWorkDate: context.scheduledWorkDate,
+    leaveDate,
     action: context.action,
-    originalReportType: context.originalReportType,
-    resolvedReportType
+    resolvedReportType,
   })
 
   return resolvedReportType
