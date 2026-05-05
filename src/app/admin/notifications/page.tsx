@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { cookies } from 'next/headers'
+import { requireAdmin } from '@/lib/admin-check'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 
@@ -16,15 +16,13 @@ interface NotificationLog {
 }
 
 export default async function NotificationsAdminPage() {
-  const adminClient = createAdminClient()
+  const adminUser = await requireAdmin()
 
-  // 1. 세션 확인 (관리자)
-  const cookieStore = cookies()
-  const { data: { session } } = await adminClient.auth.getSession()
-
-  if (!session?.user || session.user.email !== 'hrb.main@gmail.com') {
+  if (!adminUser) {
     redirect('/login')
   }
+
+  const adminClient = createAdminClient()
 
   // 2. 이력 조회 (최근 500건)
   const { data: logs, error } = await adminClient

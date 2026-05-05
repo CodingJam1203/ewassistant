@@ -33,6 +33,7 @@ import type {
 
 const EVENT_ENV_MAP: Record<EventType, string> = {
   worklog_submitted:          'ENABLE_WORKLOG_SUBMIT_NOTIFY',
+  checkout_resubmitted:       'ENABLE_WORKLOG_SUBMIT_NOTIFY',
   worklog_updated:            'ENABLE_WORKLOG_UPDATE_NOTIFY',
   worklog_deleted:            'ENABLE_WORKLOG_DELETE_NOTIFY',
   checkin_submitted:          'ENABLE_CHECKIN_NOTIFY',
@@ -43,6 +44,14 @@ const EVENT_ENV_MAP: Record<EventType, string> = {
   daily_checkin_reminder_20:  'ENABLE_DAILY_REMINDER_NOTIFY',
   daily_checkin_reminder_22:  'ENABLE_DAILY_REMINDER_NOTIFY',
   daily_morning_summary:      'ENABLE_DAILY_REMINDER_NOTIFY',
+}
+
+function toTeamsHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>")
 }
 
 function isEnabled(eventType: EventType): boolean {
@@ -58,6 +67,7 @@ interface MakePayload {
   channelId: string
   messageId: string
   message: string
+  messageHtml?: string
   eventType: EventType
 }
 
@@ -101,7 +111,7 @@ async function sendToMake(
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 3000)
 
-  console.log('[Teams] Webhook Payload:', JSON.stringify(payload, null, 2))
+  // console.log('[Teams] Webhook Payload:', JSON.stringify(payload, null, 2))
 
   try {
     const res = await fetch(webhookUrl, {
@@ -110,6 +120,13 @@ async function sendToMake(
       body:    JSON.stringify(payload),
       signal:  controller.signal,
     })
+    
+    console.log('[Teams notify result]', {
+      eventType,
+      status: res.status,
+      ok: res.ok
+    })
+
     if (!res.ok) {
       const text = await res.text().catch(() => '(no response)')
       const errorMsg = 'HTTP ' + res.status + ': ' + text
@@ -139,12 +156,22 @@ async function routeAndSend(
   department: string | null | undefined,
   teamName: string | null | undefined,
   reportType: ReportType,
-  messagePayload: unknown
+  messagePayload: any
 ): Promise<void> {
   if (!isEnabled(eventType)) return
 
+  const scheduledWorkDate = messagePayload?.scheduledWorkDate || messagePayload?.expectedStartDate || undefined
+
   if (!department || !teamName) {
-    console.log('User organization is missing for Teams routing:', { department, teamName, eventType })
+    console.warn('[Teams notify skipped]', {
+      reason: 'Missing organization',
+      eventType,
+      userId: messagePayload?.updatedByEmail || messagePayload?.name,
+      department,
+      teamName,
+      reportType,
+      scheduledWorkDate
+    })
     await logNotification(eventType, 'SKIPPED', department || null, teamName || null, null, messagePayload, 'Missing organization')
     return
   }
@@ -152,14 +179,39 @@ async function routeAndSend(
   const normalizedTeam = normalizeTeamName(teamName)
   const target = getTeamsReplyTarget({ department, teamName: normalizedTeam, reportType })
   if (!target) {
-    console.log('Teams route target not found:', { department, teamName: normalizedTeam, reportType })
+    console.warn('[Teams notify skipped]', {
+      reason: 'Route target not found',
+      eventType,
+      userId: messagePayload?.updatedByEmail || messagePayload?.name,
+      department,
+      teamName: normalizedTeam,
+      reportType,
+      scheduledWorkDate
+    })
     await logNotification(eventType, 'SKIPPED', department, normalizedTeam, null, messagePayload, 'Route target not found')
     return
   }
 
+  console.log('[Teams notify attempt]', {
+    eventType,
+    userId: messagePayload?.updatedByEmail || messagePayload?.name,
+    userName: messagePayload?.name,
+    department,
+    teamName: normalizedTeam,
+    reportType,
+    scheduledWorkDate,
+    todayKST: new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10), // For quick logging reference
+    teamId: target.teamId,
+    channelId: target.channelId,
+    messageId: target.messageId,
+    hasWebhookUrl: !!process.env.MAKE_WEBHOOK_URL,
+    enabled: process.env.ENABLE_TEAMS_NOTIFY
+  })
+
   try {
     const message = buildMessage(eventType, messagePayload)
-    await sendToMake(eventType, { ...target, message, eventType }, department, normalizedTeam)
+    const messageHtml = toTeamsHtml(message)
+    await sendToMake(eventType, { ...target, message, messageHtml, eventType }, department, normalizedTeam)
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     console.warn('[Teams] Message build/send failed — ' + eventType + ':', err)
@@ -177,6 +229,16 @@ export function notifyWorkLogSubmitted(payload: WorklogNotifyPayload): void {
     '퇴근보고',
     payload
   ).catch(err => console.warn('[Teams] worklog_submitted failed:', err))
+}
+
+export function notifyCheckoutResubmitted(payload: WorklogNotifyPayload): void {
+  routeAndSend(
+    'checkout_resubmitted',
+    payload.division,
+    payload.team,
+    '퇴근보고',
+    payload
+  ).catch(err => console.warn('[Teams] checkout_resubmitted failed:', err))
 }
 
 export function notifyWorkLogUpdated(payload: WorklogUpdateNotifyPayload): void {

@@ -70,7 +70,9 @@ const ROUTING_TABLE: RoutingEntry[] = [
 // ─── KST 오늘 날짜 ────────────────────────────────────────────────────────────
 
 export function getTodayKST(): string {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const now = new Date()
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
+  return kst.toISOString().slice(0, 10)
 }
 
 // ─── 팀명 정규화 ──────────────────────────────────────────────────────────────
@@ -117,21 +119,33 @@ export function getTeamsReplyTarget(params: {
  * - update / 출근보고 + scheduledWorkDate >= today: 출근보고 채널 (당일 또는 미래)
  */
 export function resolveTeamsRouteReportType(context: NotificationContext): ReportType {
-  const today = getTodayKST()
+  const todayKST = getTodayKST()
+  let resolvedReportType: ReportType = context.originalReportType
 
   if (context.action === 'create') {
-    return context.originalReportType
+    resolvedReportType = context.originalReportType
+  } else if (context.action === 'update') {
+    if (context.originalReportType === '퇴근보고') {
+      resolvedReportType = '퇴근보고'
+    } else if (context.originalReportType === '출근보고' && context.scheduledWorkDate) {
+      if (context.scheduledWorkDate < todayKST) {
+        resolvedReportType = '퇴근보고'
+      } else {
+        resolvedReportType = '출근보고'
+      }
+    } else {
+      resolvedReportType = '출근보고'
+    }
   }
 
-  // update
-  if (context.originalReportType === '퇴근보고') {
-    return '퇴근보고'
-  }
+  console.log('[Teams routing date check]', {
+    nowUTC: new Date().toISOString(),
+    todayKST,
+    scheduledWorkDate: context.scheduledWorkDate,
+    action: context.action,
+    originalReportType: context.originalReportType,
+    resolvedReportType
+  })
 
-  // update + 출근보고
-  if (context.scheduledWorkDate) {
-    return context.scheduledWorkDate < today ? '퇴근보고' : '출근보고'
-  }
-
-  return '출근보고'  // fallback
+  return resolvedReportType
 }

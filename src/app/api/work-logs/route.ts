@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateEw } from '@/lib/ew-calculator'
 import { requireActiveUser } from '@/lib/admin-check'
-import { notifyWorkLogSubmitted } from '@/lib/notifications/teams'
+import { notifyWorkLogSubmitted, notifyCheckoutResubmitted } from '@/lib/notifications/teams'
 
 export async function POST(request: Request) {
   try {
@@ -90,6 +90,10 @@ export async function POST(request: Request) {
     }
 
     const adminClient = createAdminClient()
+
+    if (body.resubmitLogId) {
+      await adminClient.from('work_logs').update({ is_deleted: true }).eq('id', body.resubmitLogId)
+    }
     const { data, error } = await adminClient
       .from('work_logs')
       .insert([insertData])
@@ -123,8 +127,9 @@ export async function POST(request: Request) {
       // 비핵심 처리 — 실패 무시
     }
 
-    // Teams 퇴근보고 제출 알림 (실패해도 저장 결과에 영향 없음)
-    notifyWorkLogSubmitted({
+    }
+
+    const notifyPayload = {
       name: body.name ?? '',
       leaveDate: body.leaveDate ?? '',
       workTypeLabel: body.workTypeLabel ?? '',
@@ -143,7 +148,13 @@ export async function POST(request: Request) {
       expectedWorkLocation: finalExpectedWorkLocation,
       division: userDivision,
       team: userTeam,
-    })
+    }
+
+    if (body.resubmitLogId) {
+      notifyCheckoutResubmitted(notifyPayload)
+    } else {
+      notifyWorkLogSubmitted(notifyPayload)
+    }
 
     return NextResponse.json(data)
   } catch (err: unknown) {

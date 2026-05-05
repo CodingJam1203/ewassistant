@@ -492,6 +492,7 @@ export default function TeamPage() {
             toHHmm(checkOutTarget.checked_in_at) ?? checkOutTarget.start_time ?? undefined
           }
           initialEndTime={checkOutTarget.end_time ?? undefined}
+          resubmitWorkLogId={checkOutTarget.work_log_id ?? null}
           onClose={() => setCheckOutTarget(null)}
           onSuccess={() => { setCheckOutTarget(null); fetchCards() }}
         />

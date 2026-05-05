@@ -151,6 +151,9 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
     case 'worklog_submitted':
       return worklogBody(`🍀${(payload as WorklogNotifyPayload).name} 퇴근!`, payload as WorklogNotifyPayload)
 
+    case 'checkout_resubmitted':
+      return worklogBody(`🍀${(payload as WorklogNotifyPayload).name} 퇴근취소 후 재제출!`, payload as WorklogNotifyPayload)
+
     case 'worklog_updated': {
       const p = payload as WorklogUpdateNotifyPayload
       const reportLabel = p.originalReportType === '출근보고' ? '출근보고' : '퇴근보고'

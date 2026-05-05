@@ -55,6 +55,7 @@ interface WorkLogFormProps {
   userName: string | null
   initialStartTime?: string   // 퇴근 버튼 → 기존 출근보고 start_time pre-fill
   initialEndTime?: string     // 퇴근 버튼 → 기존 출근보고 end_time pre-fill
+  resubmitLogId?: string | null
   onCalculate: (result: EwCalculationResult | null, error: string | null) => void
   onSubmitSuccess: () => void
 }
@@ -75,7 +76,7 @@ const generateTimeOptions = (startHour: number) => {
 const startTimeOptions = generateTimeOptions(6)
 const endTimeOptions = generateTimeOptions(16)
 
-export default function WorkLogForm({ userName, initialStartTime, initialEndTime, onCalculate, onSubmitSuccess }: WorkLogFormProps) {
+export default function WorkLogForm({ userName, initialStartTime, initialEndTime, resubmitLogId, onCalculate, onSubmitSuccess }: WorkLogFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [showEwPopup, setShowEwPopup] = useState(false)
@@ -205,7 +206,7 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
       const res = await fetch('/api/work-logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...data, finalWorkLocation, finalExpectedWorkLocation }),
+        body: JSON.stringify({ ...data, finalWorkLocation, finalExpectedWorkLocation, resubmitLogId }),
       })
 
       const resData = await res.json()

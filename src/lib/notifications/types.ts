@@ -2,6 +2,7 @@
 
 export type EventType =
   | 'worklog_submitted'
+  | 'checkout_resubmitted'
   | 'worklog_updated'
   | 'worklog_deleted'
   | 'checkin_submitted'

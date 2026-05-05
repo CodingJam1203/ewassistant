@@ -11,6 +11,7 @@ interface WorkLogModalProps {
   userName: string | null
   initialStartTime?: string  // 기존 출근보고 start_time (퇴근 버튼에서 pre-fill)
   initialEndTime?: string    // 기존 출근보고 end_time
+  resubmitWorkLogId?: string | null // 퇴근취소 후 재제출일 때 기존 로그 ID
   onClose: () => void
   onSuccess: () => void  // 폼 제출 + check-out 완료 후 호출
 }
@@ -20,6 +21,7 @@ export default function WorkLogModal({
   userName,
   initialStartTime,
   initialEndTime,
+  resubmitWorkLogId,
   onClose,
   onSuccess,
 }: WorkLogModalProps) {
@@ -85,6 +87,7 @@ export default function WorkLogModal({
                   userName={userName}
                   initialStartTime={initialStartTime}
                   initialEndTime={initialEndTime}
+                  resubmitLogId={resubmitWorkLogId}
                   onCalculate={handleCalculate}
                   onSubmitSuccess={handleSubmitSuccess}
                 />
