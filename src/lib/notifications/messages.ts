@@ -273,8 +273,8 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       ].join('\n')
 
       const changedRows = p.changedFields.map(f => `${f.label}: ${f.before} → ${f.after}`).join('\n')
-      const footer = `수정자: ${p.updatedByEmail}`
-      
+      const footer = `수정자: ${p.updatedByName}`
+
       return [header, fixedRows, changedRows, footer, cta()].filter(Boolean).join('\n')
     }
 
@@ -283,7 +283,7 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       const breakHM = fmtTime(fmtBreak(p.breakTime))
       return [
         `🗑️${p.name} 기록 삭제 / ${p.leaveDate}`,
-        `🔹삭제자 : ${p.deletedByEmail}`,
+        `🔹삭제자 : ${p.deletedByName}`,
         `🔹근무유형 : ${p.workTypeLabel || '미입력'}`,
         `🔹근무장소 : ${p.workLocation || '미입력'}`,
         `🔹근무시간 : ${fmtTime(p.startTime)} ~ ${fmtTime(p.endTime)}`,
@@ -383,9 +383,9 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       return [
         '🔐 신규 계정 승인 필요',
         `🔹이름 : ${p.name || '미입력'}`,
-        `🔹이메일 : ${p.email}`,
         `🔹가입일시 : ${dateStr}`,
         `🔹상태 : 관리자 승인 대기`,
+        '※ 상세 정보 및 승인은 관리자 페이지에서 확인해 주세요.',
         cta(),
       ].join('\n')
     }

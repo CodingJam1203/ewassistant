@@ -361,12 +361,28 @@ export async function PATCH(
       const originalReportType = isCheckin ? '출근보고' : '퇴근보고'
       const scheduledWorkDate  = isCheckin ? (log.expected_start_date ?? null) : null
 
+      // 수정자 표시명 — 이메일 노출 금지. user_profiles.display_name 우선, 없으면 본인 여부에 따라 fallback.
+      let updatedByName = ''
+      try {
+        const { data: actorProfile } = await adminClient
+          .from('user_profiles')
+          .select('display_name')
+          .eq('id', user.id)
+          .maybeSingle()
+        updatedByName = actorProfile?.display_name?.trim() || ''
+      } catch { /* 조회 실패 시 fallback */ }
+      if (!updatedByName) {
+        // 본인이 본인 기록을 수정한 경우 → log.name 으로 안전하게 표시
+        // 그 외(관리자 등)에는 '관리자' 라벨로 표기 (이메일은 절대 노출하지 않음)
+        updatedByName = isOwner ? (log.name ?? '본인') : '관리자'
+      }
+
       notifyWorkLogUpdated({
         name: body.name ?? log.name ?? '',
         leaveDate: body.leaveDate ?? log.leave_date ?? '',
         division: log.division ?? null,
         team: log.team ?? null,
-        updatedByEmail: user.email ?? user.id,
+        updatedByName,
         originalReportType,
         scheduledWorkDate,
         changedFields,
@@ -424,10 +440,24 @@ export async function DELETE(
     if (error) throw error
 
     // ─── Teams 삭제 알림 ─────────────────────────────────────────────────────
+    // 삭제자 표시명 — 이메일 노출 금지. user_profiles.display_name 우선.
+    let deletedByName = ''
+    try {
+      const { data: actorProfile } = await adminClient
+        .from('user_profiles')
+        .select('display_name')
+        .eq('id', user.id)
+        .maybeSingle()
+      deletedByName = actorProfile?.display_name?.trim() || ''
+    } catch { /* 조회 실패 시 fallback */ }
+    if (!deletedByName) {
+      deletedByName = isOwner ? (log.name ?? '본인') : '관리자'
+    }
+
     notifyWorkLogDeleted({
       name: log.name ?? '',
       leaveDate: log.leave_date ?? '',
-      deletedByEmail: user.email ?? user.id,
+      deletedByName,
       workTypeLabel: log.work_type_label ?? '',
       workLocation: log.work_location ?? '',
       startTime: log.start_time ?? '',

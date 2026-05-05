@@ -73,7 +73,8 @@ export interface WorklogUpdateNotifyPayload {
   leaveDate: string
   division?: string | null
   team?: string | null
-  updatedByEmail: string
+  /** 수정자 표시명 (이름 우선, 없으면 식별자). 이메일은 절대 노출하지 않음 */
+  updatedByName: string
   originalReportType: '출근보고' | '퇴근보고'
   scheduledWorkDate?: string | null
   scheduledWorkTime?: string | null
@@ -83,7 +84,8 @@ export interface WorklogUpdateNotifyPayload {
 export interface WorklogDeletedNotifyPayload {
   name: string
   leaveDate: string
-  deletedByEmail: string
+  /** 삭제자 표시명 (이름 우선, 없으면 식별자). 이메일은 절대 노출하지 않음 */
+  deletedByName: string
   workTypeLabel: string
   workLocation: string
   startTime: string
@@ -130,6 +132,7 @@ export interface BreakNotifyPayload {
 
 export interface AccountPendingNotifyPayload {
   name: string
+  /** 내부 식별용 (서버 로그/관리자 페이지 link)에만 사용. 메시지 본문에는 노출 금지 */
   email: string
   createdAt: string
 }

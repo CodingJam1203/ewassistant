@@ -194,7 +194,7 @@ async function routeAndSend(
     console.warn('[Teams notify skipped]', {
       reason: 'Missing organization',
       eventType,
-      userId: messagePayload?.updatedByEmail || messagePayload?.name,
+      userName: messagePayload?.name,
       department,
       teamName,
       reportType,
@@ -210,7 +210,7 @@ async function routeAndSend(
     console.warn('[Teams notify skipped]', {
       reason: 'Route target not found',
       eventType,
-      userId: messagePayload?.updatedByEmail || messagePayload?.name,
+      userName: messagePayload?.name,
       department,
       teamName: normalizedTeam,
       reportType,
@@ -222,7 +222,6 @@ async function routeAndSend(
 
   console.log('[Teams notify attempt]', {
     eventType,
-    userId: messagePayload?.updatedByEmail || messagePayload?.name,
     userName: messagePayload?.name,
     department,
     teamName: normalizedTeam,
@@ -347,7 +346,8 @@ export function notifyBreakEnded(payload: BreakNotifyPayload): void {
 
 export function notifyAccountPending(payload: AccountPendingNotifyPayload): void {
   if (!isEnabled('account_pending')) return
-  console.log('[Teams] account_pending — no routing target, skipping for:', payload.email)
+  // 라우팅 대상 미설정 — 이메일 대신 이름으로만 로깅 (서버 로그에도 PII 최소화)
+  console.log('[Teams] account_pending — no routing target, skipping for:', payload.name)
 }
 
 // ─── cron 알림: 팀별 라우팅 테이블 사용 ─────────────────────────────────────
