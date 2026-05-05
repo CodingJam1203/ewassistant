@@ -25,7 +25,11 @@ import type {
 } from '@/types/leave-calendar'
 
 const TTL_MS = 30 * 60 * 1000  // 30분
-const APPS_SCRIPT_TIMEOUT_MS = 10_000
+// 사용자 요청 핫패스(getCalendarForDate)에서 사용. 평소엔 캐시 hit이라 영향 없고,
+// cache miss(첫 진입/TTL 만료)에서만 fetch. 너무 길면 페이지 로드가 같이 막혀서 짧게 둠.
+// cron 강제 갱신은 별도 timeout 사용.
+const APPS_SCRIPT_TIMEOUT_MS = 4_000
+const APPS_SCRIPT_TIMEOUT_MS_CRON = 15_000
 
 function cacheKey(date: string): string {
   return `calendar:${date}`
@@ -38,7 +42,10 @@ export function isCalendarEnabled(): boolean {
 
 // ─── Apps Script 호출 ─────────────────────────────────────────────────────────
 
-async function callAppsScriptOnce(date: string): Promise<CalendarBatchResponse> {
+async function callAppsScriptOnce(
+  date: string,
+  opts?: { timeoutMs?: number }
+): Promise<CalendarBatchResponse> {
   const url = process.env.LEAVE_CALENDAR_WEBHOOK_URL
   if (!url) {
     throw new Error('LEAVE_CALENDAR_WEBHOOK_URL not configured')
@@ -50,8 +57,9 @@ async function callAppsScriptOnce(date: string): Promise<CalendarBatchResponse> 
 
   const fullUrl = url.includes('?') ? `${url}&${params}` : `${url}?${params}`
 
+  const timeoutMs = opts?.timeoutMs ?? APPS_SCRIPT_TIMEOUT_MS
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), APPS_SCRIPT_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
     const res = await fetch(fullUrl, {
@@ -118,9 +126,18 @@ async function writeCache(date: string, payload: CalendarBatchResponse): Promise
 
 // ─── 공개 API ─────────────────────────────────────────────────────────────────
 
+// 같은 인스턴스에서 동시에 같은 date를 fetch하지 않도록 in-flight dedupe
+const inFlight = new Map<string, Promise<CalendarBatchResponse | null>>()
+
 /**
- * 캐시 우선 조회 — TTL 만료 시에만 Apps Script 호출.
- * Apps Script 실패 시 stale 캐시 fallback. 둘 다 실패하면 null.
+ * 캐시 우선 조회 — Stale-While-Revalidate 패턴.
+ *
+ * - cache hit (TTL 내) → 즉시 반환
+ * - cache hit (stale)  → stale 즉시 반환 + 백그라운드 갱신 (사용자는 안 기다림)
+ * - cache miss         → 동기 호출 (timeout 짧음). 실패 시 null
+ *
+ * 이 패턴 덕에 hot path에서 외부 fetch 대기 시간이 거의 0으로 수렴.
+ * 첫 진입 + cron 실패 같은 cold start에서만 동기 대기 발생.
  */
 export async function getCalendarForDate(date: string): Promise<CalendarBatchResponse | null> {
   if (!isCalendarEnabled()) return null
@@ -128,23 +145,44 @@ export async function getCalendarForDate(date: string): Promise<CalendarBatchRes
   const cached = await readCache(date)
   const now = Date.now()
 
-  if (cached && now - cached.updatedAtMs < TTL_MS) {
+  if (cached) {
+    const fresh = now - cached.updatedAtMs < TTL_MS
+    if (fresh) {
+      // ✓ 캐시 신선 — 즉시 반환
+      return cached.data
+    }
+    // ✗ stale — 즉시 반환 + 백그라운드 갱신 트리거
+    triggerBackgroundRefresh(date)
     return cached.data
   }
 
-  // TTL 만료 또는 캐시 없음 → Apps Script 호출
+  // 캐시 자체 없음 → 동기 호출 (timeout 짧음)
   try {
     const fresh = await callAppsScriptOnce(date)
     await writeCache(date, fresh)
     return fresh
   } catch (err) {
-    console.warn('[leave-calendar] Apps Script fetch failed:', err)
-    if (cached) {
-      console.warn('[leave-calendar] returning stale cache (age=', now - cached.updatedAtMs, 'ms)')
-      return cached.data
-    }
+    console.warn('[leave-calendar] cold-cache fetch failed:', err)
     return null
   }
+}
+
+function triggerBackgroundRefresh(date: string): void {
+  if (inFlight.has(date)) return
+  const p = (async () => {
+    try {
+      const fresh = await callAppsScriptOnce(date)
+      await writeCache(date, fresh)
+      return fresh
+    } catch (err) {
+      console.warn('[leave-calendar] background refresh failed:', err)
+      return null
+    } finally {
+      inFlight.delete(date)
+    }
+  })()
+  inFlight.set(date, p)
+  // p를 await하지 않음 — 사용자 응답은 stale 캐시로 즉시 반환됨
 }
 
 /**
@@ -157,7 +195,8 @@ export async function forceRefreshCalendar(date: string): Promise<CalendarBatchR
   if (!isCalendarEnabled()) return null
 
   try {
-    const fresh = await callAppsScriptOnce(date)
+    // cron은 사용자 요청 응답을 막지 않으므로 timeout을 길게 잡음
+    const fresh = await callAppsScriptOnce(date, { timeoutMs: APPS_SCRIPT_TIMEOUT_MS_CRON })
     await writeCache(date, fresh)
     return fresh
   } catch (err) {
@@ -268,7 +307,6 @@ export async function getUserCalendarLookup(opts: {
 
 /**
  * 본부 전체 휴가자 조회 (07시 cron용).
- * 결과: 본부 안의 [{name, leaveType, leaveLabel, events}, ...] (휴가가 아닌 사람도 events 있을 수 있음)
  */
 export async function getDepartmentDailyParsed(opts: {
   date: string

@@ -321,23 +321,27 @@ export default function TeamPage() {
   const [showHeaderCheckIn, setShowHeaderCheckIn] = useState(false)  // 우상단 출근보고 작성
   const [myProfile, setMyProfile] = useState<{ display_name: string | null; division: string | null; team: string | null } | null>(null)
 
-  // 조직 구조 로드
+  // 초기 hydration — org + profile을 병렬로 로드 (각각 직렬 useEffect보다 빠름)
   useEffect(() => {
-    fetch('/api/org').then(r => r.json()).then(data => {
-      if (Array.isArray(data)) setOrgDivisions(data)
-    }).catch(() => {})
-  }, [])
-
-  // 내 프로필 로드 → 기본 필터 설정
-  useEffect(() => {
-    fetch('/api/auth/profile').then(r => r.json()).then(data => {
-      if (data.email) {
-        setMyProfile({ display_name: data.display_name, division: data.division, team: data.team })
-        if (!filterDiv && data.division) setFilterDiv(data.division)
-        if (!filterTeam && data.team)    setFilterTeam(data.team)
+    let cancelled = false
+    Promise.all([
+      fetch('/api/org').then(r => r.json()).catch(() => null),
+      fetch('/api/auth/profile').then(r => r.json()).catch(() => null),
+    ]).then(([orgData, profileData]) => {
+      if (cancelled) return
+      if (Array.isArray(orgData)) setOrgDivisions(orgData)
+      if (profileData?.email) {
+        setMyProfile({
+          display_name: profileData.display_name,
+          division: profileData.division,
+          team: profileData.team,
+        })
+        // 기본 필터 설정 (사용자가 직접 변경하기 전에만)
+        setFilterDiv(prev => prev || profileData.division || '')
+        setFilterTeam(prev => prev || profileData.team || '')
       }
-    }).catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    })
+    return () => { cancelled = true }
   }, [])
 
   const fetchCards = useCallback(async () => {

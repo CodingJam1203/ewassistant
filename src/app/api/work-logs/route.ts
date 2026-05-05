@@ -333,8 +333,10 @@ export async function GET(request: Request) {
     const mine = searchParams.get('mine') === 'true'
     const filterDivision = searchParams.get('division') ?? ''
     const filterTeam = searchParams.get('team') ?? ''
+    // 기본 200건. 명시적 limit 요청 시 최대 500까지 (이전 1000은 페이로드 과대).
+    // UI는 my-logs(100), history는 별도 limit 안 줘도 200이면 충분.
     const limitParam = searchParams.get('limit')
-    const limit = limitParam ? Math.min(Number(limitParam), 1000) : 500
+    const limit = limitParam ? Math.min(Math.max(Number(limitParam) || 0, 1), 500) : 200
 
     let query = supabase
       .from('work_logs')

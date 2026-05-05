@@ -47,6 +47,17 @@ export async function GET(request: Request) {
       const isAuthRecreated = existing && existing.id !== user.id  // Auth 재생성
       const isLockedRelogin = existing && !isAuthRecreated && existing.is_active === false
 
+      // 진단 로그 — 어떤 케이스로 떨어지는지 추적용
+      console.log('[Auth Callback] 분기 진단', {
+        email: user.email,
+        authUserId: user.id,
+        profileExists: !!existing,
+        profileId: existing?.id ?? null,
+        profileIsActive: existing?.is_active ?? null,
+        isAuthRecreated,
+        isLockedRelogin,
+      })
+
       if (!existing) {
         // ── 신규 유저: pre_approved_emails 확인 ─────────────────────────────
         const { data: preApproved } = await adminClient
@@ -78,13 +89,13 @@ export async function GET(request: Request) {
             is_active: false,
             role: 'user',
           })
+          console.log(`[Auth Callback] 신규 계정 생성 및 잠금: ${user.email} → 메일 발송 시도`)
           sendNewAccountApprovalEmail({
             email: user.email,
             createdAt: new Date().toISOString(),
           }).catch(err =>
             console.error('[Email] 신규 계정 알림 발송 실패:', err)
           )
-          console.log(`[Auth Callback] 신규 계정 생성 및 잠금: ${user.email}`)
         }
 
       } else if (isAuthRecreated || isLockedRelogin) {
@@ -104,15 +115,22 @@ export async function GET(request: Request) {
           .eq('email', user.email)
 
         if (isAuthRecreated) {
+          console.log(`[Auth Callback] Auth 재생성 계정 → 재가입 처리: ${user.email} → 메일 발송 시도`)
           sendNewAccountApprovalEmail({
             email: user.email,
             createdAt: new Date().toISOString(),
           }).catch(err =>
             console.error('[Email] 재가입 알림 발송 실패:', err)
           )
-          console.log(`[Auth Callback] Auth 재생성 계정 → 재가입 처리: ${user.email}`)
         } else {
-          console.log(`[Auth Callback] 잠금 계정 재로그인 → 약관 초기화: ${user.email}`)
+          // 잠금 계정 재로그인도 관리자에게 알림 (재가입 의사 표시로 간주)
+          console.log(`[Auth Callback] 잠금 계정 재로그인 → 약관 초기화 + 메일 발송 시도: ${user.email}`)
+          sendNewAccountApprovalEmail({
+            email: user.email,
+            createdAt: new Date().toISOString(),
+          }).catch(err =>
+            console.error('[Email] 잠금 계정 재로그인 알림 발송 실패:', err)
+          )
         }
 
       } else {
