@@ -40,4 +40,54 @@ export async function GET() {
     return NextResponse.json(profile)
   } catch (err: any) {
     console.error('Profile GET Error:', err)
-    return NextResponse.json({ 
+    return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
+  }
+}
+
+/**
+ * PATCH /api/auth/profile
+ * 현재 로그인한 사용자의 display_name 업데이트
+ * body: { display_name: string }
+ */
+export async function PATCH(request: Request) {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const body = await request.json()
+    const display_name = typeof body.display_name === 'string' ? body.display_name.trim() : null
+
+    if (!display_name) {
+      return NextResponse.json({ error: '이름을 입력해주세요.' }, { status: 400 })
+    }
+
+    const adminClient = createAdminClient()
+
+    // id로 먼저 시도
+    const { error } = await adminClient
+      .from('user_profiles')
+      .update({ display_name })
+      .eq('id', user.id)
+
+    if (error) {
+      // fallback: email로 시도
+      const { error: error2 } = await adminClient
+        .from('user_profiles')
+        .update({ display_name })
+        .eq('email', user.email)
+
+      if (error2) {
+        return NextResponse.json({ error: error2.message }, { status: 500 })
+      }
+    }
+
+    return NextResponse.json({ display_name })
+  } catch (err: any) {
+    console.error('Profile PATCH Error:', err)
+    return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
+  }
+}

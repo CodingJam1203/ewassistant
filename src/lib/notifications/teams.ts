@@ -120,22 +120,6 @@ async function routeAndSend(
   }
 }
 
-// ─── cron/summary 전용: 라우팅 없이 단일 채널로 전송 ─────────────────────────
-
-async function sendWithTarget(
-  eventType: EventType,
-  target: TeamsReplyTarget,
-  messagePayload: unknown
-): Promise<void> {
-  if (!isEnabled(eventType)) return
-  try {
-    const message = buildMessage(eventType, messagePayload)
-    await sendToMake(eventType, { ...target, message })
-  } catch (err) {
-    console.warn('[Teams] Message build/send failed — ' + eventType + ':', err)
-  }
-}
-
 // ─── 공개 wrapper 함수들 ──────────────────────────────────────────────────────
 
 export function notifyWorkLogSubmitted(payload: WorklogNotifyPayload): void {
@@ -214,33 +198,20 @@ export function notifyBreakEnded(payload: BreakNotifyPayload): void {
 }
 
 export function notifyAccountPending(payload: AccountPendingNotifyPayload): void {
-  // account_pending은 라우팅 대상 없음 — 전송 생략
   if (!isEnabled('account_pending')) return
   console.log('[Teams] account_pending — no routing target, skipping for:', payload.email)
 }
+
+// ─── cron 알림: 팀별 라우팅 테이블 사용 ─────────────────────────────────────
+// 각 팀의 출근보고 스레드로 발송 (팀별 별도 메시지)
 
 export async function notifyDailyCheckinReminder(
   type: 'daily_checkin_reminder_20' | 'daily_checkin_reminder_22',
   payload: DailyCheckinReminderData
 ): Promise<void> {
-  // cron 알림은 라우팅 테이블과 별개로 고정 채널을 환경변수로 관리
-  const teamId    = process.env.TEAMS_CRON_TEAM_ID
-  const channelId = process.env.TEAMS_CRON_CHANNEL_ID
-  const messageId = process.env.TEAMS_CRON_MESSAGE_ID
-  if (!teamId || !channelId || !messageId) {
-    console.log('[Teams] TEAMS_CRON_* not set — skipping ' + type)
-    return
-  }
-  return sendWithTarget(type, { teamId, channelId, messageId }, payload)
+  return routeAndSend(type, payload.division, payload.team, '출근보고', payload)
 }
 
 export async function notifyMorningSummary(payload: MorningSummaryData): Promise<void> {
-  const teamId    = process.env.TEAMS_CRON_TEAM_ID
-  const channelId = process.env.TEAMS_CRON_CHANNEL_ID
-  const messageId = process.env.TEAMS_CRON_MESSAGE_ID
-  if (!teamId || !channelId || !messageId) {
-    console.log('[Teams] TEAMS_CRON_* not set — skipping daily_morning_summary')
-    return
-  }
-  return sendWithTarget('daily_morning_summary', { teamId, channelId, messageId }, payload)
+  return routeAndSend('daily_morning_summary', payload.division, payload.team, '출근보고', payload)
 }

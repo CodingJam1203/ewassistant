@@ -71,4 +71,30 @@ export default async function Navbar() {
               await supabaseServer.auth.signOut()
               redirect('/login')
             }}>
-              <button type="submit" className="text-gray-500 hover:text-gray-700 p-2" title="로그�
+              <button type="submit" className="text-gray-500 hover:text-gray-700 p-2" title="로그아웃">
+                <LogOut className="h-5 w-5" />
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+      {/* Mobile nav */}
+      <div className="sm:hidden flex overflow-x-auto border-t border-gray-100 dark:border-gray-700 py-2 px-4 space-x-4">
+        {navLinks.map(({ href, label }) => (
+          <Link key={href} href={href} className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">
+            {label}
+          </Link>
+        ))}
+        <a
+          href={EW_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm font-medium text-blue-600 whitespace-nowrap flex items-center gap-1"
+        >
+          EW 바로가기
+          <ExternalLink className="h-3 w-3" />
+        </a>
+      </div>
+    </nav>
+  )
+}

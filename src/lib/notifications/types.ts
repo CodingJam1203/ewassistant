@@ -17,13 +17,13 @@ export type EventType =
 
 export interface WorklogNotifyPayload {
   name: string
-  leaveDate: string                   // YYYY-MM-DD
+  leaveDate: string
   workTypeLabel: string
   workLocation: string
-  startTime: string                   // HH:mm
-  endTime: string                     // HH:mm
-  breakTime: string                   // HH:mm or HH:mm:ss (DB format)
-  lateOrAttendanceStatus: string      // '예' | '아니오'
+  startTime: string
+  endTime: string
+  breakTime: string
+  lateOrAttendanceStatus: string
   previousReportTime?: string | null
   currentReportTime?: string | null
   lateReason?: string | null
@@ -37,14 +37,14 @@ export interface WorklogNotifyPayload {
 }
 
 export interface ChangedField {
-  label: string   // Korean display label
+  label: string
   before: string
   after: string
 }
 
 export interface WorklogUpdateNotifyPayload {
   name: string
-  leaveDate: string                    // YYYY-MM-DD
+  leaveDate: string
   division?: string | null
   team?: string | null
   updatedByEmail: string
@@ -102,6 +102,8 @@ export interface AccountPendingNotifyPayload {
 }
 
 export interface DailyCheckinReminderData {
+  division: string           // 라우팅용
+  team: string               // 라우팅용
   targetDate: string
   members: Array<{
     name: string
@@ -110,6 +112,8 @@ export interface DailyCheckinReminderData {
 }
 
 export interface MorningSummaryData {
+  division: string           // 라우팅용
+  team: string               // 라우팅용
   todayDate: string
   yesterdayDate: string
   todayCheckins: Array<{ name: string; status: string }>

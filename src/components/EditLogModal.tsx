@@ -325,4 +325,30 @@ export default function EditLogModal({ log, onClose, onSave }: EditLogModalProps
                     <select value={actualCheckOut} onChange={e => setActualCheckOut(e.target.value)}
                       className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                       {TIME_OPTS.map(t => <option key={t} value={t}>{t || '(미기록)'}</option>)}
-     
+                    </select>
+                  </div>
+                </div>
+
+                {error && (
+                  <p className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+                )}
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button type="button" onClick={onClose}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+                    닫기
+                  </button>
+                  <button type="button" onClick={handleSaveActual} disabled={saving}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                    {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                    저장
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

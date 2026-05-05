@@ -57,4 +57,48 @@ export async function updateSession(request: NextRequest) {
         .single()
 
       if (profile) {
-        // 1. 약관 미동의 또는 구버전 → /consent 먼저 (잠금 계정도 
+        // 1. 약관 미동의 또는 구버전 → /consent 먼저 (잠금 계정도 동의는 먼저)
+        const needsConsent =
+          profile.terms_version !== CURRENT_TERMS_VERSION ||
+          profile.privacy_version !== CURRENT_PRIVACY_VERSION
+        if (needsConsent) {
+          const url = request.nextUrl.clone()
+          url.pathname = '/consent'
+          return NextResponse.redirect(url)
+        }
+
+        // 2. 약관 동의 완료 후 잠금 계정 차단
+        if (profile.is_active === false) {
+          const url = request.nextUrl.clone()
+          url.pathname = '/blocked'
+          return NextResponse.redirect(url)
+        }
+      }
+    } catch {
+      // user_profiles 미생성 시 통과
+    }
+  }
+
+  // /consent 접근: 이미 동의 완료했으면 상태에 따라 redirect
+  if (user && isConsentRoute) {
+    try {
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('is_active, terms_version, privacy_version')
+        .eq('id', user.id)
+        .single()
+
+      if (
+        profile &&
+        profile.terms_version === CURRENT_TERMS_VERSION &&
+        profile.privacy_version === CURRENT_PRIVACY_VERSION
+      ) {
+        const url = request.nextUrl.clone()
+        url.pathname = profile.is_active === false ? '/blocked' : '/team'
+        return NextResponse.redirect(url)
+      }
+    } catch {}
+  }
+
+  return supabaseResponse
+}
