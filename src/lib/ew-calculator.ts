@@ -199,11 +199,17 @@ export function buildCopyText(params: {
   endTimeText: string;
   actualWorkText: string;
   breakTimeText: string;
+  /** 휴가/반차 차감 시간 'HH:MM'. 없거나 0이면 생략 */
+  leaveTimeText?: string;
   ewValue: string;
   workContent?: string;
   breakReason?: string;
 }): string {
-  let text = `${params.dateText} ${params.workLocation} ${params.startTimeText}~${params.endTimeText} (실근무시간 : ${params.actualWorkText}) (휴게시간 : ${params.breakTimeText}) EW : ${params.ewValue}`;
+  let text = `${params.dateText} ${params.workLocation} ${params.startTimeText}~${params.endTimeText} (실근무시간 : ${params.actualWorkText}) (휴게시간 : ${params.breakTimeText})`;
+  if (params.leaveTimeText) {
+    text += ` (휴가시간 : ${params.leaveTimeText})`;
+  }
+  text += ` EW : ${params.ewValue}`;
   if (params.workContent) {
     text += ` //⭐근무⭐ ${params.workContent}`;
   }
@@ -251,6 +257,8 @@ export function calculateEw(input: EwInput): EwCalculationResult {
   const ewValue = getFinalEwValue(workTypeCode, ewStartMinutes, ewEndMinutes, deemedWorkEwValue);
   const dateText = formatKoreanDate(input.leaveDate);
   const breakTimeText = formatDurationHHMM(breakMinutes);
+  // 휴가 시간이 있을 때만 복사 문구에 (휴가시간 : HH:MM) 포함
+  const leaveTimeText = leaveMinutes > 0 ? formatDurationHHMM(leaveMinutes) : undefined;
 
   const copyText = buildCopyText({
     dateText,
@@ -259,6 +267,7 @@ export function calculateEw(input: EwInput): EwCalculationResult {
     endTimeText: input.endTime,
     actualWorkText,
     breakTimeText,
+    leaveTimeText,
     ewValue,
     workContent: input.workContent,
     breakReason: input.breakReason,
