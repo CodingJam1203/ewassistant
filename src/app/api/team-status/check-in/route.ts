@@ -116,15 +116,6 @@ export async function POST(request: Request) {
         : (timeline ? (buildLocationSummary(timeline) || workLocation) : workLocation)
 
       const leaveMinutes = totalLeaveRoundedMinutes(leaveTimeline ?? [])
-      const leaveCoversLunch = (() => {
-        // 12:00~13:00을 포함하는 휴가가 있으면 true
-        if (!leaveTimeline) return false
-        return leaveTimeline.some(it => {
-          const sH = parseInt(it.startTime.split(':')[0], 10)
-          const eH = parseInt(it.endTime.split(':')[0], 10)
-          return sH <= 12 && eH >= 13
-        })
-      })()
 
       const calcResult = calculateEw({
         name,
@@ -136,7 +127,7 @@ export async function POST(request: Request) {
         workLocation: locationSummary,
         workContent,
         leaveMinutes,
-        leaveIncludesLunch: leaveCoversLunch,
+        // leaveIncludesLunch 자동 처리 안 함 — 사용자가 차감시간 직접 조정
       })
 
       const { data: newLog, error: logErr } = await adminClient

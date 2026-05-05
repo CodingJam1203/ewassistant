@@ -17,7 +17,6 @@ import {
   validateLeaveTimeline,
   isFullDayLeave,
   totalLeaveRoundedMinutes,
-  leaveIncludesLunch as leaveIncludesLunchHelper,
   ceilTo30Min,
 } from '@/lib/leave-timeline'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
@@ -94,7 +93,7 @@ export async function PATCH(
       ?? []
     const leaveAllDay = isFullDayLeave(effectiveLeaveTimeline)
     const leaveMinutesEff = totalLeaveRoundedMinutes(effectiveLeaveTimeline)
-    const leaveCoversLunchEff = leaveIncludesLunchHelper(effectiveLeaveTimeline)
+    // leaveIncludesLunch 자동 처리 제거 — 사용자가 차감시간 직접 조정
 
     // ─── 본문 근무장소 타임라인 처리 (PATCH) ────────────────────────────────
     // body.workLocationTimeline이 명시적으로 전달된 경우에만 업데이트.
@@ -195,7 +194,7 @@ export async function PATCH(
       workContent: body.workContent,
       breakReason: body.breakReason,
       leaveMinutes: leaveMinutesEff,
-      leaveIncludesLunch: leaveCoversLunchEff,
+      // leaveIncludesLunch 자동 처리 안 함 — 사용자가 차감시간 직접 조정
     })
 
     const updates: Record<string, unknown> = {

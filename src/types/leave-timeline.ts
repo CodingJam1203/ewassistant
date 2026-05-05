@@ -21,15 +21,22 @@ export const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
   afternoon_half: '오후반차',
 }
 
-/** 각 휴가 타입의 고정 시간 블록과 차감 분 */
+/**
+ * 각 휴가 타입의 시간 블록과 기본 차감 분.
+ *
+ * - startTime/endTime: 표시용 시간 폭 (예: 오전반차 09:00~14:00)
+ * - defaultDeductionMinutes: 차감시간 select의 초기값 (사용자가 자유 조정 가능)
+ *
+ * 정책: 반차 = 4시간 차감 (점심시간 제외, 점심 1H는 EW 계산기가 자동 차감)
+ */
 export const LEAVE_TYPE_DEFINITIONS: Record<LeaveType, {
   startTime: string
   endTime: string
-  minutes: number
+  defaultDeductionMinutes: number
 }> = {
-  full_day:       { startTime: '09:00', endTime: '18:00', minutes: 8 * 60 },  // 480
-  morning_half:   { startTime: '09:00', endTime: '14:00', minutes: 5 * 60 },  // 300
-  afternoon_half: { startTime: '14:00', endTime: '18:00', minutes: 4 * 60 },  // 240
+  full_day:       { startTime: '09:00', endTime: '18:00', defaultDeductionMinutes: 8 * 60 },  // 480
+  morning_half:   { startTime: '09:00', endTime: '14:00', defaultDeductionMinutes: 4 * 60 },  // 240
+  afternoon_half: { startTime: '14:00', endTime: '18:00', defaultDeductionMinutes: 4 * 60 },  // 240
 }
 
 /** 한 항목의 휴가/반차 정보 */

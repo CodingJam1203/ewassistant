@@ -38,21 +38,27 @@ export function parseLeaveLabel(raw: string | null | undefined): LeaveType | nul
 /**
  * LeaveType + 표시 라벨로 LeaveTimelineItem 생성.
  * - displayLabel은 사용자 입력값 보존용 (예: '연차'). 미지정 시 기본 라벨.
+ * - deductionMinutes 미지정 시 LEAVE_TYPE_DEFINITIONS의 default 사용.
+ *   사용자가 UI에서 차감시간을 조정한 경우 호출자가 직접 값을 넘김.
  */
 export function buildLeaveItem(
   leaveType: LeaveType,
   displayLabel?: string,
-  source: LeaveTimelineItem['source'] = 'manual'
+  source: LeaveTimelineItem['source'] = 'manual',
+  deductionMinutes?: number,
 ): LeaveTimelineItem {
   const def = LEAVE_TYPE_DEFINITIONS[leaveType]
+  const minutes = (typeof deductionMinutes === 'number' && deductionMinutes >= 0)
+    ? deductionMinutes
+    : def.defaultDeductionMinutes
   return {
     kind: 'leave',
     leaveType,
     label: displayLabel?.trim() || LEAVE_TYPE_LABELS[leaveType],
     startTime: def.startTime,
     endTime: def.endTime,
-    actualMinutes: def.minutes,
-    roundedMinutes: def.minutes,
+    actualMinutes: minutes,    // 사용자가 조정 가능한 차감 시간
+    roundedMinutes: minutes,
     source,
   }
 }

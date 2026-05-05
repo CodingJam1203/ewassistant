@@ -21,7 +21,6 @@ import {
 import {
   validateLeaveTimeline,
   totalLeaveRoundedMinutes,
-  leaveIncludesLunch as leaveIncludesLunchHelper,
   isFullDayLeave,
   ceilTo30Min,
   minutesToDisplay,
@@ -265,10 +264,9 @@ export default function WorkLogForm({
   const derivedEndTime = endIt?.startTime ?? ''
   const derivedWorkLocationSummary = buildLocationSummary(workTimeline)
 
-  // 휴가 관련 도출값
+  // 휴가 관련 도출값 — 점심 중복 방지는 사용자가 차감시간을 직접 조정하므로 자동 처리 안 함
   const leaveTl = (formValues.leaveTimeline ?? []) as LeaveTimeline
   const leaveMinutesTotal = totalLeaveRoundedMinutes(leaveTl)
-  const leaveCoversLunch = leaveIncludesLunchHelper(leaveTl)
   const isAllDay = isFullDayLeave(leaveTl)
 
   // 휴게사유 표시 여부: 휴게시간 30분 이상
@@ -336,7 +334,7 @@ export default function WorkLogForm({
           workContent: formValues.workContent,
           breakReason: showBreakReason ? formValues.breakReason : undefined,
           leaveMinutes: leaveMinutesTotal,
-          leaveIncludesLunch: leaveCoversLunch,
+          // leaveIncludesLunch는 사용자가 차감시간을 직접 조정하므로 항상 false (점심 자동 차감 그대로)
         })
         onCalculate(result, null)
       } else {
@@ -349,7 +347,7 @@ export default function WorkLogForm({
     formValues.name, formValues.workTypeLabel, formValues.leaveDate,
     derivedStartTime, derivedEndTime, derivedWorkLocationSummary,
     formValues.breakTime, formValues.workContent, formValues.breakReason,
-    leaveMinutesTotal, leaveCoversLunch, isAllDay,
+    leaveMinutesTotal, isAllDay,
     onCalculate, showBreakReason
   ])
 
@@ -361,7 +359,6 @@ export default function WorkLogForm({
       const submittedLeave = (data.leaveTimeline ?? []) as LeaveTimeline
       const submittedIsAllDay = isFullDayLeave(submittedLeave)
       const submittedLeaveMinutes = totalLeaveRoundedMinutes(submittedLeave)
-      const submittedLeaveCoversLunch = leaveIncludesLunchHelper(submittedLeave)
 
       const submittedTimeline = (data.workLocationTimeline ?? []) as WorkLocationTimeline
       const submittedFirst = firstWorkLocation(submittedTimeline)
@@ -395,7 +392,7 @@ export default function WorkLogForm({
         workContent: data.workContent,
         breakReason: showBreakReason ? data.breakReason : undefined,
         leaveMinutes: submittedLeaveMinutes,
-        leaveIncludesLunch: submittedLeaveCoversLunch,
+        // leaveIncludesLunch 자동 처리 안 함 — 사용자가 차감시간 직접 조정
       })
 
       try {

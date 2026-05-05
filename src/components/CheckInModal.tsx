@@ -10,6 +10,7 @@ import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
 interface CheckInModalProps {
+  /** 초기 날짜 (사용자가 모달 안에서 자유롭게 변경 가능) */
   date: string
   userName: string | null
   /** 출근 버튼에서 시각이 결정된 경우 첫 work_location의 startTime으로 사용 */
@@ -32,8 +33,10 @@ function normalizeStartTimeTo30(input: string | undefined, fallback: string): st
 }
 
 export default function CheckInModal({
-  date, userName, initialStartTime, onClose, onSuccess,
+  date: initialDate, userName, initialStartTime, onClose, onSuccess,
 }: CheckInModalProps) {
+  // 모달 안에서 사용자가 변경 가능한 날짜 (기본값: prop으로 받은 date)
+  const [date, setDate] = useState<string>(initialDate)
   const [name, setName] = useState<string>(userName ?? '')
   const [breakTime, setBreakTime] = useState<string>('00:00')
   const [workContent, setWorkContent] = useState<string>('')
@@ -144,6 +147,18 @@ export default function CheckInModal({
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+          {/* 날짜 */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">날짜 *</label>
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value || initialDate)}
+              className="w-full sm:w-1/2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="mt-1 text-xs text-gray-400">기본값은 오늘이며, 다른 날짜로도 작성할 수 있습니다.</p>
+          </div>
+
           {/* 이름 */}
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">이름 *</label>
