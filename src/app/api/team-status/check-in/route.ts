@@ -22,7 +22,8 @@ export async function POST(request: Request) {
 
     const body = await request.json()
     const date: string = body.date ?? getKstTodayDateString()
-    const now = body.checked_in_at ?? new Date().toISOString()
+    // 실제 제출 시각 (감사/이벤트 로그용)
+    const submissionNow = new Date().toISOString()
     const adminClient = createAdminClient()
 
     const { data: profile } = await adminClient
@@ -58,8 +59,19 @@ export async function POST(request: Request) {
 
     let workLogId: string | null = body.work_log_id ?? null
 
+    // timeline 기준 출근 시각 ISO 계산 (KST → UTC 변환).
+    // 1) body.checked_in_at이 명시적으로 들어왔으면 그대로 사용 (출근 버튼 흐름)
+    // 2) 그렇지 않고 timeline 첫 항목이 있으면 그 시각을 KST 기준 ISO로 변환
+    // 3) 둘 다 없으면 제출 시각으로 fallback
+    const firstForTime = timeline ? firstWorkLocation(timeline) : null
+    const checkedInAt: string =
+      body.checked_in_at
+      ?? (firstForTime
+            ? new Date(`${date}T${firstForTime.startTime}:00+09:00`).toISOString()
+            : submissionNow)
+
     if (!workLogId) {
-      const breakTime    = body.break_time    ?? '01:00'
+      const breakTime    = body.break_time    ?? '00:00'
       const workContent  = body.work_content  ?? ''
       const name         = body.name ?? profile?.display_name ?? user.email!
 
@@ -123,7 +135,7 @@ export async function POST(request: Request) {
 
       await adminClient
         .from('user_profiles')
-        .update({ last_submitted_at: now })
+        .update({ last_submitted_at: submissionNow })
         .eq('email', user.email!)
     }
 
@@ -142,10 +154,10 @@ export async function POST(request: Request) {
         work_log_id:      workLogId,
         status:           'working',
         current_location: currentLocation,
-        checked_in_at:    now,
+        checked_in_at:    checkedInAt,    // 타임라인 첫 항목 시각 (KST 기준)
         checked_out_at:   null,
         is_on_break:      false,
-        updated_at:       now,
+        updated_at:       submissionNow,
       }, { onConflict: 'work_date,user_email' })
       .select()
       .single()
@@ -158,16 +170,16 @@ export async function POST(request: Request) {
       user_profile_id: profile?.id ?? null,
       work_log_id:     workLogId,
       event_type:      workLogId !== body.work_log_id ? 'report_created_from_check_in' : 'check_in',
-      event_value:     { location: currentLocation },
-      event_at:        now,
+      event_value:     { location: currentLocation, declared_check_in_at: checkedInAt },
+      event_at:        submissionNow,
       created_by:      user.email!,
     })
 
-    // Teams 출근 알림
+    // Teams 출근 알림 — 사용자 의도 출근 시각(타임라인 첫 항목)으로 표시
     notifyCheckinSubmitted({
       name: profile?.display_name || body.name || user.email!,
       date,
-      checkedInAt: now,
+      checkedInAt,
       workLocation: currentLocation,
       timeline: timeline ?? undefined,
       division: profile?.division ?? null,

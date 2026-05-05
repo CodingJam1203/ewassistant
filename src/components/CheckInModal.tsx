@@ -32,7 +32,7 @@ export default function CheckInModal({
   date, userName, initialStartTime, onClose, onSuccess,
 }: CheckInModalProps) {
   const [name, setName] = useState<string>(userName ?? '')
-  const [breakTime, setBreakTime] = useState<string>('01:00')
+  const [breakTime, setBreakTime] = useState<string>('00:00')
   const [workContent, setWorkContent] = useState<string>('')
   const [timeline, setTimeline] = useState<WorkLocationTimeline>(() => {
     // 임시 기본값 (이후 어제 expected가 있으면 fetch 결과로 교체)
