@@ -51,7 +51,20 @@ function toTeamsHtml(text: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
+    // markdown 링크 [text](url) → <a href="url">text</a>
+    // 이전 escape 단계에서 본문의 < > 가 이미 &lt; &gt; 로 치환됐으므로
+    // 여기서 새로 삽입하는 <a>, </a> 태그는 안전합니다.
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
     .replace(/\n/g, "<br>")
+}
+
+/**
+ * markdown 원문을 plain text로 변환합니다.
+ * - [text](url) → "text\nurl" 두 줄로 분리 → Teams의 URL 자동 linkify가 동작
+ * - HTML이 지원되지 않는 채널/Content Type 설정에서의 fallback 용도
+ */
+function toPlainText(text: string): string {
+  return text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1\n$2')
 }
 
 function isEnabled(eventType: EventType): boolean {
@@ -66,8 +79,19 @@ interface MakePayload {
   teamId: string
   channelId: string
   messageId: string
+  /**
+   * Teams 본문(HTML 형식).
+   * - Make의 Microsoft Teams 모듈에서 Content Type을 HTML로 설정하여 매핑하세요.
+   * - <a href="…">…</a> 형태의 hyperlink, <br> 줄바꿈이 포함됩니다.
+   */
   message: string
-  messageHtml?: string
+  /** `message`와 동일한 HTML 본문 (이전 시나리오 호환용 alias) */
+  messageHtml: string
+  /**
+   * Plain text 본문 (HTML 미지원 환경 fallback).
+   * - markdown 링크는 "텍스트\nURL" 두 줄로 풀려 있어 Teams autolinkify로 클릭 가능.
+   */
+  messageText: string
   eventType: EventType
 }
 
@@ -213,9 +237,21 @@ async function routeAndSend(
   })
 
   try {
-    const message = buildMessage(eventType, messagePayload)
-    const messageHtml = toTeamsHtml(message)
-    await sendToMake(eventType, { ...target, message, messageHtml, eventType }, department, normalizedTeam)
+    const messageRaw = buildMessage(eventType, messagePayload)   // markdown 원문
+    const messageHtml = toTeamsHtml(messageRaw)                  // HTML(<a>, <br>)
+    const messageText = toPlainText(messageRaw)                  // plain text fallback
+    await sendToMake(
+      eventType,
+      {
+        ...target,
+        message: messageHtml,   // primary: HTML 본문 (Content Type: HTML 권장)
+        messageHtml,            // back-compat alias
+        messageText,            // plain text fallback
+        eventType,
+      },
+      department,
+      normalizedTeam
+    )
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     console.warn('[Teams] Message build/send failed — ' + eventType + ':', err)
