@@ -484,18 +484,4 @@ export default function TeamPage() {
 
       {/* 퇴근보고 모달 */}
       {checkOutTarget && (
-        <WorkLogModal
-          date={date}
-          userName={myProfile?.display_name ?? null}
-          initialStartTime={
-            // 출근 버튼으로 찍은 시각 우선 → 없으면 출근보고 예정 시각
-            toHHmm(checkOutTarget.checked_in_at) ?? checkOutTarget.start_time ?? undefined
-          }
-          initialEndTime={checkOutTarget.end_time ?? undefined}
-          onClose={() => setCheckOutTarget(null)}
-          onSuccess={() => { setCheckOutTarget(null); fetchCards() }}
-        />
-      )}
-    </div>
-  )
-}
+     

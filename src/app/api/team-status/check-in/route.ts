@@ -117,12 +117,14 @@ export async function POST(request: Request) {
       created_by:      user.email!,
     })
 
-    // ─── Teams 출근 알림 ─────────────────────────────────────────────────────
+    // Teams 출근 알림
     notifyCheckinSubmitted({
       name: profile?.display_name || body.name || user.email!,
       date,
       checkedInAt: now,
       workLocation: currentLocation,
+      division: profile?.division ?? null,
+      team: profile?.team ?? null,
     })
 
     return NextResponse.json(daily)

@@ -123,7 +123,7 @@ export async function POST(request: Request) {
       // 비핵심 처리 — 실패 무시
     }
 
-    // ─── Teams 퇴근보고 제출 알림 (실패해도 저장 결과에 영향 없음) ────────────
+    // Teams 퇴근보고 제출 알림 (실패해도 저장 결과에 영향 없음)
     notifyWorkLogSubmitted({
       name: body.name ?? '',
       leaveDate: body.leaveDate ?? '',
@@ -141,6 +141,8 @@ export async function POST(request: Request) {
       expectedStartDate:    body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' ? (body.expectedStartDate ?? null) : null,
       expectedWorkTime:     body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' ? (body.expectedWorkTime ?? null) : null,
       expectedWorkLocation: finalExpectedWorkLocation,
+      division: userDivision,
+      team: userTeam,
     })
 
     return NextResponse.json(data)

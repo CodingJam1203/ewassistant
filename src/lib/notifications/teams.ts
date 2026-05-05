@@ -1,17 +1,25 @@
 /**
  * Teams notification gateway
- * N-Click server -> Make Custom Webhook -> Microsoft Teams
+ * N-Click server -> Make Custom Webhook -> Microsoft Teams (Reply to Channel Message)
  *
  * - MAKE_WEBHOOK_URL is server-only (never exposed to client)
  * - Notification failures never block main functionality
  * - 3-second timeout on webhook calls
  * - Per-event-type ON/OFF via environment variables
+ * - Routing: (department + teamName + reportType) -> TeamsReplyTarget
  */
 
 import { buildMessage } from './messages'
+import {
+  getTeamsReplyTarget,
+  resolveTeamsRouteReportType,
+  type TeamsReplyTarget,
+  type ReportType,
+} from './teams-routing'
 import type {
   EventType,
   WorklogNotifyPayload,
+  WorklogUpdateNotifyPayload,
   WorklogDeletedNotifyPayload,
   CheckinNotifyPayload,
   LocationChangedNotifyPayload,
@@ -41,7 +49,16 @@ function isEnabled(eventType: EventType): boolean {
   return process.env[key] !== 'false'
 }
 
-async function sendToMake(eventType: EventType, message: string): Promise<void> {
+// ─── Make Webhook 전송 ────────────────────────────────────────────────────────
+
+interface MakePayload {
+  teamId: string
+  channelId: string
+  messageId: string
+  message: string
+}
+
+async function sendToMake(eventType: EventType, payload: MakePayload): Promise<void> {
   const webhookUrl = process.env.MAKE_WEBHOOK_URL
   if (!webhookUrl) {
     console.log('[Teams] MAKE_WEBHOOK_URL not set — skipping ' + eventType)
@@ -55,7 +72,7 @@ async function sendToMake(eventType: EventType, message: string): Promise<void> 
     const res = await fetch(webhookUrl, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ eventType, message }),
+      body:    JSON.stringify(payload),
       signal:  controller.signal,
     })
     if (!res.ok) {
@@ -73,71 +90,157 @@ async function sendToMake(eventType: EventType, message: string): Promise<void> 
   }
 }
 
-export async function notifyTeams(eventType: EventType, payload: unknown): Promise<void> {
+// ─── 라우팅 후 전송 ───────────────────────────────────────────────────────────
+
+async function routeAndSend(
+  eventType: EventType,
+  department: string | null | undefined,
+  teamName: string | null | undefined,
+  reportType: ReportType,
+  messagePayload: unknown
+): Promise<void> {
   if (!isEnabled(eventType)) return
+
+  if (!department || !teamName) {
+    console.log('[Teams] No division/team — skipping ' + eventType)
+    return
+  }
+
+  const target = getTeamsReplyTarget({ department, teamName, reportType })
+  if (!target) {
+    console.log('[Teams] Route target not found — ' + eventType + ' / ' + department + ' / ' + teamName + ' / ' + reportType)
+    return
+  }
+
   try {
-    const message = buildMessage(eventType, payload)
-    await sendToMake(eventType, message)
+    const message = buildMessage(eventType, messagePayload)
+    await sendToMake(eventType, { ...target, message })
   } catch (err) {
     console.warn('[Teams] Message build/send failed — ' + eventType + ':', err)
   }
 }
 
-export function notifyWorkLogSubmitted(payload: WorklogNotifyPayload): void {
-  notifyTeams('worklog_submitted', payload).catch(err =>
-    console.warn('[Teams] worklog_submitted failed:', err)
-  )
+// ─── cron/summary 전용: 라우팅 없이 단일 채널로 전송 ─────────────────────────
+
+async function sendWithTarget(
+  eventType: EventType,
+  target: TeamsReplyTarget,
+  messagePayload: unknown
+): Promise<void> {
+  if (!isEnabled(eventType)) return
+  try {
+    const message = buildMessage(eventType, messagePayload)
+    await sendToMake(eventType, { ...target, message })
+  } catch (err) {
+    console.warn('[Teams] Message build/send failed — ' + eventType + ':', err)
+  }
 }
 
-export function notifyWorkLogUpdated(payload: WorklogNotifyPayload): void {
-  notifyTeams('worklog_updated', payload).catch(err =>
-    console.warn('[Teams] worklog_updated failed:', err)
-  )
+// ─── 공개 wrapper 함수들 ──────────────────────────────────────────────────────
+
+export function notifyWorkLogSubmitted(payload: WorklogNotifyPayload): void {
+  routeAndSend(
+    'worklog_submitted',
+    payload.division,
+    payload.team,
+    '퇴근보고',
+    payload
+  ).catch(err => console.warn('[Teams] worklog_submitted failed:', err))
+}
+
+export function notifyWorkLogUpdated(payload: WorklogUpdateNotifyPayload): void {
+  const reportType = resolveTeamsRouteReportType({
+    action: 'update',
+    originalReportType: payload.originalReportType,
+    scheduledWorkDate: payload.scheduledWorkDate ?? undefined,
+  })
+  routeAndSend(
+    'worklog_updated',
+    payload.division,
+    payload.team,
+    reportType,
+    payload
+  ).catch(err => console.warn('[Teams] worklog_updated failed:', err))
 }
 
 export function notifyWorkLogDeleted(payload: WorklogDeletedNotifyPayload): void {
-  notifyTeams('worklog_deleted', payload).catch(err =>
-    console.warn('[Teams] worklog_deleted failed:', err)
-  )
+  routeAndSend(
+    'worklog_deleted',
+    payload.division,
+    payload.team,
+    '퇴근보고',
+    payload
+  ).catch(err => console.warn('[Teams] worklog_deleted failed:', err))
 }
 
 export function notifyCheckinSubmitted(payload: CheckinNotifyPayload): void {
-  notifyTeams('checkin_submitted', payload).catch(err =>
-    console.warn('[Teams] checkin_submitted failed:', err)
-  )
+  routeAndSend(
+    'checkin_submitted',
+    payload.division,
+    payload.team,
+    '출근보고',
+    payload
+  ).catch(err => console.warn('[Teams] checkin_submitted failed:', err))
 }
 
 export function notifyLocationChanged(payload: LocationChangedNotifyPayload): void {
-  notifyTeams('location_changed', payload).catch(err =>
-    console.warn('[Teams] location_changed failed:', err)
-  )
+  routeAndSend(
+    'location_changed',
+    payload.division,
+    payload.team,
+    '퇴근보고',
+    payload
+  ).catch(err => console.warn('[Teams] location_changed failed:', err))
 }
 
 export function notifyBreakStarted(payload: BreakNotifyPayload): void {
-  notifyTeams('break_started', payload).catch(err =>
-    console.warn('[Teams] break_started failed:', err)
-  )
+  routeAndSend(
+    'break_started',
+    payload.division,
+    payload.team,
+    '퇴근보고',
+    payload
+  ).catch(err => console.warn('[Teams] break_started failed:', err))
 }
 
 export function notifyBreakEnded(payload: BreakNotifyPayload): void {
-  notifyTeams('break_ended', payload).catch(err =>
-    console.warn('[Teams] break_ended failed:', err)
-  )
+  routeAndSend(
+    'break_ended',
+    payload.division,
+    payload.team,
+    '퇴근보고',
+    payload
+  ).catch(err => console.warn('[Teams] break_ended failed:', err))
 }
 
 export function notifyAccountPending(payload: AccountPendingNotifyPayload): void {
-  notifyTeams('account_pending', payload).catch(err =>
-    console.warn('[Teams] account_pending failed:', err)
-  )
+  // account_pending은 라우팅 대상 없음 — 전송 생략
+  if (!isEnabled('account_pending')) return
+  console.log('[Teams] account_pending — no routing target, skipping for:', payload.email)
 }
 
 export async function notifyDailyCheckinReminder(
   type: 'daily_checkin_reminder_20' | 'daily_checkin_reminder_22',
   payload: DailyCheckinReminderData
 ): Promise<void> {
-  return notifyTeams(type, payload)
+  // cron 알림은 라우팅 테이블과 별개로 고정 채널을 환경변수로 관리
+  const teamId    = process.env.TEAMS_CRON_TEAM_ID
+  const channelId = process.env.TEAMS_CRON_CHANNEL_ID
+  const messageId = process.env.TEAMS_CRON_MESSAGE_ID
+  if (!teamId || !channelId || !messageId) {
+    console.log('[Teams] TEAMS_CRON_* not set — skipping ' + type)
+    return
+  }
+  return sendWithTarget(type, { teamId, channelId, messageId }, payload)
 }
 
 export async function notifyMorningSummary(payload: MorningSummaryData): Promise<void> {
-  return notifyTeams('daily_morning_summary', payload)
+  const teamId    = process.env.TEAMS_CRON_TEAM_ID
+  const channelId = process.env.TEAMS_CRON_CHANNEL_ID
+  const messageId = process.env.TEAMS_CRON_MESSAGE_ID
+  if (!teamId || !channelId || !messageId) {
+    console.log('[Teams] TEAMS_CRON_* not set — skipping daily_morning_summary')
+    return
+  }
+  return sendWithTarget('daily_morning_summary', { teamId, channelId, messageId }, payload)
 }

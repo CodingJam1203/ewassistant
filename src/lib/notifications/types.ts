@@ -22,16 +22,35 @@ export interface WorklogNotifyPayload {
   workLocation: string
   startTime: string                   // HH:mm
   endTime: string                     // HH:mm
-  breakTime: string                   // HH:mm or HH:mm:ss (DB 저장 형식)
+  breakTime: string                   // HH:mm or HH:mm:ss (DB format)
   lateOrAttendanceStatus: string      // '예' | '아니오'
   previousReportTime?: string | null
   currentReportTime?: string | null
   lateReason?: string | null
   workContent?: string | null
   attendanceRecordType?: string | null
-  expectedStartDate?: string | null   // 다음 출근 예정일
-  expectedWorkTime?: string | null    // 다음 출근 예정 시각 HH:mm
+  expectedStartDate?: string | null
+  expectedWorkTime?: string | null
   expectedWorkLocation?: string | null
+  division?: string | null
+  team?: string | null
+}
+
+export interface ChangedField {
+  label: string   // Korean display label
+  before: string
+  after: string
+}
+
+export interface WorklogUpdateNotifyPayload {
+  name: string
+  leaveDate: string                    // YYYY-MM-DD
+  division?: string | null
+  team?: string | null
+  updatedByEmail: string
+  originalReportType: '출근보고' | '퇴근보고'
+  scheduledWorkDate?: string | null
+  changedFields: ChangedField[]
 }
 
 export interface WorklogDeletedNotifyPayload {
@@ -44,13 +63,17 @@ export interface WorklogDeletedNotifyPayload {
   endTime: string
   breakTime: string
   workContent?: string | null
+  division?: string | null
+  team?: string | null
 }
 
 export interface CheckinNotifyPayload {
   name: string
-  date: string          // YYYY-MM-DD
-  checkedInAt: string   // ISO 문자열
+  date: string
+  checkedInAt: string
   workLocation: string
+  division?: string | null
+  team?: string | null
 }
 
 export interface LocationChangedNotifyPayload {
@@ -58,27 +81,31 @@ export interface LocationChangedNotifyPayload {
   date: string
   previousLocation: string
   newLocation: string
-  changedAt: string     // ISO 문자열
+  changedAt: string
+  division?: string | null
+  team?: string | null
 }
 
 export interface BreakNotifyPayload {
   name: string
   date: string
-  breakAt: string       // ISO 문자열
+  breakAt: string
   workLocation: string
+  division?: string | null
+  team?: string | null
 }
 
 export interface AccountPendingNotifyPayload {
   name: string
   email: string
-  createdAt: string     // ISO 문자열
+  createdAt: string
 }
 
 export interface DailyCheckinReminderData {
-  targetDate: string    // YYYY-MM-DD
+  targetDate: string
   members: Array<{
     name: string
-    status: string      // 미리 포맷된 상태 문자열
+    status: string
   }>
 }
 

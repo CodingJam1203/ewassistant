@@ -1,12 +1,13 @@
 /**
- * Teams 메시지 빌더
- * 모든 메시지 포맷팅 로직을 담당합니다.
- * 서버 전용 (process.env 사용)
+ * Teams message builder
+ * All message formatting logic lives here.
+ * Server-only (uses process.env)
  */
 
 import type {
   EventType,
   WorklogNotifyPayload,
+  WorklogUpdateNotifyPayload,
   WorklogDeletedNotifyPayload,
   CheckinNotifyPayload,
   LocationChangedNotifyPayload,
@@ -16,11 +17,11 @@ import type {
   MorningSummaryData,
 } from './types'
 
-// ─── 공통 헬퍼 ───────────────────────────────────────────────────────────────
+// ─── helpers ─────────────────────────────────────────────────────────────────
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
 
-/** YYYY-MM-DD → "2026/05/04(월)" */
+/** YYYY-MM-DD -> "2026/05/04(월)" */
 export function koreanDate(dateStr: string): string {
   const d = new Date(`${dateStr}T00:00:00+09:00`)
   const yyyy = d.getFullYear()
@@ -30,7 +31,7 @@ export function koreanDate(dateStr: string): string {
   return `${yyyy}/${mm}/${dd}(${w})`
 }
 
-/** YYYY-MM-DD → "5/4(월)" */
+/** YYYY-MM-DD -> "5/4(월)" */
 function shortKoreanDate(dateStr: string): string {
   const d = new Date(`${dateStr}T00:00:00+09:00`)
   const m = d.getMonth() + 1
@@ -39,7 +40,7 @@ function shortKoreanDate(dateStr: string): string {
   return `${m}/${day}(${w})`
 }
 
-/** ISO 문자열 → KST HH:mm, 시간 앞 0 제거: "09:30" → "9:30" */
+/** ISO string -> KST HH:mm, leading zero stripped: "09:30" -> "9:30" */
 function kstHHmm(iso: string): string {
   const d = new Date(iso)
   const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
@@ -48,7 +49,7 @@ function kstHHmm(iso: string): string {
   return `${h}:${m}`
 }
 
-/** "09:30" or "09:30:00" → "9:30" (시간 앞 0 제거) */
+/** "09:30" or "09:30:00" -> "9:30" (strip leading zero from hour) */
 export function fmtTime(timeStr: string): string {
   if (!timeStr) return ''
   const parts = timeStr.split(':')
@@ -57,27 +58,26 @@ export function fmtTime(timeStr: string): string {
   return `${h}:${m}`
 }
 
-/** "01:30:00" or "01:30" → "01:30" (휴게시간 표시용, 앞 0 유지) */
+/** "01:30:00" or "01:30" -> "01:30" (keep leading zero for break display) */
 export function fmtBreak(timeStr: string): string {
   if (!timeStr) return '00:00'
   const parts = timeStr.split(':')
   return `${parts[0].padStart(2, '0')}:${(parts[1] ?? '00').padStart(2, '0')}`
 }
 
-/** Teams 메시지 하단 CTA 링크 */
+/** CTA footer line */
 function cta(): string {
   const url = process.env.NCLICK_APP_URL
   return url ? `👉 N-Click 바로가기 : ${url}` : '👉 N-Click 바로가기'
 }
 
-// ─── 퇴근보고 공통 본문 ────────────────────────────────────────────────────────
+// ─── worklog body (submit) ────────────────────────────────────────────────────
 
 function worklogBody(prefix: string, p: WorklogNotifyPayload): string {
-  const breakStr = fmtBreak(p.breakTime)           // "01:30"
-  const breakHM  = fmtTime(breakStr)               // "1:30"
+  const breakStr = fmtBreak(p.breakTime)
+  const breakHM  = fmtTime(breakStr)
   const breakDisplay = `${breakHM} / 휴게`
 
-  // 지각/당일수정 라인
   const lateStatus = p.lateOrAttendanceStatus === '예' ? '예' : '아니오'
   const prevTime   = p.previousReportTime ? fmtTime(p.previousReportTime) : ''
   const currTime   = p.currentReportTime
@@ -85,7 +85,6 @@ function worklogBody(prefix: string, p: WorklogNotifyPayload): string {
     : (p.lateReason ?? '')
   const lateStr = `${lateStatus} / ${prevTime} / ${currTime}`
 
-  // 다음 출근보고 라인
   let nextCheckin = '미작성'
   if (
     p.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' &&
@@ -110,9 +109,9 @@ function worklogBody(prefix: string, p: WorklogNotifyPayload): string {
   ].join('\n')
 }
 
-// ─── 정기 알림 상태 포맷 헬퍼 (cron 라우트에서도 사용) ───────────────────────
+// ─── cron helpers (also used by cron routes) ─────────────────────────────────
 
-/** 야간 정기 알림(20h/22h) 출근보고 상태 */
+/** Nightly reminder (20h/22h) checkin status */
 export function formatNightlyCheckinStatus(
   checkin: { expected_work_location: string | null; expected_work_time: string | null } | undefined
 ): string {
@@ -122,7 +121,7 @@ export function formatNightlyCheckinStatus(
   return `${loc} ${st}~???`
 }
 
-/** 아침 요약 출근보고 상태 */
+/** Morning summary checkin status */
 export function formatMorningCheckinStatus(
   checkin: { expected_work_location: string | null; expected_work_time: string | null } | undefined
 ): string {
@@ -132,19 +131,19 @@ export function formatMorningCheckinStatus(
   return `${loc} ${st}~`
 }
 
-/** 아침 요약 퇴근보고 상태 */
+/** Morning summary worklog status */
 export function formatMorningWorklogStatus(
   log: { start_time: string; end_time: string; break_time: string; work_location: string } | undefined
 ): string {
   if (!log) return '❌'
   const start    = fmtTime(log.start_time)
   const end      = fmtTime(log.end_time)
-  const breakStr = fmtBreak(log.break_time)   // "01:30" 형식 유지
+  const breakStr = fmtBreak(log.break_time)
   const loc      = log.work_location || '미입력'
   return `${start}~${end} (${breakStr}) ${loc}`
 }
 
-// ─── 메시지 빌더 ─────────────────────────────────────────────────────────────
+// ─── message builder ──────────────────────────────────────────────────────────
 
 export function buildMessage(eventType: EventType, payload: unknown): string {
   switch (eventType) {
@@ -152,8 +151,14 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
     case 'worklog_submitted':
       return worklogBody(`🍀${(payload as WorklogNotifyPayload).name} 퇴근!`, payload as WorklogNotifyPayload)
 
-    case 'worklog_updated':
-      return worklogBody(`🔨${(payload as WorklogNotifyPayload).name} 수정!`, payload as WorklogNotifyPayload)
+    case 'worklog_updated': {
+      const p = payload as WorklogUpdateNotifyPayload
+      const reportLabel = p.originalReportType === '출근보고' ? '출근보고' : '퇴근보고'
+      const header = `[수정] ${p.name} ${reportLabel} 수정 / ${koreanDate(p.leaveDate)}`
+      const rows = p.changedFields.map(f => `🔹${f.label} : ${f.before} → ${f.after}`).join('\n')
+      const footer = `🔹수정자 : ${p.updatedByEmail}`
+      return [header, rows, footer, cta()].join('\n')
+    }
 
     case 'worklog_deleted': {
       const p = payload as WorklogDeletedNotifyPayload
@@ -215,7 +220,7 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
         `🔹이름 : ${p.name || '미입력'}`,
         `🔹이메일 : ${p.email}`,
         `🔹가입일시 : ${dateStr}`,
-        '🔹상태 : 관리자 승인 대기',
+        `🔹상태 : 관리자 승인 대기`,
         cta(),
       ].join('\n')
     }

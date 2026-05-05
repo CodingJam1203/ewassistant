@@ -183,17 +183,4 @@ export default function CheckInModal({
 
           <div className="flex justify-end gap-3 pt-1">
             <button type="button" onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600">
-              취소
-            </button>
-            <button type="submit" disabled={saving}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50">
-              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-              출근보고 작성하기
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:

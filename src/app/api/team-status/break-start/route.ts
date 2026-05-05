@@ -16,7 +16,7 @@ export async function POST(request: Request) {
 
     const { data: profile } = await adminClient
       .from('user_profiles')
-      .select('id, display_name')
+      .select('id, display_name, division, team')
       .eq('email', user.email!)
       .single()
 
@@ -61,12 +61,14 @@ export async function POST(request: Request) {
       created_by:      user.email!,
     })
 
-    // ─── Teams 휴게 시작 알림 ────────────────────────────────────────────────
+    // Teams 휴게 시작 알림
     notifyBreakStarted({
       name: profile?.display_name || user.email!,
       date,
       breakAt: now,
       workLocation: existing.current_location ?? '',
+      division: profile?.division ?? null,
+      team: profile?.team ?? null,
     })
 
     return NextResponse.json(daily)

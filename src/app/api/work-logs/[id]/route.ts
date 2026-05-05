@@ -3,6 +3,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdmin, requireActiveUser } from '@/lib/admin-check'
 import { calculateEw } from '@/lib/ew-calculator'
 import { notifyWorkLogUpdated, notifyWorkLogDeleted } from '@/lib/notifications/teams'
+import type { ChangedField } from '@/lib/notifications/types'
+import { fmtTime, fmtBreak } from '@/lib/notifications/messages'
 
 // ─── PATCH /api/work-logs/[id] ───────────────────────────────────────────────
 export async function PATCH(
@@ -17,7 +19,13 @@ export async function PATCH(
     const adminClient = createAdminClient()
     const { data: log, error: fetchError } = await adminClient
       .from('work_logs')
-      .select('user_id, user_email, name, is_deleted, leave_date, start_time, end_time, work_location, break_time, work_content, ew_value, work_type_label')
+      .select(
+        'user_id, user_email, name, is_deleted, division, team, ' +
+        'leave_date, start_time, end_time, work_location, break_time, work_content, ' +
+        'ew_value, work_type_label, attendance_record_type, expected_start_date, ' +
+        'late_or_attendance_status, previous_report_time, current_report_time, ' +
+        'late_reason, expected_work_time, expected_work_location'
+      )
       .eq('id', id)
       .single()
 
@@ -40,6 +48,13 @@ export async function PATCH(
       body.workLocationType === '기타'
         ? (body.workLocationCustom ?? body.workLocation ?? '')
         : (body.workLocationType ?? body.workLocation ?? '')
+
+    const finalExpectedWorkLocation: string | null =
+      body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
+        ? body.expectedWorkLocationType === '기타'
+          ? (body.expectedWorkLocation ?? null)
+          : (body.expectedWorkLocationType ?? body.expectedWorkLocation ?? null)
+        : null
 
     const calcResult = calculateEw({
       name: body.name,
@@ -115,26 +130,75 @@ export async function PATCH(
     } catch { /* 동기화 실패 무시 */ }
 
     // ─── Teams 수정 알림 ─────────────────────────────────────────────────────
-    notifyWorkLogUpdated({
-      name: body.name ?? log.name ?? '',
-      leaveDate: body.leaveDate ?? log.leave_date ?? '',
-      workTypeLabel: body.workTypeLabel ?? log.work_type_label ?? '',
-      workLocation: finalWorkLocation,
-      startTime: body.startTime ?? '',
-      endTime: body.endTime ?? '',
-      breakTime: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
-      lateOrAttendanceStatus: body.lateOrAttendanceStatus || '아니오',
-      previousReportTime: body.lateOrAttendanceStatus === '예' ? (body.previousReportTime ?? null) : null,
-      currentReportTime:  body.lateOrAttendanceStatus === '예' ? (body.currentReportTime ?? null) : null,
-      lateReason:         body.lateOrAttendanceStatus === '예' ? (body.lateReason ?? null) : null,
-      workContent: body.workContent || null,
-      attendanceRecordType: body.attendanceRecordType || null,
-      expectedStartDate:    body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' ? (body.expectedStartDate ?? null) : null,
-      expectedWorkTime:     body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' ? (body.expectedWorkTime ?? null) : null,
-      expectedWorkLocation: body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
-        ? (body.expectedWorkLocationType === '기타' ? body.expectedWorkLocation : body.expectedWorkLocationType) ?? null
-        : null,
-    })
+    try {
+      // 변경된 필드 계산 (before → after)
+      const isCheckin = log.attendance_record_type === '출근보고 진행 (주말출근, 휴가 포함)'
+      const changedFields: ChangedField[] = []
+
+      const strEq = (a: string | null | undefined, b: string | null | undefined) =>
+        (a ?? '') === (b ?? '')
+
+      if (!strEq(log.work_type_label, body.workTypeLabel)) {
+        changedFields.push({ label: '근무유형', before: log.work_type_label || '미입력', after: body.workTypeLabel || '미입력' })
+      }
+      if (!strEq(log.work_location, finalWorkLocation)) {
+        changedFields.push({ label: '근무장소', before: log.work_location || '미입력', after: finalWorkLocation || '미입력' })
+      }
+      if (!strEq(log.start_time, body.startTime)) {
+        changedFields.push({ label: '출근시각', before: fmtTime(log.start_time || ''), after: fmtTime(body.startTime || '') })
+      }
+      if (!strEq(log.end_time, body.endTime)) {
+        changedFields.push({ label: '퇴근시각', before: fmtTime(log.end_time || ''), after: fmtTime(body.endTime || '') })
+      }
+
+      const oldBreak = fmtBreak(log.break_time || '00:00:00')
+      const newBreak = fmtBreak(body.breakTime ? `${body.breakTime}:00` : '00:00:00')
+      if (oldBreak !== newBreak) {
+        changedFields.push({ label: '휴게시간', before: oldBreak, after: newBreak })
+      }
+      if (!strEq(log.work_content, body.workContent)) {
+        changedFields.push({ label: '근무내용', before: log.work_content || '미입력', after: body.workContent || '미입력' })
+      }
+      if (!strEq(log.late_or_attendance_status, body.lateOrAttendanceStatus)) {
+        changedFields.push({ label: '지각/당일수정', before: log.late_or_attendance_status || '아니오', after: body.lateOrAttendanceStatus || '아니오' })
+      }
+      if (body.lateOrAttendanceStatus === '예') {
+        if (!strEq(log.previous_report_time, body.previousReportTime)) {
+          changedFields.push({ label: '이전보고시각', before: fmtTime(log.previous_report_time || ''), after: fmtTime(body.previousReportTime || '') })
+        }
+        if (!strEq(log.current_report_time, body.currentReportTime)) {
+          changedFields.push({ label: '변경보고시각', before: fmtTime(log.current_report_time || ''), after: fmtTime(body.currentReportTime || '') })
+        }
+        if (!strEq(log.late_reason, body.lateReason)) {
+          changedFields.push({ label: '지각사유', before: log.late_reason || '미입력', after: body.lateReason || '미입력' })
+        }
+      }
+      if (isCheckin) {
+        if (!strEq(log.expected_start_date, body.expectedStartDate)) {
+          changedFields.push({ label: '출근예정일', before: log.expected_start_date || '미입력', after: body.expectedStartDate || '미입력' })
+        }
+        if (!strEq(log.expected_work_time, body.expectedWorkTime)) {
+          changedFields.push({ label: '출근예정시각', before: fmtTime(log.expected_work_time || ''), after: fmtTime(body.expectedWorkTime || '') })
+        }
+        if (!strEq(log.expected_work_location, finalExpectedWorkLocation)) {
+          changedFields.push({ label: '출근예정장소', before: log.expected_work_location || '미입력', after: finalExpectedWorkLocation || '미입력' })
+        }
+      }
+
+      const originalReportType = isCheckin ? '출근보고' : '퇴근보고'
+      const scheduledWorkDate  = isCheckin ? (log.expected_start_date ?? null) : null
+
+      notifyWorkLogUpdated({
+        name: body.name ?? log.name ?? '',
+        leaveDate: body.leaveDate ?? log.leave_date ?? '',
+        division: log.division ?? null,
+        team: log.team ?? null,
+        updatedByEmail: user.email ?? user.id,
+        originalReportType,
+        scheduledWorkDate,
+        changedFields,
+      })
+    } catch { /* 알림 실패 무시 */ }
 
     return NextResponse.json(data)
   } catch (err: unknown) {
@@ -156,10 +220,9 @@ export async function DELETE(
 
     const adminClient = createAdminClient()
 
-    // 알림용으로 더 많은 필드 조회
     const { data: log, error: fetchError } = await adminClient
       .from('work_logs')
-      .select('user_id, is_deleted, name, leave_date, work_type_label, work_location, start_time, end_time, break_time, work_content')
+      .select('user_id, is_deleted, name, leave_date, division, team, work_type_label, work_location, start_time, end_time, break_time, work_content')
       .eq('id', id)
       .single()
 
@@ -198,6 +261,8 @@ export async function DELETE(
       endTime: log.end_time ?? '',
       breakTime: log.break_time ?? '00:00:00',
       workContent: log.work_content ?? null,
+      division: log.division ?? null,
+      team: log.team ?? null,
     })
 
     return NextResponse.json({ success: true })

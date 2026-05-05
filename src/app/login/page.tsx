@@ -9,10 +9,4 @@ export default function LoginPage() {
           <NClickLogo className="h-12 w-auto mb-4" />
           <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
             NHR 출퇴근보고 및 EW 계산 보조 서비스
-          </p>
-        </div>
-        <LoginForm />
-      </div>
-    </div>
-  )
-}
+    

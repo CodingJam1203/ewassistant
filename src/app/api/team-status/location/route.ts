@@ -22,11 +22,10 @@ export async function POST(request: Request) {
 
     const { data: profile } = await adminClient
       .from('user_profiles')
-      .select('id, display_name')
+      .select('id, display_name, division, team')
       .eq('email', user.email!)
       .single()
 
-    // 이전 근무지 조회 (알림용)
     const { data: existingStatus } = await adminClient
       .from('daily_work_status')
       .select('current_location')
@@ -76,13 +75,15 @@ export async function POST(request: Request) {
       created_by:      user.email!,
     })
 
-    // ─── Teams 근무지 변경 알림 ──────────────────────────────────────────────
+    // Teams 근무지 변경 알림
     notifyLocationChanged({
       name: profile?.display_name || user.email!,
       date,
       previousLocation,
       newLocation: location,
       changedAt: now,
+      division: profile?.division ?? null,
+      team: profile?.team ?? null,
     })
 
     return NextResponse.json(daily)

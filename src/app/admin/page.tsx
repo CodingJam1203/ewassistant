@@ -856,8 +856,4 @@ export default function AdminPage() {
               <div className="py-12 text-center text-sm text-gray-500">계정이 없습니다.</div>
             )}
           </div>
-        </div>
-      )}
-    </div>
-  )
-}
+        </d
