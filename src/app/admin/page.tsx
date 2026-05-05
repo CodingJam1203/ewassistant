@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import {
   Lock, Unlock, RefreshCw, UserPlus, Trash2,
   ChevronDown, ChevronRight, Plus, X, Pencil, Loader2, Building2
@@ -614,6 +615,12 @@ export default function AdminPage() {
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null)
   const [togglingEmail, setTogglingEmail] = useState<string | null>(null)
 
+  // ?highlight=email — 신규 가입 알림 메일 링크에서 진입 시 해당 row 강조 + 자동 스크롤
+  const searchParams = useSearchParams()
+  const highlightEmail = (searchParams.get('highlight') || '').toLowerCase().trim()
+  const [highlightActive, setHighlightActive] = useState(false)
+  const highlightRowRef = useRef<HTMLTableRowElement | null>(null)
+
   const fetchOrg = useCallback(async () => {
     try {
       const res = await fetch('/api/org')
@@ -638,6 +645,21 @@ export default function AdminPage() {
   useEffect(() => {
     Promise.all([fetchOrg(), fetchUsers()])
   }, [fetchOrg, fetchUsers])
+
+  // highlight 처리 — users가 로드된 직후 한 번 스크롤 + 강조
+  useEffect(() => {
+    if (!highlightEmail || users.length === 0 || highlightActive) return
+    const target = users.find(u => u.email.toLowerCase() === highlightEmail)
+    if (!target) return
+    setHighlightActive(true)
+    // 다음 paint cycle에서 스크롤
+    setTimeout(() => {
+      highlightRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+    // 6초 후 강조 해제
+    const timer = setTimeout(() => setHighlightActive(false), 6000)
+    return () => clearTimeout(timer)
+  }, [highlightEmail, users, highlightActive])
 
   const fmt = (dt: string | null) => dt ? format(new Date(dt), 'MM/dd HH:mm') : '-'
 
@@ -764,9 +786,12 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-100">
-                {users.map(user => (
+                {users.map(user => {
+                  const isHighlighted = highlightActive && user.email.toLowerCase() === highlightEmail
+                  return (
                   <tr key={user.email}
-                    className={`hover:bg-gray-50 transition-colors ${!user.is_active ? 'opacity-50' : ''}`}>
+                    ref={isHighlighted ? highlightRowRef : null}
+                    className={`hover:bg-gray-50 transition-colors ${!user.is_active ? 'opacity-50' : ''} ${isHighlighted ? 'bg-yellow-100 ring-2 ring-yellow-400' : ''}`}>
                     {/* 이메일 */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="text-xs text-gray-700">{user.email}</span>
@@ -832,10 +857,14 @@ export default function AdminPage() {
                             ${user.is_active ? 'text-gray-400 hover:text-red-600' : 'text-red-400 hover:text-green-600'}`}
                           title={user.is_active ? '비활성화' : '활성화'}
                         >
-                          {user.is_active ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+                          {togglingEmail === user.email
+                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : user.is_active
+                              ? <Unlock className="h-4 w-4" />
+                              : <Lock className="h-4 w-4" />}
                         </button>
                       ) : (
-                        <span className="text-xs text-gray-300">보호됨</span>
+                        <span className="text-xs text-gray-200">—</span>
                       )}
                     </td>
                     {/* 삭제 */}
@@ -844,8 +873,8 @@ export default function AdminPage() {
                         <button
                           onClick={() => deleteUser(user)}
                           disabled={togglingEmail === user.email}
-                          className="text-gray-300 hover:text-red-500 transition-colors disabled:opacity-40"
-                          title={user.id !== null ? '계정 완전 삭제' : '사전 등록 삭제'}
+                          className="text-gray-400 hover:text-red-600 transition-colors disabled:opacity-40"
+                          title="삭제"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -854,7 +883,8 @@ export default function AdminPage() {
                       )}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
 

@@ -14,18 +14,22 @@ export default async function Navbar() {
   if (!user) return null
 
   let isAdmin = isBootstrapAdmin(user.email)
-  if (!isAdmin) {
-    try {
-      const { data: profile, error } = await supabase
-        .from('user_profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-      if (!error) isAdmin = profile?.role === 'admin'
-    } catch (err) {
-      console.warn('[Navbar] role fetch failed', err)
+  let displayName = ''
+  try {
+    const { data: profile, error } = await supabase
+      .from('user_profiles')
+      .select('role, display_name')
+      .eq('id', user.id)
+      .single()
+    if (!error && profile) {
+      if (!isAdmin) isAdmin = profile.role === 'admin'
+      displayName = (profile.display_name || '').trim()
     }
+  } catch (err) {
+    console.warn('[Navbar] profile fetch failed', err)
   }
+  // 이름이 없으면 '게스트' (이메일은 노출하지 않음)
+  const headerLabel = displayName || '게스트'
 
   const navLinks = [
     { href: '/team',    label: '상태 둘러보기' },
@@ -66,7 +70,9 @@ export default async function Navbar() {
             </div>
           </div>
           <div className="flex items-center space-x-4">
-            <span className="text-sm text-gray-700 hidden sm:block">{user.email}</span>
+            <span className="text-sm text-gray-700 hidden sm:block" title={displayName ? '' : '이름 미등록'}>
+              {headerLabel}
+            </span>
             <form action={async () => {
               'use server'
               const supabaseServer = await createClient()
@@ -87,7 +93,7 @@ export default async function Navbar() {
             {label}
           </Link>
         ))}
-        <a
+                <a
           href={EW_URL}
           target="_blank"
           rel="noopener noreferrer"
