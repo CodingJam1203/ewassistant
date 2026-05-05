@@ -111,13 +111,36 @@ export default function WorkLocationTimelineInput({
   }
 
   const addLocation = () => {
-    // expected_checkout 직전에 새 work_location 삽입
-    const checkoutIdx = value.findIndex(e => e.kind === 'expected_checkout')
-    const insertAt = checkoutIdx === -1 ? value.length : checkoutIdx
+    // 종료 항목(expected_checkout 또는 checkout)이 마지막에 있어야 정상.
+    // 만약 중간에 끼어 있다면 먼저 마지막으로 이동시켜 정렬한다.
+    const normalized = (() => {
+      const arr = [...value]
+      const endIdx = arr.findIndex(e => e.kind === 'expected_checkout' || e.kind === 'checkout')
+      if (endIdx === -1) return arr
+      if (endIdx === arr.length - 1) return arr
+      const [endItem] = arr.splice(endIdx, 1)
+      arr.push(endItem)
+      return arr
+    })()
 
-    // 새 항목 시작 시간: 직전 항목 시간보다 1시간 늦게 (TIME_OPTIONS 범위 안에서)
-    const prev = value[insertAt - 1]
-    const suggested = prev ? bumpHour(prev.startTime, 1) : '12:00'
+    // 종료 항목 직전에 새 work_location 삽입
+    const endIdx = normalized.findIndex(e => e.kind === 'expected_checkout' || e.kind === 'checkout')
+    const insertAt = endIdx === -1 ? normalized.length : endIdx
+
+    // 새 항목 시작 시간: 직전 항목 시간보다 1시간 늦게.
+    // 단 종료 항목 시간을 넘어가면 종료 시간 직전 30분으로 보정.
+    const prev = normalized[insertAt - 1]
+    const endItem = endIdx === -1 ? null : normalized[endIdx]
+    let suggested = prev ? bumpHour(prev.startTime, 1) : '12:00'
+
+    if (endItem) {
+      const endMin = toMinutes(endItem.startTime)
+      const sugMin = toMinutes(suggested)
+      if (sugMin >= endMin) {
+        const clampedMin = Math.max(endMin - 30, 0)
+        suggested = minutesToHHmm(clampedMin)
+      }
+    }
 
     const newItem: WorkLocationItem = {
       kind: 'work_location',
@@ -126,7 +149,7 @@ export default function WorkLocationTimelineInput({
       customLabel: null,
       startTime: suggested,
     }
-    const next = [...value.slice(0, insertAt), newItem, ...value.slice(insertAt)]
+    const next = [...normalized.slice(0, insertAt), newItem, ...normalized.slice(insertAt)]
     onChange(next)
   }
 
@@ -275,4 +298,18 @@ function bumpHour(hhmm: string, hours: number): string {
     mm = 30
   }
   return `${String(next).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+}
+
+/** 'HH:mm' → 분 단위 정수 */
+function toMinutes(hhmm: string): number {
+  const [h, m] = (hhmm ?? '').split(':').map(Number)
+  return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0)
+}
+
+/** 분 단위 정수 → 'HH:mm' (30분 단위 floor + 24h 클램프) */
+function minutesToHHmm(min: number): string {
+  const clamped = Math.max(0, Math.min(min, 23 * 60 + 30))
+  const h = Math.floor(clamped / 60)
+  const flooredM = clamped % 60 < 30 ? 0 : 30
+  return `${String(h).padStart(2, '0')}:${String(flooredM).padStart(2, '0')}`
 }
