@@ -170,13 +170,27 @@ function MemberCard({
             </p>
           </div>
         </div>
-        <span className={`flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full
-          ${card.color === 'green'  ? 'bg-green-100 text-green-700' : ''}
-          ${card.color === 'yellow' ? 'bg-yellow-100 text-yellow-700' : ''}
-          ${card.color === 'red'    ? 'bg-red-100 text-red-600' : ''}
-        `}>
-          {card.status_text}
-        </span>
+        <div className="flex-shrink-0 flex items-center gap-1">
+          {/* 캘린더 휴가 배지 — work_log 없을 때만 의미 있음 (있을 때는 기존 status가 우선) */}
+          {card.calendar_leave_type && !card.work_log_id && (
+            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+              card.calendar_leave_type === 'full_day'
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-orange-100 text-orange-700'
+            }`}>
+              {card.calendar_leave_type === 'full_day' ? '휴가'
+                : card.calendar_leave_type === 'morning_half' ? '오전반차'
+                : '오후반차'}
+            </span>
+          )}
+          <span className={`text-xs font-medium px-2 py-0.5 rounded-full
+            ${card.color === 'green'  ? 'bg-green-100 text-green-700' : ''}
+            ${card.color === 'yellow' ? 'bg-yellow-100 text-yellow-700' : ''}
+            ${card.color === 'red'    ? 'bg-red-100 text-red-600' : ''}
+          `}>
+            {card.status_text}
+          </span>
+        </div>
       </div>
 
       {/* 정보 그리드 */}

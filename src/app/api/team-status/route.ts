@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
+import { getCalendarForDate, parseCell, isCalendarEnabled } from '@/lib/leave-calendar'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
-import type { LeaveTimeline } from '@/types/leave-timeline'
+import type { LeaveTimeline, LeaveType } from '@/types/leave-timeline'
+import type { CalendarBatchResponse } from '@/types/leave-calendar'
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
 
@@ -51,18 +53,28 @@ export interface TeamMemberCard {
   /** 휴게 자동 누적 — 퇴근보고 폼 prefill용 */
   break_auto_actual_minutes: number | null
   break_auto_rounded_minutes: number | null
+  /** 외부 캘린더(Google Sheets) 휴가 판정 — work_log 없을 때 카드 배지 표시용 */
+  calendar_leave_type: LeaveType | null
+  calendar_leave_label: string | null
 }
 
 // ─── 상태/색상 계산 ───────────────────────────────────────────────────────────
 
 function computeStatus(
   workLog: Record<string, unknown> | null,
-  daily: Record<string, unknown> | null
+  daily: Record<string, unknown> | null,
+  calendarLeaveType: LeaveType | null = null,
 ): { color: 'green' | 'yellow' | 'red'; status_text: string; status: string } {
   const hasLog = !!workLog
   const checkedIn = !!(daily?.checked_in_at)
   const checkedOut = !!(daily?.checked_out_at)
   const onBreak = !!(daily?.is_on_break)
+
+  // 캘린더에 종일 휴가가 있고 N-Click 보고가 없으면 → 휴가 상태로 표시
+  // (반차는 결국 출근보고가 필요하므로 별도 처리하지 않음 — '미제출'로 두고 카드에 반차 배지만)
+  if (calendarLeaveType === 'full_day' && !hasLog && !checkedIn) {
+    return { color: 'yellow', status_text: '휴가', status: 'on_leave' }
+  }
 
   // 둘 다 없음 → 빨간색
   if (!hasLog && !daily) {
@@ -182,18 +194,48 @@ export async function GET(request: Request) {
       }
     }
 
+    // ── 외부 캘린더 batch 조회 (DB 캐시 30분 TTL — 한 번 호출) ───────────────
+    let calendarBatch: CalendarBatchResponse | null = null
+    if (isCalendarEnabled()) {
+      try {
+        calendarBatch = await getCalendarForDate(dateParam)
+      } catch (err) {
+        console.warn('[team-status] calendar fetch failed:', err)
+      }
+    }
+
+    /** 사용자 이름 + 본부로 캘린더 셀 조회 → 휴가/일반일정 파싱 */
+    function lookupCalendarLeave(division: string | null, displayName: string | null): {
+      leaveType: LeaveType | null
+      label: string | null
+    } {
+      if (!calendarBatch || !division || !displayName) return { leaveType: null, label: null }
+      const entries = calendarBatch.departments?.[division] ?? []
+      const target = entries.find(e => e.name?.trim() === displayName.trim())
+      if (!target) return { leaveType: null, label: null }
+      const parsed = parseCell(target.cellValue)
+      return {
+        leaveType: parsed.leaveType,
+        label: parsed.leaveType ? target.cellValue.trim() : null,
+      }
+    }
+
     // ── 카드 조립 ──────────────────────────────────────────────────────────────
     const cards: TeamMemberCard[] = profiles.map((profile: Record<string, unknown>) => {
       const email = profile.email as string
       const workLog = workLogByEmail.get(email) ?? null
       const daily   = dailyByEmail.get(email)   ?? null
 
-      const { color, status_text, status } = computeStatus(workLog, daily)
+      const division = (profile.division as string | null) ?? null
+      const displayName = (profile.display_name as string | null) ?? null
+      const calLeave = lookupCalendarLeave(division, displayName)
+
+      const { color, status_text, status } = computeStatus(workLog, daily, calLeave.leaveType)
 
       return {
         email,
-        display_name:    (profile.display_name as string | null) ?? null,
-        division:        (profile.division as string | null) ?? null,
+        display_name:    displayName,
+        division:        division,
         team:            (profile.team as string | null) ?? null,
         display_order:   (profile.display_order as number) ?? 999,
         is_self:         email === user.email,
@@ -225,6 +267,9 @@ export async function GET(request: Request) {
           (workLog?.break_auto_actual_minutes as number | null | undefined) ?? null,
         break_auto_rounded_minutes:
           (workLog?.break_auto_rounded_minutes as number | null | undefined) ?? null,
+        // 외부 캘린더 휴가 (work_log 없을 때 카드 배지 표시용)
+        calendar_leave_type:  calLeave.leaveType,
+        calendar_leave_label: calLeave.label,
       }
     })
 
