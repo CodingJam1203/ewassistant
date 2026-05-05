@@ -27,6 +27,7 @@ import {
 } from '@/lib/leave-timeline'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
+import type { WorkLog } from '@/types/work-log'
 
 const workLocationItemZ = z.object({
   kind: z.literal('work_location'),
@@ -162,6 +163,12 @@ interface WorkLogFormProps {
   /** legacy: timeline이 없을 때만 사용. checkout.startTime으로 prefill */
   initialEndTime?: string
   resubmitLogId?: string | null
+  /**
+   * 수정 모드 — 기존 work_log를 받아 모든 폼 필드를 prefill하고
+   * 제출 시 PATCH /api/work-logs/{id}를 호출.
+   * resubmitLogId와 동시에 줄 수 없음 (편집은 별도 흐름).
+   */
+  editingLog?: WorkLog | null
   onCalculate: (result: EwCalculationResult | null, error: string | null) => void
   onSubmitSuccess: () => void
 }
@@ -200,6 +207,28 @@ function buildInitialTimeline(
   return synth ?? defaultCheckoutTimeline()
 }
 
+/** editingLog → 본문 timeline (legacy 데이터에서 work_location_type/_custom 활용) */
+function buildEditTimeline(log: WorkLog): WorkLocationTimeline {
+  if (Array.isArray(log.work_location_timeline) && log.work_location_timeline.length > 0) {
+    const arr = [...log.work_location_timeline]
+    const last = arr[arr.length - 1]
+    if (last.kind === 'expected_checkout') {
+      arr[arr.length - 1] = { kind: 'checkout', startTime: last.startTime }
+    }
+    return arr
+  }
+  const start = trimToHHmm(log.start_time) || '09:00'
+  const end   = trimToHHmm(log.end_time)   || '18:00'
+  const synth = legacyToTimeline({
+    expectedWorkLocation:     log.work_location_custom ?? log.work_location ?? null,
+    expectedWorkLocationType: log.work_location_type ?? log.work_location ?? null,
+    expectedWorkTime:         start,
+    fallbackCheckoutTime:     end,
+    asExpected: false,
+  })
+  return synth ?? defaultCheckoutTimeline()
+}
+
 export default function WorkLogForm({
   userName,
   initialTimeline,
@@ -208,11 +237,16 @@ export default function WorkLogForm({
   initialStartTime,
   initialEndTime,
   resubmitLogId,
+  editingLog,
   onCalculate,
   onSubmitSuccess,
 }: WorkLogFormProps) {
-  // 휴게 자동값 (props에서 받음)
-  const breakAutoActualMinutes = initialBreakAutoActualMinutes ?? 0
+  const isEditing = !!editingLog
+
+  // 휴게 자동값 — 수정 모드면 editingLog의 값 우선
+  const breakAutoActualMinutes = isEditing
+    ? (editingLog?.break_auto_actual_minutes ?? 0)
+    : (initialBreakAutoActualMinutes ?? 0)
   const breakAutoRoundedMinutes = ceilTo30Min(breakAutoActualMinutes)
   /** 자동 계산값을 'HH:mm'으로 표현 (폼 default용) */
   const breakAutoHHmm = (() => {
@@ -236,22 +270,48 @@ export default function WorkLogForm({
     formState: { errors },
   } = useForm<WorkLogFormData>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      name: userName || '',
-      workTypeLabel: '기본근무 등록',
-      leaveDate: getKstTodayDateString(),
-      workLocationTimeline: buildInitialTimeline(initialTimeline, initialStartTime, initialEndTime),
-      leaveTimeline: (initialLeaveTimeline ?? []) as LeaveTimeline,
-      // 휴게 자동값이 있으면 그것을 기본값으로, 없으면 00:00
-      breakTime: breakAutoRoundedMinutes > 0 ? breakAutoHHmm : '00:00',
-      workContent: '',
-      lateOrAttendanceStatus: '아니오',
-      attendanceRecordType: '출근보고 진행 (주말출근, 휴가 포함)',
-      expectedStartDate: toKstDateString(addDays(new Date(), 1)),
-      expectedTimeline: defaultTimeline(),
-      expectedLeaveTimeline: [] as LeaveTimeline,
-      sendTeams: true,
-    },
+    defaultValues: isEditing && editingLog
+      ? {
+          // 수정 모드 — editingLog의 모든 필드 prefill
+          name: editingLog.name,
+          workTypeLabel: (editingLog.work_type_label as 'WorkLogFormData["workTypeLabel"]') ?? '기본근무 등록',
+          leaveDate: editingLog.leave_date,
+          workLocationTimeline: buildEditTimeline(editingLog),
+          leaveTimeline: (editingLog.leave_timeline ?? []) as LeaveTimeline,
+          breakTime: trimToHHmm(editingLog.break_time) || '00:00',
+          breakReason: editingLog.break_reason ?? '',
+          workContent: editingLog.work_content ?? '',
+          lateOrAttendanceStatus: (editingLog.late_or_attendance_status === '예' ? '예' : '아니오') as '예' | '아니오',
+          previousReportTime: editingLog.previous_report_time ?? '',
+          currentReportTime: editingLog.current_report_time ?? '',
+          lateReason: editingLog.late_reason ?? '',
+          attendanceRecordType:
+            (editingLog.attendance_record_type === '스킵(누락퇴근보고, 퇴근보고 수정)'
+              ? '스킵(누락퇴근보고, 퇴근보고 수정)'
+              : '출근보고 진행 (주말출근, 휴가 포함)'),
+          expectedStartDate: editingLog.expected_start_date ?? toKstDateString(addDays(new Date(editingLog.leave_date), 1)),
+          expectedTimeline: (editingLog.expected_work_location_timeline ?? defaultTimeline()) as WorkLocationTimeline,
+          expectedLeaveTimeline: (editingLog.expected_leave_timeline ?? []) as LeaveTimeline,
+          thanksMacaron: (editingLog.thanks_macaron as string | null) ?? '',
+          sendTeams: true,
+        }
+      : {
+          // 신규 작성 모드
+          name: userName || '',
+          workTypeLabel: '기본근무 등록',
+          leaveDate: getKstTodayDateString(),
+          workLocationTimeline: buildInitialTimeline(initialTimeline, initialStartTime, initialEndTime),
+          leaveTimeline: (initialLeaveTimeline ?? []) as LeaveTimeline,
+          // 휴게 자동값이 있으면 그것을 기본값으로, 없으면 00:00
+          breakTime: breakAutoRoundedMinutes > 0 ? breakAutoHHmm : '00:00',
+          workContent: '',
+          lateOrAttendanceStatus: '아니오',
+          attendanceRecordType: '출근보고 진행 (주말출근, 휴가 포함)',
+          expectedStartDate: toKstDateString(addDays(new Date(), 1)),
+          expectedTimeline: defaultTimeline(),
+          expectedLeaveTimeline: [] as LeaveTimeline,
+          sendTeams: true,
+        },
   })
 
   const formValues = watch()
@@ -276,17 +336,23 @@ export default function WorkLogForm({
   const breakUserChanged = (formValues.breakTime ?? '00:00') !== breakAutoHHmm && breakAutoRoundedMinutes > 0
 
   // ── userName prop이 비동기로 로드되면 이름 필드에 자동완성 (최초 1회) ───────
+  // 수정 모드에서는 editingLog.name이 이미 prefill됐으므로 덮어쓰지 않음
   useEffect(() => {
+    if (isEditing) {
+      nameInitialized.current = true
+      return
+    }
     if (userName && !nameInitialized.current) {
       setValue('name', userName)
       nameInitialized.current = true
     }
-  }, [userName, setValue])
+  }, [userName, setValue, isEditing])
 
   // ── 이름 필드 변경 시 debounce로 display_name 자동 업데이트 (800ms) ────────
+  // 수정 모드에서는 historical record 이름을 바꾼다고 사용자 프로필을 갱신하면 안 되므로 스킵
   useEffect(() => {
+    if (isEditing) return
     const currentName = formValues.name
-    // 아직 초기화 전이거나 빈 값이면 스킵
     if (!currentName || !nameInitialized.current) return
 
     if (nameDebounceRef.current) clearTimeout(nameDebounceRef.current)
@@ -306,7 +372,7 @@ export default function WorkLogForm({
     return () => {
       if (nameDebounceRef.current) clearTimeout(nameDebounceRef.current)
     }
-  }, [formValues.name]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [formValues.name, isEditing]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     try {
@@ -401,8 +467,14 @@ export default function WorkLogForm({
         console.warn('Clipboard write failed:', err)
       }
 
-      const res = await fetch('/api/work-logs', {
-        method: 'POST',
+      // 수정 모드 vs 신규 작성 모드 분기
+      const url = isEditing && editingLog
+        ? `/api/work-logs/${editingLog.id}`
+        : '/api/work-logs'
+      const method = isEditing ? 'PATCH' : 'POST'
+
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...data,
@@ -414,12 +486,14 @@ export default function WorkLogForm({
           workLocationType: submittedFirst?.type === 'custom' ? '기타' : (submittedFirst?.label ?? '사무실'),
           workLocationCustom: submittedFirst?.type === 'custom' ? (submittedFirst.customLabel ?? '') : '',
           finalWorkLocation: submittedWorkLocation,
+          workLocation: submittedWorkLocation, // PATCH legacy fallback 호환
           // 휴게 분리 값
           breakAutoActualMinutes: breakAutoActualMinutes,
           breakAutoRoundedMinutes: breakAutoRoundedMinutes,
           breakManualRoundedMinutes: breakIsManual ? breakManualMinutes : null,
           breakFinalRoundedMinutes: breakFinalRoundedMinutes,
-          resubmitLogId,
+          // 수정 모드에서는 resubmitLogId 안 씀 (별도 흐름)
+          resubmitLogId: isEditing ? null : resubmitLogId,
         }),
       })
 

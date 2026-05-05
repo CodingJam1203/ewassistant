@@ -7,6 +7,7 @@ import CalculationPreview from '@/components/CalculationPreview'
 import { EwCalculationResult } from '@/lib/ew-calculator'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
+import type { WorkLog } from '@/types/work-log'
 
 interface WorkLogModalProps {
   date: string           // YYYY-MM-DD — 퇴근 날짜, check-out API에 전달
@@ -20,8 +21,14 @@ interface WorkLogModalProps {
   initialStartTime?: string  // legacy fallback
   initialEndTime?: string    // legacy fallback
   resubmitWorkLogId?: string | null // 퇴근취소 후 재제출일 때 기존 로그 ID
+  /**
+   * 수정 모드 — 기존 work_log를 받아 모든 폼 필드를 prefill하고
+   * 제출 시 PATCH /api/work-logs/{id}를 호출. check-out API는 호출하지 않음.
+   * resubmitWorkLogId와 동시에 줄 수 없음.
+   */
+  editingLog?: WorkLog | null
   onClose: () => void
-  onSuccess: () => void  // 폼 제출 + check-out 완료 후 호출
+  onSuccess: () => void  // 폼 제출 + check-out 완료 후 호출 (편집 모드에선 check-out 스킵)
 }
 
 export default function WorkLogModal({
@@ -33,9 +40,11 @@ export default function WorkLogModal({
   initialStartTime,
   initialEndTime,
   resubmitWorkLogId,
+  editingLog,
   onClose,
   onSuccess,
 }: WorkLogModalProps) {
+  const isEditing = !!editingLog
   const [calculationResult, setCalculationResult] = useState<EwCalculationResult | null>(null)
   const [calculationError, setCalculationError]   = useState<string | null>(null)
   const [checkingOut, setCheckingOut]             = useState(false)
@@ -48,8 +57,13 @@ export default function WorkLogModal({
     []
   )
 
-  // WorkLogForm 제출 성공 → check-out API 호출 → 모달 닫기
+  // WorkLogForm 제출 성공 → (신규 모드면) check-out API 호출 → 모달 닫기
   const handleSubmitSuccess = async () => {
+    if (isEditing) {
+      // 수정 모드 — check-out 호출 안 함, 바로 종료
+      onSuccess()
+      return
+    }
     setCheckingOut(true)
     try {
       await fetch('/api/team-status/check-out', {
@@ -65,6 +79,11 @@ export default function WorkLogModal({
     onSuccess()
   }
 
+  const headerTitle    = isEditing ? '제출 내역 수정' : '출퇴근보고 입력'
+  const headerSubtitle = isEditing
+    ? `${date} — 필요한 항목을 수정한 후 제출 및 복사하기`
+    : `${date} — 퇴근보고를 작성하면 퇴근 처리됩니다`
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 overflow-y-auto py-6 px-4"
@@ -73,8 +92,8 @@ export default function WorkLogModal({
         {/* 헤더 */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <div>
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">출퇴근보고 입력</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{date} — 퇴근보고를 작성하면 퇴근 처리됩니다</p>
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{headerTitle}</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{headerSubtitle}</p>
           </div>
           <button
             onClick={onClose}
@@ -102,6 +121,7 @@ export default function WorkLogModal({
                   initialStartTime={initialStartTime}
                   initialEndTime={initialEndTime}
                   resubmitLogId={resubmitWorkLogId}
+                  editingLog={editingLog}
                   onCalculate={handleCalculate}
                   onSubmitSuccess={handleSubmitSuccess}
                 />

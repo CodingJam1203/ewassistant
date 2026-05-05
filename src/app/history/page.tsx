@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Copy, Check, RefreshCw, Pencil, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { getKstTodayDateString } from '@/lib/utils/date'
-import EditLogModal from '@/components/EditLogModal'
+import WorkLogModal from '@/components/WorkLogModal'
 import type { WorkLog } from '@/types/work-log'
 
 interface OrgTeam { id: string; division_id: string; name: string }
@@ -126,24 +126,26 @@ export default function HistoryPage() {
     }
   }
 
-  const handleSave = (updated: WorkLog) => {
-    setLogs(prev => prev.map(l => l.id === updated.id ? { ...l, ...updated } : l))
+  const handleEditSuccess = () => {
     setEditingLog(null)
+    fetchLogs()  // 수정 후 목록 갱신
   }
 
   return (
     <div className="space-y-6">
-      {/* 수정 모달 (관리자) */}
+      {/* 수정 모달 (관리자) — WorkLogModal 풀 폼 */}
       {editingLog && isAdmin && (
-        <EditLogModal
-          log={editingLog}
+        <WorkLogModal
+          date={editingLog.leave_date}
+          userName={editingLog.name}
+          editingLog={editingLog}
           onClose={() => setEditingLog(null)}
-          onSave={handleSave}
+          onSuccess={handleEditSuccess}
         />
       )}
 
       <div className="sm:flex sm:items-center sm:justify-between">
-        <h2 className="text-2xl font-bold leading-7 text-gray-900">전체 신청내역</h2>
+        <h2 className="text-2xl font-bold leading-7 text-gray-900">전체 제출 내역</h2>
       </div>
 
       {/* 필터 */}

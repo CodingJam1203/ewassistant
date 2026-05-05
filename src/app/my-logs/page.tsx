@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Copy, Check, RefreshCw, Pencil, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
-import EditLogModal from '@/components/EditLogModal'
+import WorkLogModal from '@/components/WorkLogModal'
 import type { WorkLog } from '@/types/work-log'
 
 function CopyCell({ text }: { text: string }) {
@@ -92,18 +92,20 @@ export default function MyLogsPage() {
     }
   }
 
-  const handleSave = (updated: WorkLog) => {
-    setLogs(prev => prev.map(l => l.id === updated.id ? { ...l, ...updated } : l))
+  const handleEditSuccess = () => {
     setEditingLog(null)
+    fetchLogs()  // 수정 후 목록 갱신
   }
 
   return (
     <div className="space-y-6">
       {editingLog && (
-        <EditLogModal
-          log={editingLog}
+        <WorkLogModal
+          date={editingLog.leave_date}
+          userName={editingLog.name}
+          editingLog={editingLog}
           onClose={() => setEditingLog(null)}
-          onSave={handleSave}
+          onSuccess={handleEditSuccess}
         />
       )}
 

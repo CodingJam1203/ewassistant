@@ -28,7 +28,7 @@ export default async function Navbar() {
   const navLinks = [
     { href: '/team',    label: '상태 둘러보기' },
     { href: '/my-logs', label: 'My Page' },
-    { href: '/history', label: '전체 신청내역' },
+    { href: '/history', label: '전체 제출 내역' },
     ...(isAdmin ? [{ href: '/admin', label: '관리자' }] : []),
   ]
 
