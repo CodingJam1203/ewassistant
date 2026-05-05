@@ -82,7 +82,7 @@ async function logNotification(
 ) {
   try {
     const adminClient = createAdminClient()
-    await adminClient.from('notification_logs').insert({
+    const { error } = await adminClient.from('notification_logs').insert({
       event_type: eventType,
       status,
       department,
@@ -91,6 +91,9 @@ async function logNotification(
       payload,
       error_message: errorMessage,
     })
+    if (error) {
+      console.error('[Teams] Supabase Insert Error for notification_logs:', error)
+    }
   } catch (err) {
     console.error('[Teams] Failed to log notification to DB:', err)
   }

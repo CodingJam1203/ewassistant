@@ -7,6 +7,7 @@ import * as z from 'zod'
 import { calculateEw, EwCalculationResult } from '@/lib/ew-calculator'
 import { Loader2, Copy } from 'lucide-react'
 import { format, addDays } from 'date-fns'
+import { getKstTodayDateString, toKstDateString } from '@/lib/utils/date'
 
 const formSchema = z.object({
   name: z.string().min(1, '이름을 입력해주세요'),
@@ -95,7 +96,7 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
     defaultValues: {
       name: userName || '',
       workTypeLabel: '기본근무 등록',
-      leaveDate: format(new Date(), 'yyyy-MM-dd'),
+      leaveDate: getKstTodayDateString(),
       startTime: initialStartTime?.substring(0, 5) ?? '09:00',
       endTime: initialEndTime?.substring(0, 5) ?? '18:00',
       breakTime: '00:00',
@@ -104,7 +105,7 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
       workLocationCustom: '',
       lateOrAttendanceStatus: '아니오',
       attendanceRecordType: '출근보고 진행 (주말출근, 휴가 포함)',
-      expectedStartDate: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+      expectedStartDate: toKstDateString(addDays(new Date(), 1)),
       expectedWorkTime: '09:00',
       expectedWorkLocationType: '사무실',
       expectedWorkLocation: '',

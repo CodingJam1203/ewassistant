@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getKstTodayDateString } from '@/lib/utils/date'
 import { requireAdmin, requireActiveUser } from '@/lib/admin-check'
 import { calculateEw } from '@/lib/ew-calculator'
 import { notifyWorkLogUpdated, notifyWorkLogDeleted } from '@/lib/notifications/teams'
@@ -108,7 +109,7 @@ export async function PATCH(
           .eq('work_log_id', id)
 
         await adminClient.from('work_status_events').insert({
-          work_date:   body.leaveDate ?? log.leave_date ?? new Date().toISOString().slice(0, 10),
+          work_date:   body.leaveDate ?? log.leave_date ?? getKstTodayDateString(),
           user_email:  log.user_email ?? '',
           work_log_id: id,
           event_type:  'report_updated',

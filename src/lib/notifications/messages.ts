@@ -68,7 +68,7 @@ export function fmtBreak(timeStr: string): string {
 /** CTA footer line */
 function cta(): string {
   const url = process.env.NCLICK_APP_URL
-  return url ? `👉 N-Click 바로가기 : ${url}` : '👉 N-Click 바로가기'
+  return url ? `[👉 N-Click 바로가기](${url})` : '👉 N-Click 바로가기'
 }
 
 // ─── worklog body (submit) ────────────────────────────────────────────────────
@@ -152,7 +152,7 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       return worklogBody(`🍀${(payload as WorklogNotifyPayload).name} 퇴근!`, payload as WorklogNotifyPayload)
 
     case 'checkout_resubmitted':
-      return worklogBody(`🍀${(payload as WorklogNotifyPayload).name} 퇴근취소 후 재제출!`, payload as WorklogNotifyPayload)
+      return worklogBody(`📌 ${(payload as WorklogNotifyPayload).name} 퇴근보고 재제출`, payload as WorklogNotifyPayload)
 
     case 'worklog_updated': {
       const p = payload as WorklogUpdateNotifyPayload

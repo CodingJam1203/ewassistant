@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyLocationChanged } from '@/lib/notifications/teams'
+import { getKstTodayDateString } from '@/lib/utils/date'
 
 export async function POST(request: Request) {
   try {
@@ -10,7 +11,7 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = await request.json()
-    const date: string     = body.date ?? new Date().toISOString().slice(0, 10)
+    const date: string     = body.date ?? getKstTodayDateString()
     const location: string = body.location ?? ''
     if (!location.trim()) {
       return NextResponse.json({ error: '근무지를 입력해주세요.' }, { status: 400 })

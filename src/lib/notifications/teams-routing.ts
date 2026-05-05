@@ -3,6 +3,7 @@
 
 export type ReportType = '출근보고' | '퇴근보고'
 export type NotificationAction = 'create' | 'update'
+import { getKstTodayDateString } from '@/lib/utils/date'
 
 export interface TeamsReplyTarget {
   teamId: string
@@ -70,9 +71,7 @@ const ROUTING_TABLE: RoutingEntry[] = [
 // ─── KST 오늘 날짜 ────────────────────────────────────────────────────────────
 
 export function getTodayKST(): string {
-  const now = new Date()
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
-  return kst.toISOString().slice(0, 10)
+  return getKstTodayDateString()
 }
 
 // ─── 팀명 정규화 ──────────────────────────────────────────────────────────────

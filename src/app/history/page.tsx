@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Copy, Check, RefreshCw, Pencil, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
+import { getKstTodayDateString } from '@/lib/utils/date'
 import EditLogModal from '@/components/EditLogModal'
 import type { WorkLog } from '@/types/work-log'
 
@@ -211,7 +212,7 @@ export default function HistoryPage() {
         </div>
         <div className="flex items-center gap-3 ml-auto pb-2">
           <button
-            onClick={() => setFilterDate(format(new Date(), 'yyyy-MM-dd'))}
+            onClick={() => setFilterDate(getKstTodayDateString())}
             className="text-sm text-blue-600 hover:text-blue-800 font-medium"
           >
             오늘
