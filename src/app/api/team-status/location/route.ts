@@ -1,11 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { notifyLocationChanged } from '@/lib/notifications/teams'
 
-/**
- * POST /api/team-status/location
- * body: { date: YYYY-MM-DD, location: string }
- */
 export async function POST(request: Request) {
   try {
     const supabase = await createClient()
@@ -19,17 +16,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '근무지를 입력해주세요.' }, { status: 400 })
     }
 
-    const now = new Date().toISOString()
+    const now     = new Date().toISOString()
     const timeStr = new Date().toTimeString().slice(0, 5)
     const adminClient = createAdminClient()
 
     const { data: profile } = await adminClient
       .from('user_profiles')
-      .select('id')
+      .select('id, display_name')
       .eq('email', user.email!)
       .single()
 
-    // daily_work_status 업데이트 (없으면 upsert)
+    // 이전 근무지 조회 (알림용)
+    const { data: existingStatus } = await adminClient
+      .from('daily_work_status')
+      .select('current_location')
+      .eq('work_date', date)
+      .eq('user_email', user.email!)
+      .maybeSingle()
+    const previousLocation = existingStatus?.current_location ?? ''
+
     const { data: daily, error: dailyErr } = await adminClient
       .from('daily_work_status')
       .upsert({
@@ -44,7 +49,6 @@ export async function POST(request: Request) {
 
     if (dailyErr) throw dailyErr
 
-    // work_log의 location_history 업데이트
     if (daily?.work_log_id) {
       const { data: wLog } = await adminClient
         .from('work_logs')
@@ -61,7 +65,6 @@ export async function POST(request: Request) {
         .eq('id', daily.work_log_id)
     }
 
-    // 이벤트 기록
     await adminClient.from('work_status_events').insert({
       work_date:       date,
       user_email:      user.email!,
@@ -71,6 +74,15 @@ export async function POST(request: Request) {
       event_value:     { location, time: timeStr },
       event_at:        now,
       created_by:      user.email!,
+    })
+
+    // ─── Teams 근무지 변경 알림 ──────────────────────────────────────────────
+    notifyLocationChanged({
+      name: profile?.display_name || user.email!,
+      date,
+      previousLocation,
+      newLocation: location,
+      changedAt: now,
     })
 
     return NextResponse.json(daily)

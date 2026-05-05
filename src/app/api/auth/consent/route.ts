@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from '@/lib/policies'
+import { notifyAccountPending } from '@/lib/notifications/teams'
 
 export async function POST() {
   try {
@@ -24,7 +25,7 @@ export async function POST() {
       privacy_agreed_at: now,
     })
 
-    // 2. user_profiles에 최신 동의 상태 업데이트 (빠른 확인용)
+    // 2. user_profiles에 최신 동의 상태 업데이트
     const { error: updateError } = await adminClient
       .from('user_profiles')
       .update({
@@ -40,17 +41,28 @@ export async function POST() {
       return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
     }
 
-    // 동의 완료 후 is_active 확인 → 클라이언트가 redirect 경로 결정에 사용
+    // 3. is_active + display_name 조회
     const { data: profile } = await adminClient
       .from('user_profiles')
-      .select('is_active')
+      .select('is_active, display_name')
       .eq('id', user.id)
       .single()
 
     const redirectTo = profile?.is_active === false ? '/blocked' : '/team'
+
+    // ─── 미승인 계정 가입 알림 (is_active=false → 관리자 승인 필요) ──────────
+    if (redirectTo === '/blocked') {
+      notifyAccountPending({
+        name: profile?.display_name ?? '',
+        email: user.email ?? '',
+        createdAt: now,
+      })
+    }
+
     return NextResponse.json({ success: true, redirectTo })
-  } catch (err: any) {
-    console.error('Consent API Error:', err)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('Consent API Error:', message)
     return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
   }
 }

@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { notifyBreakEnded } from '@/lib/notifications/teams'
 
-// POST /api/team-status/break-end
-// body: { date: YYYY-MM-DD }
 export async function POST(request: Request) {
   try {
     const supabase = await createClient()
@@ -17,7 +16,7 @@ export async function POST(request: Request) {
 
     const { data: profile } = await adminClient
       .from('user_profiles')
-      .select('id')
+      .select('id, display_name')
       .eq('email', user.email!)
       .single()
 
@@ -58,6 +57,14 @@ export async function POST(request: Request) {
       event_value:     {},
       event_at:        now,
       created_by:      user.email!,
+    })
+
+    // ─── Teams 휴게 종료 알림 ────────────────────────────────────────────────
+    notifyBreakEnded({
+      name: profile?.display_name || user.email!,
+      date,
+      breakAt: now,
+      workLocation: existing.current_location ?? '',
     })
 
     return NextResponse.json(daily)

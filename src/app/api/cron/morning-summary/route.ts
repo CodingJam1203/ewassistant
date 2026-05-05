@@ -1,0 +1,99 @@
+/**
+ * GET /api/cron/morning-summary
+ * 매일 07:00 KST (22:00 UTC 전날) — 오늘 출근보고 + 전일 퇴근보고 요약
+ */
+
+import { NextResponse } from 'next/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { notifyMorningSummary } from '@/lib/notifications/teams'
+import { formatMorningCheckinStatus, formatMorningWorklogStatus } from '@/lib/notifications/messages'
+
+function getKstDate(offsetDays = 0): string {
+  const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  d.setUTCDate(d.getUTCDate() + offsetDays)
+  return d.toISOString().slice(0, 10)
+}
+
+export async function GET(request: Request) {
+  const authHeader = request.headers.get('authorization')
+  const secret = process.env.CRON_SECRET
+  if (secret && authHeader !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  if (process.env.ENABLE_DAILY_REMINDER_NOTIFY === 'false') {
+    return NextResponse.json({ skipped: true, reason: 'ENABLE_DAILY_REMINDER_NOTIFY=false' })
+  }
+
+  const todayDate     = getKstDate(0)   // 오늘 KST
+  const yesterdayDate = getKstDate(-1)  // 어제 KST
+
+  const adminClient = createAdminClient()
+
+  // 활성 사용자 목록
+  const { data: users } = await adminClient
+    .from('user_profiles')
+    .select('email, display_name, division, team, display_order')
+    .eq('is_active', true)
+    .order('display_order', { ascending: true, nullsFirst: false })
+    .order('division', { ascending: true })
+    .order('team', { ascending: true })
+    .order('display_name', { ascending: true })
+
+  if (!users || users.length === 0) {
+    return NextResponse.json({ skipped: true, reason: 'no active users' })
+  }
+
+  // 오늘 출근보고 (expected_start_date = 오늘)
+  const { data: checkins } = await adminClient
+    .from('work_logs')
+    .select('user_email, expected_work_location, expected_work_time, created_at')
+    .eq('expected_start_date', todayDate)
+    .eq('attendance_record_type', '출근보고 진행 (주말출근, 휴가 포함)')
+    .eq('is_deleted', false)
+    .order('created_at', { ascending: false })
+
+  const checkinMap = new Map<string, { expected_work_location: string | null; expected_work_time: string | null }>()
+  for (const c of checkins ?? []) {
+    if (!checkinMap.has(c.user_email)) {
+      checkinMap.set(c.user_email, {
+        expected_work_location: c.expected_work_location,
+        expected_work_time:     c.expected_work_time,
+      })
+    }
+  }
+
+  // 전일 퇴근보고 (leave_date = 어제)
+  const { data: workLogs } = await adminClient
+    .from('work_logs')
+    .select('user_email, start_time, end_time, break_time, work_location, created_at')
+    .eq('leave_date', yesterdayDate)
+    .eq('is_deleted', false)
+    .order('created_at', { ascending: false })
+
+  const workLogMap = new Map<string, { start_time: string; end_time: string; break_time: string; work_location: string }>()
+  for (const w of workLogs ?? []) {
+    if (!workLogMap.has(w.user_email)) {
+      workLogMap.set(w.user_email, {
+        start_time:    w.start_time,
+        end_time:      w.end_time,
+        break_time:    w.break_time,
+        work_location: w.work_location,
+      })
+    }
+  }
+
+  const todayCheckins = users.map(u => ({
+    name:   u.display_name || u.email,
+    status: formatMorningCheckinStatus(checkinMap.get(u.email)),
+  }))
+
+  const yesterdayWorkLogs = users.map(u => ({
+    name:   u.display_name || u.email,
+    status: formatMorningWorklogStatus(workLogMap.get(u.email)),
+  }))
+
+  await notifyMorningSummary({ todayDate, yesterdayDate, todayCheckins, yesterdayWorkLogs })
+
+  return NextResponse.json({ ok: true, todayDate, yesterdayDate, userCount: users.length })
+}

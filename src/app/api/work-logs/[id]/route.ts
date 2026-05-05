@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdmin, requireActiveUser } from '@/lib/admin-check'
 import { calculateEw } from '@/lib/ew-calculator'
-import { notifyWorkLogUpdated } from '@/lib/notifications/teams'
+import { notifyWorkLogUpdated, notifyWorkLogDeleted } from '@/lib/notifications/teams'
 
-// ─── PATCH /api/work-logs/[id] — 수정 (소유자 또는 관리자) ──────────────────
+// ─── PATCH /api/work-logs/[id] ───────────────────────────────────────────────
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -15,11 +14,10 @@ export async function PATCH(
     const user = await requireActiveUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized or Inactive account' }, { status: 403 })
 
-    // 대상 로그 조회 (수정 전 스냅샷 포함)
     const adminClient = createAdminClient()
     const { data: log, error: fetchError } = await adminClient
       .from('work_logs')
-      .select('user_id, user_email, name, is_deleted, leave_date, start_time, end_time, work_location, break_time, work_content, ew_value')
+      .select('user_id, user_email, name, is_deleted, leave_date, start_time, end_time, work_location, break_time, work_content, ew_value, work_type_label')
       .eq('id', id)
       .single()
 
@@ -30,7 +28,6 @@ export async function PATCH(
       return NextResponse.json({ error: '삭제된 기록입니다.' }, { status: 410 })
     }
 
-    // 소유자 또는 관리자만 수정 가능
     const isOwner = log.user_id === user.id
     const adminUser = await requireAdmin()
     if (!isOwner && !adminUser) {
@@ -39,13 +36,11 @@ export async function PATCH(
 
     const body = await request.json()
 
-    // 근무장소 최종 결정
     const finalWorkLocation: string =
       body.workLocationType === '기타'
         ? (body.workLocationCustom ?? body.workLocation ?? '')
         : (body.workLocationType ?? body.workLocation ?? '')
 
-    // 서버사이드 EW 재계산
     const calcResult = calculateEw({
       name: body.name,
       workTypeLabel: body.workTypeLabel,
@@ -103,7 +98,6 @@ export async function PATCH(
           .update(dailySyncUpdates)
           .eq('work_log_id', id)
 
-        // work_status_events에 report_updated 기록
         await adminClient.from('work_status_events').insert({
           work_date:   body.leaveDate ?? log.leave_date ?? new Date().toISOString().slice(0, 10),
           user_email:  log.user_email ?? '',
@@ -120,41 +114,37 @@ export async function PATCH(
       }
     } catch { /* 동기화 실패 무시 */ }
 
-    // ─── Teams 수정 알림 (비동기, 실패해도 메인 응답 무관) ────────────────────
+    // ─── Teams 수정 알림 ─────────────────────────────────────────────────────
     notifyWorkLogUpdated({
-      type: 'work_log_updated',
-      workLogId: id,
-      updatedBy: user.email ?? user.id,
-      userEmail: log.user_email ?? '',
-      name: log.name ?? body.name ?? '',
-      workDate: body.leaveDate ?? '',
-      before: {
-        startTime: log.start_time ?? '',
-        endTime: log.end_time ?? '',
-        workPlace: log.work_location ?? '',
-        breakTime: log.break_time ?? '',
-        workContent: log.work_content ?? '',
-        ewValue: log.ew_value ?? '',
-      },
-      after: {
-        startTime: body.startTime ?? '',
-        endTime: body.endTime ?? '',
-        workPlace: finalWorkLocation,
-        breakTime: body.breakTime ?? '',
-        workContent: body.workContent ?? '',
-        ewValue: calcResult.ewValue,
-      },
-      updatedAt: new Date().toISOString(),
-    }).catch(err => console.error('[Teams] 수정 알림 발송 실패:', err))
+      name: body.name ?? log.name ?? '',
+      leaveDate: body.leaveDate ?? log.leave_date ?? '',
+      workTypeLabel: body.workTypeLabel ?? log.work_type_label ?? '',
+      workLocation: finalWorkLocation,
+      startTime: body.startTime ?? '',
+      endTime: body.endTime ?? '',
+      breakTime: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
+      lateOrAttendanceStatus: body.lateOrAttendanceStatus || '아니오',
+      previousReportTime: body.lateOrAttendanceStatus === '예' ? (body.previousReportTime ?? null) : null,
+      currentReportTime:  body.lateOrAttendanceStatus === '예' ? (body.currentReportTime ?? null) : null,
+      lateReason:         body.lateOrAttendanceStatus === '예' ? (body.lateReason ?? null) : null,
+      workContent: body.workContent || null,
+      attendanceRecordType: body.attendanceRecordType || null,
+      expectedStartDate:    body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' ? (body.expectedStartDate ?? null) : null,
+      expectedWorkTime:     body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' ? (body.expectedWorkTime ?? null) : null,
+      expectedWorkLocation: body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
+        ? (body.expectedWorkLocationType === '기타' ? body.expectedWorkLocation : body.expectedWorkLocationType) ?? null
+        : null,
+    })
 
     return NextResponse.json(data)
-  } catch (err: any) {
-    console.error('Work Log PATCH Error:', err)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('Work Log PATCH Error:', message)
     return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
   }
 }
 
-// ─── DELETE /api/work-logs/[id] — 소프트 삭제 (소유자 또는 관리자) ──────────
+// ─── DELETE /api/work-logs/[id] ──────────────────────────────────────────────
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -166,10 +156,10 @@ export async function DELETE(
 
     const adminClient = createAdminClient()
 
-    // 대상 로그 조회
+    // 알림용으로 더 많은 필드 조회
     const { data: log, error: fetchError } = await adminClient
       .from('work_logs')
-      .select('user_id, is_deleted')
+      .select('user_id, is_deleted, name, leave_date, work_type_label, work_location, start_time, end_time, break_time, work_content')
       .eq('id', id)
       .single()
 
@@ -180,14 +170,12 @@ export async function DELETE(
       return NextResponse.json({ error: '이미 삭제된 기록입니다.' }, { status: 410 })
     }
 
-    // 소유자 또는 관리자만 삭제 가능
     const isOwner = log.user_id === user.id
     const adminUser = await requireAdmin()
     if (!isOwner && !adminUser) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // 소프트 삭제
     const { error } = await adminClient
       .from('work_logs')
       .update({
@@ -199,9 +187,23 @@ export async function DELETE(
 
     if (error) throw error
 
+    // ─── Teams 삭제 알림 ─────────────────────────────────────────────────────
+    notifyWorkLogDeleted({
+      name: log.name ?? '',
+      leaveDate: log.leave_date ?? '',
+      deletedByEmail: user.email ?? user.id,
+      workTypeLabel: log.work_type_label ?? '',
+      workLocation: log.work_location ?? '',
+      startTime: log.start_time ?? '',
+      endTime: log.end_time ?? '',
+      breakTime: log.break_time ?? '00:00:00',
+      workContent: log.work_content ?? null,
+    })
+
     return NextResponse.json({ success: true })
-  } catch (err: any) {
-    console.error('Work Log DELETE Error:', err)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('Work Log DELETE Error:', message)
     return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
   }
 }

@@ -3,8 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateEw } from '@/lib/ew-calculator'
 import { requireActiveUser } from '@/lib/admin-check'
-// TODO: Teams 연동 권한 확보 후 주석 해제
-// import { sendExternalWebhook, ExternalWebhookPayload } from '@/lib/make-webhook'
+import { notifyWorkLogSubmitted } from '@/lib/notifications/teams'
 
 export async function POST(request: Request) {
   try {
@@ -15,13 +14,11 @@ export async function POST(request: Request) {
 
     const body = await request.json()
 
-    // 근무장소 최종 결정
     const finalWorkLocation: string =
       body.workLocationType === '기타'
         ? (body.workLocationCustom ?? '')
         : (body.workLocationType ?? '')
 
-    // 출퇴근 예정장소 최종 결정 (새 드롭다운 필드 지원)
     const finalExpectedWorkLocation: string | null =
       body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
         ? body.expectedWorkLocationType === '기타'
@@ -29,7 +26,6 @@ export async function POST(request: Request) {
           : (body.expectedWorkLocationType ?? body.expectedWorkLocation ?? null)
         : null
 
-    // Server-side recalculation to prevent manipulation
     const calcResult = calculateEw({
       name: body.name,
       workTypeLabel: body.workTypeLabel,
@@ -42,7 +38,6 @@ export async function POST(request: Request) {
       breakReason: body.breakReason,
     })
 
-    // ─── 제출자 본부/팀 스냅샷 조회 ─────────────────────────────────────────────
     let userDivision: string | null = null
     let userTeam: string | null = null
     try {
@@ -58,7 +53,6 @@ export async function POST(request: Request) {
       // 프로필 조회 실패 시 null로 진행
     }
 
-    // Prepare data for insertion
     const insertData = {
       user_id: user.id,
       user_email: user.email,
@@ -95,7 +89,6 @@ export async function POST(request: Request) {
       is_deleted: false,
     }
 
-    // Insert into DB
     const adminClient = createAdminClient()
     const { data, error } = await adminClient
       .from('work_logs')
@@ -108,10 +101,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `데이터 저장 실패: ${error.message}` }, { status: 500 })
     }
 
-    // ─── 사후 처리: display_name 자동저장 + last_submitted_at 업데이트 ──────
     try {
-
-      // display_name이 비어있으면 이번 제출의 name으로 채움
       const { data: profile } = await adminClient
         .from('user_profiles')
         .select('display_name')
@@ -130,51 +120,33 @@ export async function POST(request: Request) {
         .update(profileUpdates)
         .eq('id', user.id)
     } catch {
-      // user_profiles 미생성 시 무시 (비핵심 처리)
+      // 비핵심 처리 — 실패 무시
     }
 
-    /* ─── Teams 웹훅 전송 (TODO: 권한 확보 후 주석 해제) ───────────────────────
-    if (body.sendTeams !== false) {
-      const morningReportReason =
-        body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
-          ? [body.expectedStartDate, body.expectedWorkTime, finalExpectedWorkLocation]
-              .filter(Boolean).join(' / ')
-          : ''
-
-      const noteParts: string[] = []
-      if (body.workContent) noteParts.push(body.workContent)
-      if (body.thanksMacaron) noteParts.push(`💌 감사 마카롱: ${body.thanksMacaron}`)
-
-      const webhookPayload: ExternalWebhookPayload = {
-        name: body.name ?? '',
-        email: user.email ?? '',
-        workDate: body.leaveDate ?? '',
-        workPlace: finalWorkLocation,
-        startTime: body.startTime ?? '',
-        endTime: body.endTime ?? '',
-        breakTime: body.breakTime ?? '00:00',
-        ewStartTime: calcResult.ewStartText,
-        ewEndTime: calcResult.ewEndText,
-        lateType: body.lateOrAttendanceStatus ?? '아니오',
-        lateReason: body.lateOrAttendanceStatus === '예' ? (body.lateReason ?? '') : '',
-        morningReportType: body.attendanceRecordType ?? '',
-        morningReportReason,
-        note: noteParts.join('\n'),
-      }
-
-      try {
-        await sendExternalWebhook(webhookPayload)
-        await supabase.from('work_logs').update({ teams_sent: true }).eq('id', data.id)
-        console.log(`[Webhook] Make 전송 성공 — work_log id: ${data.id}`)
-      } catch (webhookErr: any) {
-        console.error(`[Webhook] Make 전송 실패 — work_log id: ${data.id}`, webhookErr?.message ?? webhookErr)
-      }
-    }
-    ─────────────────────────────────────────────────────────────────────────── */
+    // ─── Teams 퇴근보고 제출 알림 (실패해도 저장 결과에 영향 없음) ────────────
+    notifyWorkLogSubmitted({
+      name: body.name ?? '',
+      leaveDate: body.leaveDate ?? '',
+      workTypeLabel: body.workTypeLabel ?? '',
+      workLocation: finalWorkLocation,
+      startTime: body.startTime ?? '',
+      endTime: body.endTime ?? '',
+      breakTime: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
+      lateOrAttendanceStatus: body.lateOrAttendanceStatus || '아니오',
+      previousReportTime: body.lateOrAttendanceStatus === '예' ? (body.previousReportTime ?? null) : null,
+      currentReportTime:  body.lateOrAttendanceStatus === '예' ? (body.currentReportTime ?? null) : null,
+      lateReason:         body.lateOrAttendanceStatus === '예' ? (body.lateReason ?? null) : null,
+      workContent: body.workContent || null,
+      attendanceRecordType: body.attendanceRecordType || null,
+      expectedStartDate:    body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' ? (body.expectedStartDate ?? null) : null,
+      expectedWorkTime:     body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' ? (body.expectedWorkTime ?? null) : null,
+      expectedWorkLocation: finalExpectedWorkLocation,
+    })
 
     return NextResponse.json(data)
-  } catch (err: any) {
-    console.error('Work Log API Error:', err)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('Work Log API Error:', message)
     return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
   }
 }
@@ -198,7 +170,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from('work_logs')
       .select('*')
-      .eq('is_deleted', false)           // 소프트 삭제된 레코드 제외
+      .eq('is_deleted', false)
       .order('leave_date', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(limit)
@@ -206,7 +178,6 @@ export async function GET(request: Request) {
     if (mine) {
       query = query.eq('user_id', user.id)
     } else if (filterDivision || filterTeam) {
-      // 본부/팀 필터: user_profiles에서 해당 조직의 email 목록 조회
       try {
         const adminClientForFilter = createAdminClient()
         let profileQuery = adminClientForFilter
@@ -220,7 +191,6 @@ export async function GET(request: Request) {
         const matchedEmails = (matchedProfiles ?? []).map((p: { email: string }) => p.email)
 
         if (matchedEmails.length === 0) {
-          // 해당 조건의 사용자 없음 → 빈 결과
           return NextResponse.json([])
         }
         query = query.in('user_email', matchedEmails)
@@ -231,13 +201,12 @@ export async function GET(request: Request) {
 
     const { data, error } = await query
 
-    if (error) {
-      throw error
-    }
+    if (error) throw error
 
     return NextResponse.json(data)
-  } catch (err: any) {
-    console.error('Work Log GET Error:', err)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('Work Log GET Error:', message)
     return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
   }
 }
