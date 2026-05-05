@@ -19,13 +19,7 @@ export async function PATCH(
     const adminClient = createAdminClient()
     const { data: log, error: fetchError } = await adminClient
       .from('work_logs')
-      .select(
-        'user_id, user_email, name, is_deleted, division, team, ' +
-        'leave_date, start_time, end_time, work_location, break_time, work_content, ' +
-        'ew_value, work_type_label, attendance_record_type, expected_start_date, ' +
-        'late_or_attendance_status, previous_report_time, current_report_time, ' +
-        'late_reason, expected_work_time, expected_work_location'
-      )
+      .select('user_id, user_email, name, is_deleted, division, team, leave_date, start_time, end_time, work_location, break_time, work_content, ew_value, work_type_label, attendance_record_type, expected_start_date, late_or_attendance_status, previous_report_time, current_report_time, late_reason, expected_work_time, expected_work_location')
       .eq('id', id)
       .single()
 
