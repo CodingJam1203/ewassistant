@@ -22,6 +22,16 @@ import {
 } from '@/types/work-location-timeline'
 import type { TimelineValidationError } from '@/lib/work-location-timeline'
 
+/** 30분 단위 시간 옵션 (00:00 ~ 23:30) — 컴포넌트 외부에서도 재사용 가능하도록 export */
+export const TIMELINE_TIME_OPTIONS: string[] = (() => {
+  const opts: string[] = []
+  for (let h = 0; h < 24; h++) {
+    opts.push(`${String(h).padStart(2, '0')}:00`)
+    opts.push(`${String(h).padStart(2, '0')}:30`)
+  }
+  return opts
+})()
+
 interface WorkLocationTimelineInputProps {
   value: WorkLocationTimeline
   onChange: (next: WorkLocationTimeline) => void
@@ -30,27 +40,28 @@ interface WorkLocationTimelineInputProps {
   disabled?: boolean
 }
 
-/** 30분 단위 시간 옵션 (00:00 ~ 23:30) */
-function buildTimeOptions(): string[] {
-  const opts: string[] = []
-  for (let h = 0; h < 24; h++) {
-    opts.push(`${String(h).padStart(2, '0')}:00`)
-    opts.push(`${String(h).padStart(2, '0')}:30`)
-  }
-  return opts
-}
-
-const TIME_OPTIONS = buildTimeOptions()
+const TIME_OPTIONS = TIMELINE_TIME_OPTIONS
 const TYPE_ORDER: WorkLocationType[] = ['office', 'remote', 'field', 'custom']
 
 /**
- * 타임라인 기본값 (외부에서 import해서 폼 초기값으로 사용 가능)
+ * 타임라인 기본값 — 진행 중(출근보고/근무지변경) 단계에서 사용.
  * - 사무실 09:00 + 퇴근예정 18:00
  */
 export function defaultTimeline(): WorkLocationTimeline {
   return [
     { kind: 'work_location', type: 'office', label: WORK_LOCATION_TYPE_LABELS.office, customLabel: null, startTime: '09:00' },
     { kind: 'expected_checkout', startTime: '18:00' },
+  ]
+}
+
+/**
+ * 퇴근보고 단계의 기본값 — 마지막 항목이 checkout(실제 퇴근).
+ * - 사무실 09:00 + 퇴근 18:00
+ */
+export function defaultCheckoutTimeline(): WorkLocationTimeline {
+  return [
+    { kind: 'work_location', type: 'office', label: WORK_LOCATION_TYPE_LABELS.office, customLabel: null, startTime: '09:00' },
+    { kind: 'checkout', startTime: '18:00' },
   ]
 }
 
@@ -131,13 +142,14 @@ export default function WorkLocationTimelineInput({
     <div className="space-y-2">
       {value.map((entry, i) => {
         const itemErrors = errorByIndex.byIndex.get(i) ?? []
-        const isCheckout = entry.kind === 'expected_checkout'
+        const isEnd = entry.kind === 'expected_checkout' || entry.kind === 'checkout'
+        const endLabel = entry.kind === 'checkout' ? '퇴근' : '퇴근예정'
 
         return (
           <div
             key={i}
             className={`rounded-lg border p-3 ${
-              isCheckout
+              isEnd
                 ? 'border-blue-200 bg-blue-50/40 dark:border-blue-800 dark:bg-blue-900/10'
                 : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800'
             }`}
@@ -148,7 +160,7 @@ export default function WorkLocationTimelineInput({
                 <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
                   {i + 1}.
                 </span>
-                {isCheckout ? (
+                {isEnd ? (
                   <LogOut className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
                 ) : (
                   <MapPin className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
@@ -156,9 +168,9 @@ export default function WorkLocationTimelineInput({
               </div>
 
               {/* 라벨/장소 선택 */}
-              {isCheckout ? (
+              {isEnd ? (
                 <span className="text-sm font-medium text-blue-700 dark:text-blue-300 min-w-[5rem]">
-                  퇴근예정
+                  {endLabel}
                 </span>
               ) : (
                 <select
@@ -175,7 +187,7 @@ export default function WorkLocationTimelineInput({
                 </select>
               )}
 
-              {/* 시간 select */}
+              {/* 시간 select (30분 단위 강제) */}
               <select
                 value={entry.startTime}
                 onChange={e => updateAt(i, { startTime: e.target.value })}
@@ -185,13 +197,13 @@ export default function WorkLocationTimelineInput({
                 {TIME_OPTIONS.map(t => (
                   <option key={t} value={t}>
                     {t}
-                    {isCheckout ? '' : '~'}
+                    {isEnd ? '' : '~'}
                   </option>
                 ))}
               </select>
 
               {/* 삭제 버튼: work_location 행 + 2개 이상일 때만 */}
-              {!isCheckout && workLocCount > 1 && (
+              {!isEnd && workLocCount > 1 && (
                 <button
                   type="button"
                   onClick={() => removeAt(i)}
@@ -205,7 +217,7 @@ export default function WorkLocationTimelineInput({
             </div>
 
             {/* 기타 선택 시 상세 입력 */}
-            {!isCheckout && (entry as WorkLocationItem).type === 'custom' && (
+            {!isEnd && (entry as WorkLocationItem).type === 'custom' && (
               <div className="mt-2 ml-10">
                 <input
                   type="text"

@@ -87,11 +87,12 @@ function worklogBody(prefix: string, p: WorklogNotifyPayload): string {
   const lateStr = `${lateStatus} / ${prevTime} / ${currTime}`
 
   const checkinLines = buildNextCheckinLines(p)
+  const workLocationLines = buildWorkLocationLines(p)
 
   return [
     `${prefix} / ${p.leaveDate}`,
     `🔹근무유형 : ${p.workTypeLabel || '미입력'}`,
-    `🔹근무장소 : ${p.workLocation || '미입력'}`,
+    ...workLocationLines,
     `🔹근무시간 : ${fmtTime(p.startTime)} ~ ${fmtTime(p.endTime)}`,
     `🔹휴게시간 : ${breakDisplay}`,
     `🔹지각/당일 수정 : ${lateStr}`,
@@ -100,6 +101,26 @@ function worklogBody(prefix: string, p: WorklogNotifyPayload): string {
     '🧡',
     cta(),
   ].join('\n')
+}
+
+/**
+ * 본문 근무장소 라인 빌드
+ * - timeline이 있고 work_location 1개: ['🔹근무장소 : 사무실 09:00~18:00']
+ * - timeline이 있고 work_location 2개+: ['🔹근무장소', '1. 사무실 09:00~', '2. 재택 14:00~', '3. 퇴근 18:00']
+ * - timeline 없음: legacy 단일 — ['🔹근무장소 : 사무실']
+ */
+function buildWorkLocationLines(p: WorklogNotifyPayload): string[] {
+  const tl = p.workLocationTimeline
+  const wlCount = tl ? getWorkLocations(tl).length : 0
+  if (tl && wlCount >= 2) {
+    const formatted = formatTimelineForTeams(tl)
+    return ['🔹근무장소', ...formatted.lines]
+  }
+  if (tl && wlCount === 1) {
+    const formatted = formatTimelineForTeams(tl)
+    return [`🔹근무장소 : ${formatted.lines[0]}`]
+  }
+  return [`🔹근무장소 : ${p.workLocation || '미입력'}`]
 }
 
 /**
@@ -218,18 +239,39 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
 
     case 'checkin_submitted': {
       const p = payload as CheckinNotifyPayload
+      const tl = p.timeline
+      if (tl && getWorkLocations(tl).length >= 2) {
+        const formatted = formatTimelineForTeams(tl)
+        return [
+          `${p.name} : ${shortKoreanDate(p.date)} ${kstHHmm(p.checkedInAt)} 출근`,
+          '🔹근무장소',
+          ...formatted.lines,
+          cta(),
+        ].join('\n')
+      }
+      // 단일 모드: 기존 한 줄
       return `${p.name} : ${shortKoreanDate(p.date)} ${kstHHmm(p.checkedInAt)} ${p.workLocation || '미입력'} 출근`
     }
 
     case 'location_changed': {
       const p = payload as LocationChangedNotifyPayload
-      return [
+      const baseLines = [
         `📍${p.name} 근무지 변경 / ${p.date}`,
         `🔹이전 근무지 : ${p.previousLocation || '미입력'}`,
         `🔹변경 근무지 : ${p.newLocation || '미입력'}`,
         `🔹변경 시각 : ${kstHHmm(p.changedAt)}`,
-        cta(),
-      ].join('\n')
+      ]
+      const tl = p.timeline
+      if (tl && getWorkLocations(tl).length >= 2) {
+        const formatted = formatTimelineForTeams(tl)
+        return [
+          ...baseLines,
+          '🔹근무장소 타임라인',
+          ...formatted.lines,
+          cta(),
+        ].join('\n')
+      }
+      return [...baseLines, cta()].join('\n')
     }
 
     case 'break_started': {

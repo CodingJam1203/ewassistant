@@ -22,7 +22,10 @@ export interface WorklogNotifyPayload {
   name: string
   leaveDate: string
   workTypeLabel: string
+  /** legacy 단일 라벨. 메시지 표시는 workLocationTimeline 우선 사용 */
   workLocation: string
+  /** 본문 근무장소 타임라인 (퇴근보고 — 마지막은 'checkout' kind). null이면 단일 workLocation으로 fallback. */
+  workLocationTimeline?: WorkLocationTimeline | null
   startTime: string
   endTime: string
   breakTime: string
@@ -36,10 +39,8 @@ export interface WorklogNotifyPayload {
   expectedWorkTime?: string | null
   expectedWorkLocation?: string | null
   /**
-   * 출근보고 근무장소 타임라인 (신규).
-   * - 1개 work_location + 1개 expected_checkout: 메시지에서 한 줄로 표시
-   * - 2개 이상 work_location: 멀티라인 표시
-   * - undefined/null: 기존 expectedWorkLocation/expectedWorkTime로 fallback
+   * 다음 출근 예정 타임라인 (마지막은 'expected_checkout' kind).
+   * undefined/null이면 기존 expectedWorkLocation/expectedWorkTime로 fallback.
    */
   expectedTimeline?: WorkLocationTimeline | null
   division?: string | null
@@ -83,6 +84,8 @@ export interface CheckinNotifyPayload {
   date: string
   checkedInAt: string
   workLocation: string
+  /** 출근 시점의 work_location_timeline (멀티라인 메시지 표시용) */
+  timeline?: WorkLocationTimeline | null
   division?: string | null
   team?: string | null
 }
@@ -93,6 +96,8 @@ export interface LocationChangedNotifyPayload {
   previousLocation: string
   newLocation: string
   changedAt: string
+  /** 변경 후 work_location_timeline (멀티라인 메시지 표시용) */
+  timeline?: WorkLocationTimeline | null
   division?: string | null
   team?: string | null
 }

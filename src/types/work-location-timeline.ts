@@ -38,12 +38,22 @@ export interface WorkLocationItem {
   startTime: string
 }
 
-/** 퇴근예정 항목 — 타임라인 끝에 1개만 존재 */
+/** 퇴근예정 항목 — 진행 중 타임라인 끝에 1개만 존재 (출근보고/근무지변경 단계) */
 export interface ExpectedCheckoutItem {
   kind: 'expected_checkout'
   /** 'HH:mm' */
   startTime: string
 }
 
-export type WorkLocationTimelineEntry = WorkLocationItem | ExpectedCheckoutItem
+/** 실제 퇴근 항목 — 퇴근보고 제출 후 타임라인 끝에 1개만 존재 */
+export interface CheckoutItem {
+  kind: 'checkout'
+  /** 'HH:mm' */
+  startTime: string
+}
+
+export type WorkLocationTimelineEntry = WorkLocationItem | ExpectedCheckoutItem | CheckoutItem
 export type WorkLocationTimeline = WorkLocationTimelineEntry[]
+
+/** 진행 중인 타임라인의 종료(expected_checkout) 또는 확정 종료(checkout) 항목 */
+export type EndItem = ExpectedCheckoutItem | CheckoutItem

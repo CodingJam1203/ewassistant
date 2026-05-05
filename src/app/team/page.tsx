@@ -472,11 +472,6 @@ export default function TeamPage() {
         <CheckInModal
           date={date}
           userName={myProfile?.display_name ?? null}
-          defaultLocation={
-            checkInTarget
-              ? (checkInTarget.card.work_location ?? checkInTarget.card.current_location ?? '사무실')
-              : '사무실'
-          }
           initialStartTime={checkInTarget?.startTime}
           onClose={() => { setCheckInTarget(null); setShowHeaderCheckIn(false) }}
           onSuccess={() => { setCheckInTarget(null); setShowHeaderCheckIn(false); fetchCards() }}
@@ -488,8 +483,9 @@ export default function TeamPage() {
         <WorkLogModal
           date={date}
           userName={myProfile?.display_name ?? null}
+          initialTimeline={checkOutTarget.work_location_timeline ?? null}
           initialStartTime={
-            // 출근 버튼으로 찍은 시각 우선 → 없으면 출근보고 예정 시각
+            // 출근 버튼으로 찍은 시각 우선 → 없으면 출근보고 예정 시각 (legacy)
             toHHmm(checkOutTarget.checked_in_at) ?? checkOutTarget.start_time ?? undefined
           }
           initialEndTime={checkOutTarget.end_time ?? undefined}

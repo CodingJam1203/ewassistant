@@ -9,7 +9,9 @@ import { fmtTime, fmtBreak } from '@/lib/notifications/messages'
 import {
   validateTimeline,
   firstWorkLocation,
+  endItemOf,
   displayLocation,
+  buildLocationSummary,
 } from '@/lib/work-location-timeline'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 
@@ -26,7 +28,7 @@ export async function PATCH(
     const adminClient = createAdminClient()
     const { data: log, error: fetchError } = await adminClient
       .from('work_logs')
-      .select('user_id, user_email, name, is_deleted, division, team, leave_date, start_time, end_time, work_location, break_time, work_content, ew_value, work_type_label, attendance_record_type, expected_start_date, late_or_attendance_status, previous_report_time, current_report_time, late_reason, expected_work_time, expected_work_location')
+      .select('user_id, user_email, name, is_deleted, division, team, leave_date, start_time, end_time, work_location, break_time, work_content, ew_value, work_type_label, attendance_record_type, expected_start_date, late_or_attendance_status, previous_report_time, current_report_time, late_reason, expected_work_time, expected_work_location, work_location_timeline')
       .eq('id', id)
       .single()
 
@@ -45,12 +47,46 @@ export async function PATCH(
 
     const body = await request.json()
 
-    const finalWorkLocation: string =
-      body.workLocationType === '기타'
-        ? (body.workLocationCustom ?? body.workLocation ?? '')
-        : (body.workLocationType ?? body.workLocation ?? '')
+    // ─── 본문 근무장소 타임라인 처리 (PATCH) ────────────────────────────────
+    // body.workLocationTimeline이 명시적으로 전달된 경우에만 업데이트.
+    // 미전달 시(EditLogModal 등 기존 호출) 기존 work_* 컬럼만 변경됨.
+    let workLocationTimelinePatch: WorkLocationTimeline | null | undefined = undefined
+    let workTimelineFirst: ReturnType<typeof firstWorkLocation> = null
+    let workTimelineEnd: ReturnType<typeof endItemOf> = null
 
-    // ─── 출근보고 타임라인 처리 (PATCH) ──────────────────────────────────────
+    if (Array.isArray(body.workLocationTimeline) && body.workLocationTimeline.length > 0) {
+      const wlErrors = validateTimeline(body.workLocationTimeline as WorkLocationTimeline)
+      if (wlErrors.length > 0) {
+        return NextResponse.json(
+          { error: '근무장소 타임라인이 올바르지 않습니다: ' + wlErrors.map(e => e.message).join(', ') },
+          { status: 400 }
+        )
+      }
+      workLocationTimelinePatch = body.workLocationTimeline as WorkLocationTimeline
+      const last = workLocationTimelinePatch[workLocationTimelinePatch.length - 1]
+      if (last.kind !== 'checkout') {
+        return NextResponse.json(
+          { error: '퇴근보고의 마지막 항목은 실제 퇴근 시각이어야 합니다.' },
+          { status: 400 }
+        )
+      }
+      workTimelineFirst = firstWorkLocation(workLocationTimelinePatch)
+      workTimelineEnd = endItemOf(workLocationTimelinePatch)
+    }
+
+    // 최종 work_location/start/end: timeline 우선, 없으면 body의 단일 필드
+    const finalWorkLocation: string = workTimelineFirst
+      ? displayLocation(workTimelineFirst)
+      : (body.workLocationType === '기타'
+          ? (body.workLocationCustom ?? body.workLocation ?? '')
+          : (body.workLocationType ?? body.workLocation ?? ''))
+    const finalStartTime: string = workTimelineFirst?.startTime ?? body.startTime
+    const finalEndTime: string = workTimelineEnd?.startTime ?? body.endTime
+    const locationSummary: string = workLocationTimelinePatch
+      ? (buildLocationSummary(workLocationTimelinePatch) || finalWorkLocation)
+      : finalWorkLocation
+
+    // ─── 출근보고 (다음 출근 예정) 타임라인 처리 (PATCH) ──────────────────────
     // body.expectedTimeline이 명시적으로 전달된 경우에만 timeline 업데이트.
     // 미전달 시(EditLogModal 등 기존 호출) 기존 expected_* 컬럼만 변경되도록 유지.
     let expectedTimelinePatch: WorkLocationTimeline | null | undefined = undefined  // undefined = 미변경
@@ -84,10 +120,10 @@ export async function PATCH(
       name: body.name,
       workTypeLabel: body.workTypeLabel,
       leaveDate: body.leaveDate,
-      startTime: body.startTime,
-      endTime: body.endTime,
+      startTime: finalStartTime,
+      endTime: finalEndTime,
       breakTime: body.breakTime || '00:00',
-      workLocation: finalWorkLocation,
+      workLocation: locationSummary,
       workContent: body.workContent,
       breakReason: body.breakReason,
     })
@@ -97,8 +133,8 @@ export async function PATCH(
       work_type_label: body.workTypeLabel,
       work_type_code: calcResult.workTypeCode,
       leave_date: body.leaveDate,
-      start_time: body.startTime,
-      end_time: body.endTime,
+      start_time: finalStartTime,
+      end_time: finalEndTime,
       break_time: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
       break_reason: body.breakReason || null,
       work_content: body.workContent || null,
@@ -112,6 +148,11 @@ export async function PATCH(
       copy_text: calcResult.copyText,
       updated_at: new Date().toISOString(),
       updated_by: user.id,
+    }
+
+    // 본문 work_location_timeline은 body가 명시적으로 보낸 경우에만 업데이트
+    if (workLocationTimelinePatch !== undefined) {
+      updates.work_location_timeline = workLocationTimelinePatch
     }
 
     // 출근보고 timeline / mirror 값은 body가 명시적으로 보낸 경우에만 업데이트

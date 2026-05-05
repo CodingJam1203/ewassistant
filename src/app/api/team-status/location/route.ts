@@ -3,6 +3,38 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyLocationChanged } from '@/lib/notifications/teams'
 import { getKstTodayDateString } from '@/lib/utils/date'
+import {
+  appendWorkLocationToTimeline,
+  nowKstHHmmFloor,
+} from '@/lib/work-location-timeline'
+import {
+  KOREAN_LABEL_TO_TYPE,
+  WORK_LOCATION_TYPE_LABELS,
+  type WorkLocationItem,
+  type WorkLocationTimeline,
+  type WorkLocationType,
+} from '@/types/work-location-timeline'
+
+/** 사용자가 입력한 location 문자열을 work_location 항목으로 변환 */
+function locationStringToItem(location: string, startTime: string): Omit<WorkLocationItem, 'kind'> {
+  const trimmed = location.trim()
+  if (KOREAN_LABEL_TO_TYPE[trimmed]) {
+    const type: WorkLocationType = KOREAN_LABEL_TO_TYPE[trimmed]
+    return {
+      type,
+      label: WORK_LOCATION_TYPE_LABELS[type],
+      customLabel: null,
+      startTime,
+    }
+  }
+  // 알려진 한글 라벨이 아니면 custom
+  return {
+    type: 'custom',
+    label: WORK_LOCATION_TYPE_LABELS.custom,
+    customLabel: trimmed,
+    startTime,
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -18,7 +50,7 @@ export async function POST(request: Request) {
     }
 
     const now     = new Date().toISOString()
-    const timeStr = new Date().toTimeString().slice(0, 5)
+    const flooredTime = nowKstHHmmFloor()  // KST 현재 시각 30분 단위 내림
     const adminClient = createAdminClient()
 
     const { data: profile } = await adminClient
@@ -49,19 +81,43 @@ export async function POST(request: Request) {
 
     if (dailyErr) throw dailyErr
 
+    let updatedTimeline: WorkLocationTimeline | null = null
+    let timelineChanged = false
+
     if (daily?.work_log_id) {
       const { data: wLog } = await adminClient
         .from('work_logs')
-        .select('location_history')
+        .select('work_location_timeline, location_history')
         .eq('id', daily.work_log_id)
         .single()
 
-      const history: unknown[] = Array.isArray(wLog?.location_history) ? wLog.location_history : []
-      history.push({ time: timeStr, location, source: 'status_change' })
+      const currentTimeline = Array.isArray(wLog?.work_location_timeline)
+        ? wLog!.work_location_timeline as WorkLocationTimeline
+        : null
+
+      // legacy location_history 누적 유지
+      const history: unknown[] = Array.isArray(wLog?.location_history) ? wLog!.location_history : []
+      history.push({ time: flooredTime, location, source: 'status_change' })
+
+      const updates: Record<string, unknown> = {
+        location_history: history,
+        work_location: location, // legacy mirror
+      }
+
+      // timeline이 있으면 누적 시도
+      if (currentTimeline) {
+        const newItem = locationStringToItem(location, flooredTime)
+        const result = appendWorkLocationToTimeline(currentTimeline, newItem)
+        updatedTimeline = result.next
+        timelineChanged = result.changed
+        if (result.changed) {
+          updates.work_location_timeline = result.next
+        }
+      }
 
       await adminClient
         .from('work_logs')
-        .update({ location_history: history, work_location: location })
+        .update(updates)
         .eq('id', daily.work_log_id)
     }
 
@@ -71,7 +127,7 @@ export async function POST(request: Request) {
       user_profile_id: profile?.id ?? null,
       work_log_id:     daily?.work_log_id ?? null,
       event_type:      'location_change',
-      event_value:     { location, time: timeStr },
+      event_value:     { location, time: flooredTime, timeline_changed: timelineChanged },
       event_at:        now,
       created_by:      user.email!,
     })
@@ -83,6 +139,7 @@ export async function POST(request: Request) {
       previousLocation,
       newLocation: location,
       changedAt: now,
+      timeline: updatedTimeline ?? undefined,
       division: profile?.division ?? null,
       team: profile?.team ?? null,
     })

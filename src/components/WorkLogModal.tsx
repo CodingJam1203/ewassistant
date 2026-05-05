@@ -5,12 +5,15 @@ import { X } from 'lucide-react'
 import WorkLogForm from '@/components/WorkLogForm'
 import CalculationPreview from '@/components/CalculationPreview'
 import { EwCalculationResult } from '@/lib/ew-calculator'
+import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 
 interface WorkLogModalProps {
   date: string           // YYYY-MM-DD — 퇴근 날짜, check-out API에 전달
   userName: string | null
-  initialStartTime?: string  // 기존 출근보고 start_time (퇴근 버튼에서 pre-fill)
-  initialEndTime?: string    // 기존 출근보고 end_time
+  /** 오늘의 실제 work_location_timeline (출근보고/근무지변경 누적분) */
+  initialTimeline?: WorkLocationTimeline | null
+  initialStartTime?: string  // legacy fallback
+  initialEndTime?: string    // legacy fallback
   resubmitWorkLogId?: string | null // 퇴근취소 후 재제출일 때 기존 로그 ID
   onClose: () => void
   onSuccess: () => void  // 폼 제출 + check-out 완료 후 호출
@@ -19,6 +22,7 @@ interface WorkLogModalProps {
 export default function WorkLogModal({
   date,
   userName,
+  initialTimeline,
   initialStartTime,
   initialEndTime,
   resubmitWorkLogId,
@@ -85,6 +89,7 @@ export default function WorkLogModal({
               <div className="lg:col-span-2">
                 <WorkLogForm
                   userName={userName}
+                  initialTimeline={initialTimeline}
                   initialStartTime={initialStartTime}
                   initialEndTime={initialEndTime}
                   resubmitLogId={resubmitWorkLogId}

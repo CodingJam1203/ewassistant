@@ -7,7 +7,9 @@ import { notifyWorkLogSubmitted, notifyCheckoutResubmitted } from '@/lib/notific
 import {
   validateTimeline,
   firstWorkLocation,
+  endItemOf,
   displayLocation,
+  buildLocationSummary,
 } from '@/lib/work-location-timeline'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 
@@ -20,12 +22,48 @@ export async function POST(request: Request) {
 
     const body = await request.json()
 
-    const finalWorkLocation: string =
-      body.workLocationType === '기타'
-        ? (body.workLocationCustom ?? '')
-        : (body.workLocationType ?? '')
+    // ─── 본문 근무장소 타임라인 처리 (퇴근보고용) ────────────────────────────
+    // 신규: body.workLocationTimeline 우선
+    // legacy: body.workLocationType / workLocationCustom / startTime / endTime
+    let workLocationTimeline: WorkLocationTimeline | null = null
+    let workTimelineFirst: ReturnType<typeof firstWorkLocation> = null
+    let workTimelineEnd: ReturnType<typeof endItemOf> = null
 
-    // ─── 출근보고 타임라인 처리 ──────────────────────────────────────────────
+    if (Array.isArray(body.workLocationTimeline) && body.workLocationTimeline.length > 0) {
+      const wlErrors = validateTimeline(body.workLocationTimeline as WorkLocationTimeline)
+      if (wlErrors.length > 0) {
+        return NextResponse.json(
+          { error: '근무장소 타임라인이 올바르지 않습니다: ' + wlErrors.map(e => e.message).join(', ') },
+          { status: 400 }
+        )
+      }
+      workLocationTimeline = body.workLocationTimeline as WorkLocationTimeline
+      // 퇴근보고는 마지막 항목이 'checkout' (실제 퇴근)이어야 함
+      const last = workLocationTimeline[workLocationTimeline.length - 1]
+      if (last.kind !== 'checkout') {
+        return NextResponse.json(
+          { error: '퇴근보고의 마지막 항목은 실제 퇴근 시각이어야 합니다.' },
+          { status: 400 }
+        )
+      }
+      workTimelineFirst = firstWorkLocation(workLocationTimeline)
+      workTimelineEnd = endItemOf(workLocationTimeline)
+    }
+
+    // 폼 클라이언트에서 workLocationType/Custom/Time도 timeline으로부터 도출해 보내옴.
+    // timeline이 없는 (legacy) 클라이언트의 경우만 body 단일 필드를 그대로 사용.
+    const finalWorkLocation: string = workTimelineFirst
+      ? displayLocation(workTimelineFirst)
+      : (body.workLocationType === '기타'
+          ? (body.workLocationCustom ?? '')
+          : (body.workLocationType ?? ''))
+    const finalStartTime: string = workTimelineFirst?.startTime ?? body.startTime ?? '09:00'
+    const finalEndTime: string = workTimelineEnd?.startTime ?? body.endTime ?? '18:00'
+    const locationSummary: string = workLocationTimeline
+      ? (buildLocationSummary(workLocationTimeline) || finalWorkLocation)
+      : finalWorkLocation
+
+    // ─── 출근보고 (다음 출근 예정) 타임라인 처리 ──────────────────────────────
     // 신규: body.expectedTimeline (배열) — 우선 사용
     // 구버전 fallback: body.expectedWorkLocationType / expectedWorkLocation / expectedWorkTime
     //   → timeline이 없을 때만 단일 항목으로 간주
@@ -61,10 +99,10 @@ export async function POST(request: Request) {
       name: body.name,
       workTypeLabel: body.workTypeLabel,
       leaveDate: body.leaveDate,
-      startTime: body.startTime,
-      endTime: body.endTime,
+      startTime: finalStartTime,
+      endTime: finalEndTime,
       breakTime: body.breakTime || '00:00',
-      workLocation: finalWorkLocation,
+      workLocation: locationSummary,
       workContent: body.workContent,
       breakReason: body.breakReason,
     })
@@ -93,14 +131,15 @@ export async function POST(request: Request) {
       work_type_label: body.workTypeLabel,
       work_type_code: calcResult.workTypeCode,
       leave_date: body.leaveDate,
-      start_time: body.startTime,
-      end_time: body.endTime,
+      start_time: finalStartTime,
+      end_time: finalEndTime,
       break_time: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
       break_reason: body.breakReason || null,
       work_content: body.workContent || null,
       work_location: finalWorkLocation,
       work_location_type: body.workLocationType || null,
       work_location_custom: body.workLocationType === '기타' ? body.workLocationCustom : null,
+      work_location_timeline: workLocationTimeline,
       late_or_attendance_status: body.lateOrAttendanceStatus || null,
       previous_report_time: body.lateOrAttendanceStatus === '예' ? body.previousReportTime : null,
       current_report_time: body.lateOrAttendanceStatus === '예' ? body.currentReportTime : null,
@@ -164,8 +203,9 @@ export async function POST(request: Request) {
       leaveDate: body.leaveDate ?? '',
       workTypeLabel: body.workTypeLabel ?? '',
       workLocation: finalWorkLocation,
-      startTime: body.startTime ?? '',
-      endTime: body.endTime ?? '',
+      workLocationTimeline,
+      startTime: finalStartTime,
+      endTime: finalEndTime,
       breakTime: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
       lateOrAttendanceStatus: body.lateOrAttendanceStatus || '아니오',
       previousReportTime: body.lateOrAttendanceStatus === '예' ? (body.previousReportTime ?? null) : null,
