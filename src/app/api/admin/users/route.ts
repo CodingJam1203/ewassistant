@@ -100,4 +100,31 @@ export async function POST(request: Request) {
 
   // 이미 pre_approved_emails에 등록된 경우
   const { data: existingPre } = await adminClient
-    .from(
+    .from('pre_approved_emails')
+    .select('email')
+    .eq('email', normalizedEmail)
+    .maybeSingle()
+
+  if (existingPre) {
+    return NextResponse.json({ error: '이미 사전 등록된 이메일입니다.' }, { status: 409 })
+  }
+
+  // pre_approved_emails에 사전 등록
+  const { data, error } = await adminClient
+    .from('pre_approved_emails')
+    .insert({
+      email: normalizedEmail,
+      display_name: display_name?.trim() || null,
+      division: division?.trim() || null,
+      team: team?.trim() || null,
+      role: role === 'admin' ? 'admin' : 'user',
+    })
+    .select()
+    .single()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json(data, { status: 201 })
+}
