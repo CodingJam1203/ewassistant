@@ -204,6 +204,25 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
           ? data.expectedWorkLocation
           : data.expectedWorkLocationType;
 
+      // 브라우저 포커스 유실을 방지하기 위해 비동기 API 통신 전 클립보드 복사를 먼저 실행합니다.
+      const result = calculateEw({
+        name: data.name,
+        workTypeLabel: data.workTypeLabel,
+        leaveDate: data.leaveDate,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        breakTime: data.breakTime || '00:00',
+        workLocation: finalWorkLocation || '사무실',
+        workContent: data.workContent,
+        breakReason: showBreakReason ? data.breakReason : undefined,
+      })
+      
+      try {
+        await navigator.clipboard.writeText(result.copyText)
+      } catch (err) {
+        console.warn('Clipboard write failed:', err)
+      }
+
       const res = await fetch('/api/work-logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -216,19 +235,6 @@ export default function WorkLogForm({ userName, initialStartTime, initialEndTime
         throw new Error(resData.error || '제출에 실패했습니다.')
       }
 
-      // 복사 로직 실행
-      const result = calculateEw({
-        name: data.name,
-        workTypeLabel: data.workTypeLabel,
-        leaveDate: data.leaveDate,
-        startTime: data.startTime,
-        endTime: data.endTime,
-        breakTime: data.breakTime || '00:00',
-        workLocation: finalWorkLocation || '사무실',
-        workContent: data.workContent,
-        breakReason: showBreakReason ? data.breakReason : undefined,
-      })
-      await navigator.clipboard.writeText(result.copyText)
       setShowEwPopup(true)
       // onSubmitSuccess는 팝업 버튼 클릭 후 호출 (팝업이 닫히면서 호출)
     } catch (err: any) {
