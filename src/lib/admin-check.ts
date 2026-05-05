@@ -47,27 +47,3 @@ export async function requireAdmin() {
     return null
   }
 }
-
-/**
- * API Route에서 현재 사용자가 활성화된(is_active) 상태인지 검증합니다.
- * 활성 사용자면 user 객체를, 비활성이면 null을 반환합니다.
- */
-export async function requireActiveUser() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  // 관리자 계정은 항상 활성으로 간주
-  if (user.email === ADMIN_EMAIL) return user
-
-  try {
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('is_active')
-      .eq('id', user.id)
-      .single()
-    return profile?.is_active ? user : null
-  } catch {
-    return null
-  }
-}

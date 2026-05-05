@@ -1,7 +1,6 @@
 /**
  * GET /api/cron/reminder-20
  * 매일 20:00 KST (11:00 UTC) — 다음 날짜 출근보고 현황 발송
- * 팀별로 라우팅 테이블을 사용해 각 팀의 출근보고 스레드에 개별 발송
  */
 
 import { NextResponse } from 'next/server'
@@ -16,6 +15,7 @@ function getKstDate(offsetDays = 0): string {
 }
 
 export async function GET(request: Request) {
+  // Vercel Cron 인증
   const authHeader = request.headers.get('authorization')
   const secret = process.env.CRON_SECRET
   if (secret && authHeader !== `Bearer ${secret}`) {
@@ -26,9 +26,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ skipped: true, reason: 'ENABLE_DAILY_REMINDER_NOTIFY=false' })
   }
 
-  const targetDate = getKstDate(1)
+  const targetDate = getKstDate(1) // 다음 날짜
   const adminClient = createAdminClient()
 
+  // 활성 사용자 목록 (display_order → division → team → display_name 순)
   const { data: users } = await adminClient
     .from('user_profiles')
     .select('email, display_name, division, team, display_order')
@@ -42,6 +43,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ skipped: true, reason: 'no active users' })
   }
 
+  // 다음 날짜 출근보고 (최신 1건씩)
   const { data: checkins } = await adminClient
     .from('work_logs')
     .select('user_email, expected_work_location, expected_work_time, created_at')
@@ -50,6 +52,7 @@ export async function GET(request: Request) {
     .eq('is_deleted', false)
     .order('created_at', { ascending: false })
 
+  // 유저별 최신 출근보고 맵
   const checkinMap = new Map<string, { expected_work_location: string | null; expected_work_time: string | null }>()
   for (const c of checkins ?? []) {
     if (!checkinMap.has(c.user_email)) {
@@ -60,32 +63,12 @@ export async function GET(request: Request) {
     }
   }
 
-  // 팀별 그루핑
-  const teamGroups = new Map<string, { division: string; team: string; users: typeof users }>()
-  for (const u of users) {
-    if (!u.division || !u.team) continue
-    const key = `${u.division}||${u.team}`
-    if (!teamGroups.has(key)) {
-      teamGroups.set(key, { division: u.division, team: u.team, users: [] })
-    }
-    teamGroups.get(key)!.users.push(u)
-  }
+  const members = users.map(u => ({
+    name:   u.display_name || u.email,
+    status: formatNightlyCheckinStatus(checkinMap.get(u.email)),
+  }))
 
-  // 팀별 발송
-  const promises = Array.from(teamGroups.values()).map(group => {
-    const members = group.users.map(u => ({
-      name:   u.display_name || u.email,
-      status: formatNightlyCheckinStatus(checkinMap.get(u.email)),
-    }))
-    return notifyDailyCheckinReminder('daily_checkin_reminder_20', {
-      division:   group.division,
-      team:       group.team,
-      targetDate,
-      members,
-    })
-  })
+  await notifyDailyCheckinReminder('daily_checkin_reminder_20', { targetDate, members })
 
-  await Promise.allSettled(promises)
-
-  return NextResponse.json({ ok: true, targetDate, teamCount: teamGroups.size, userCount: users.length })
+  return NextResponse.json({ ok: true, targetDate, count: members.length })
 }

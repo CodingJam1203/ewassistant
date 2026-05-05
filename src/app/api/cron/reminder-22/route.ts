@@ -1,7 +1,6 @@
 /**
  * GET /api/cron/reminder-22
  * 매일 22:00 KST (13:00 UTC) — 다음 날짜 출근보고 현황 재발송
- * 팀별로 라우팅 테이블을 사용해 각 팀의 출근보고 스레드에 개별 발송
  */
 
 import { NextResponse } from 'next/server'
@@ -26,7 +25,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ skipped: true, reason: 'ENABLE_DAILY_REMINDER_NOTIFY=false' })
   }
 
-  const targetDate = getKstDate(1)
+  const targetDate = getKstDate(1) // 다음 날짜
   const adminClient = createAdminClient()
 
   const { data: users } = await adminClient
@@ -60,32 +59,12 @@ export async function GET(request: Request) {
     }
   }
 
-  // 팀별 그루핑
-  const teamGroups = new Map<string, { division: string; team: string; users: typeof users }>()
-  for (const u of users) {
-    if (!u.division || !u.team) continue
-    const key = `${u.division}||${u.team}`
-    if (!teamGroups.has(key)) {
-      teamGroups.set(key, { division: u.division, team: u.team, users: [] })
-    }
-    teamGroups.get(key)!.users.push(u)
-  }
+  const members = users.map(u => ({
+    name:   u.display_name || u.email,
+    status: formatNightlyCheckinStatus(checkinMap.get(u.email)),
+  }))
 
-  // 팀별 발송
-  const promises = Array.from(teamGroups.values()).map(group => {
-    const members = group.users.map(u => ({
-      name:   u.display_name || u.email,
-      status: formatNightlyCheckinStatus(checkinMap.get(u.email)),
-    }))
-    return notifyDailyCheckinReminder('daily_checkin_reminder_22', {
-      division:   group.division,
-      team:       group.team,
-      targetDate,
-      members,
-    })
-  })
+  await notifyDailyCheckinReminder('daily_checkin_reminder_22', { targetDate, members })
 
-  await Promise.allSettled(promises)
-
-  return NextResponse.json({ ok: true, targetDate, teamCount: teamGroups.size, userCount: users.length })
+  return NextResponse.json({ ok: true, targetDate, count: members.length })
 }

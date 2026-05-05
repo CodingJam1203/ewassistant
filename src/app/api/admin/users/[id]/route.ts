@@ -180,15 +180,4 @@ export async function DELETE(
       return NextResponse.json({ error: 'Auth 삭제 실패 (서버 에러)' }, { status: 500 })
     }
     // CASCADE로 user_profiles도 삭제됨
-    return NextResponse.json({ success: true })
-  }
-
-  // 사전 등록 계정 (auth.users 없음) — user_profiles만 삭제
-  const { error } = await adminClient.from('user_profiles').delete().eq('email', targetEmail)
-  if (error) {
-    console.error('Admin DELETE Error:', error)
-    return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
-  }
-
-  return NextResponse.json({ success: true })
-}
+    

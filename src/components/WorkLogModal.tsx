@@ -86,16 +86,4 @@ export default function WorkLogModal({
                   initialStartTime={initialStartTime}
                   initialEndTime={initialEndTime}
                   onCalculate={handleCalculate}
-                  onSubmitSuccess={handleSubmitSuccess}
-                />
-              </div>
-              <div className="lg:col-span-1">
-                <CalculationPreview result={calculationResult} error={calculationError} />
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
+                  onSubmitS

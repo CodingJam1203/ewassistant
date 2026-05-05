@@ -132,13 +132,4 @@ export default function CheckInTimeModal({
             >
               {saving
                 ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <LogIn className="h-4 w-4" />
-              }
-              {workLogId ? '출근 확인' : '다음 →'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
+                : <LogIn className="h-4 w-4"
