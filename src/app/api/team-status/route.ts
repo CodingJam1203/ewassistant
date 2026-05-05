@@ -61,14 +61,20 @@ export interface TeamMemberCard {
 // ─── 상태/색상 계산 ───────────────────────────────────────────────────────────
 
 function computeStatus(
-  workLog: Record<string, unknown> | null,
+  workLog: (Record<string, unknown> & { _expectedOnly?: boolean }) | null,
   daily: Record<string, unknown> | null,
   calendarLeaveType: LeaveType | null = null,
 ): { color: 'green' | 'yellow' | 'red'; status_text: string; status: string } {
   const hasLog = !!workLog
+  const isExpectedOnly = !!workLog?._expectedOnly
   const checkedIn = !!(daily?.checked_in_at)
   const checkedOut = !!(daily?.checked_out_at)
   const onBreak = !!(daily?.is_on_break)
+
+  // 출근보고만 작성된 상태 (다른 날 미리 작성한 사전 보고) — 카드에 yellow + "출근보고 작성됨"
+  if (isExpectedOnly && !checkedIn) {
+    return { color: 'yellow', status_text: '출근보고 작성됨', status: 'expected_only' }
+  }
 
   // 캘린더에 종일 휴가가 있고 N-Click 보고가 없으면 → 휴가 상태로 표시
   // (반차는 결국 출근보고가 필요하므로 별도 처리하지 않음 — '미제출'로 두고 카드에 반차 배지만)
@@ -151,19 +157,38 @@ export async function GET(request: Request) {
     const emails = profiles.map((p: { email: string }) => p.email)
 
     // ── 해당 날짜 work_logs 일괄 조회 ─────────────────────────────────────────
-    const { data: workLogs } = await adminClient
+    // 두 가지 매칭:
+    //   (A) leave_date = dateParam       → 그 날 실제 근무 / 퇴근보고 (1순위)
+    //   (B) expected_start_date = dateParam → 다른 날 작성된 출근보고 (2순위)
+    // 같은 사용자에게 둘 다 있으면 (A) 우선.
+    const SELECT_COLS = 'id, user_email, start_time, end_time, work_location, work_content, location_history, work_location_timeline, leave_timeline, expected_work_location_timeline, expected_leave_timeline, break_auto_actual_minutes, break_auto_rounded_minutes, leave_date, expected_start_date, expected_work_time, expected_work_location'
+
+    const { data: workLogsLeave } = await adminClient
       .from('work_logs')
-      .select('id, user_email, start_time, end_time, work_location, work_content, location_history, work_location_timeline, leave_timeline, break_auto_actual_minutes, break_auto_rounded_minutes, leave_date')
+      .select(SELECT_COLS)
       .in('user_email', emails)
       .eq('leave_date', dateParam)
       .eq('is_deleted', false)
       .order('created_at', { ascending: false })
 
-    // email → 최신 work_log 매핑 (같은 날짜에 복수 제출 가능성 → 최신 1건)
-    const workLogByEmail = new Map<string, Record<string, unknown>>()
-    for (const log of (workLogs ?? [])) {
+    const { data: workLogsExpected } = await adminClient
+      .from('work_logs')
+      .select(SELECT_COLS)
+      .in('user_email', emails)
+      .eq('expected_start_date', dateParam)
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: false })
+
+    // email → work_log 매핑. (A) 우선. (B)인 경우 _expectedOnly=true 표식.
+    const workLogByEmail = new Map<string, Record<string, unknown> & { _expectedOnly?: boolean }>()
+    for (const log of (workLogsLeave ?? [])) {
       if (!workLogByEmail.has(log.user_email)) {
         workLogByEmail.set(log.user_email, log as Record<string, unknown>)
+      }
+    }
+    for (const log of (workLogsExpected ?? [])) {
+      if (!workLogByEmail.has(log.user_email)) {
+        workLogByEmail.set(log.user_email, { ...log, _expectedOnly: true } as Record<string, unknown> & { _expectedOnly: boolean })
       }
     }
 
@@ -232,6 +257,32 @@ export async function GET(request: Request) {
 
       const { color, status_text, status } = computeStatus(workLog, daily, calLeave.leaveType)
 
+      // expected_start_date 매칭으로 잡힌 work_log는 출근보고 정보를 본문 필드로 노출
+      const isExpectedOnly = !!workLog?._expectedOnly
+      const startTime = workLog
+        ? (isExpectedOnly
+            ? (workLog.expected_work_time as string | null) ?? null
+            : (workLog.start_time as string | null))
+        : null
+      const endTime = workLog && !isExpectedOnly
+        ? (workLog.end_time as string | null)
+        : null
+      const workLocation = workLog
+        ? (isExpectedOnly
+            ? (workLog.expected_work_location as string | null) ?? null
+            : (workLog.work_location as string | null))
+        : null
+      const workLocationTimeline = workLog
+        ? (isExpectedOnly
+            ? (workLog.expected_work_location_timeline as WorkLocationTimeline | null | undefined) ?? null
+            : (workLog.work_location_timeline as WorkLocationTimeline | null | undefined) ?? null)
+        : null
+      const leaveTimeline = workLog
+        ? (isExpectedOnly
+            ? (workLog.expected_leave_timeline as LeaveTimeline | null | undefined) ?? null
+            : (workLog.leave_timeline as LeaveTimeline | null | undefined) ?? null)
+        : null
+
       return {
         email,
         display_name:    displayName,
@@ -254,26 +305,22 @@ export async function GET(request: Request) {
         last_event_at:    lastEventByEmail.get(email) ?? null,
 
         work_log_id:      workLog ? (workLog.id as string) : null,
-        start_time:       workLog ? (workLog.start_time as string | null) : null,
-        end_time:         workLog ? (workLog.end_time as string | null) : null,
-        work_location:    workLog ? (workLog.work_location as string | null) : null,
-        work_content:     workLog ? (workLog.work_content as string | null) : null,
+        start_time:       startTime,
+        end_time:         endTime,
+        work_location:    workLocation,
+        work_content:     workLog && !isExpectedOnly ? (workLog.work_content as string | null) : null,
         location_history: (workLog?.location_history as LocationHistoryEntry[]) ?? [],
-        work_location_timeline:
-          (workLog?.work_location_timeline as WorkLocationTimeline | null | undefined) ?? null,
-        leave_timeline:
-          (workLog?.leave_timeline as LeaveTimeline | null | undefined) ?? null,
+        work_location_timeline: workLocationTimeline,
+        leave_timeline:         leaveTimeline,
         break_auto_actual_minutes:
           (workLog?.break_auto_actual_minutes as number | null | undefined) ?? null,
         break_auto_rounded_minutes:
           (workLog?.break_auto_rounded_minutes as number | null | undefined) ?? null,
-        // 외부 캘린더 휴가 (work_log 없을 때 카드 배지 표시용)
         calendar_leave_type:  calLeave.leaveType,
         calendar_leave_label: calLeave.label,
       }
     })
 
-    // ── 정렬: 본인 맨 앞 → display_order 오름차순 → display_name 순 ──────────
     cards.sort((a, b) => {
       if (a.is_self && !b.is_self) return -1
       if (!a.is_self && b.is_self) return 1
@@ -284,6 +331,7 @@ export async function GET(request: Request) {
     return NextResponse.json(cards)
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
-    return NextResponse.json({ error: message }, { status: 500 })
+    console.error('[/api/team-status]', message)
+    return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
   }
 }

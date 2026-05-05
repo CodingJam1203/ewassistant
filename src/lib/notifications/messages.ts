@@ -72,9 +72,13 @@ export function fmtBreak(timeStr: string): string {
   return `${parts[0].padStart(2, '0')}:${(parts[1] ?? '00').padStart(2, '0')}`
 }
 
-/** CTA footer line */
+/** CTA footer line — 다중 env fallback (NCLICK_APP_URL은 legacy, APP_URL/NEXT_PUBLIC_APP_URL 권장) */
 function cta(): string {
-  const url = process.env.NCLICK_APP_URL
+  const url =
+    process.env.NCLICK_APP_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    ''
   return url ? `[👉 N-Click 바로가기](${url})` : '👉 N-Click 바로가기'
 }
 
@@ -485,6 +489,6 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
     }
 
     default:
-      return '[알 수 없는 이벤트]'
+      return ''
   }
 }
