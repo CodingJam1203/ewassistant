@@ -410,11 +410,78 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
 
     case 'daily_morning_summary': {
       const p = payload as MorningSummaryData
-      const todayHeader = `🕘[ ${koreanDate(p.todayDate)} 출근 보고 ]`
-      const todayRows   = p.todayCheckins.map(m => `🔹 ${m.name} : ${m.status}`).join('\n')
-      const yestHeader  = `🕘[ ${koreanDate(p.yesterdayDate)} 퇴근 보고 ]`
-      const yestRows    = p.yesterdayWorkLogs.map(m => `🔹 ${m.name} : ${m.status}`).join('\n')
-      return [todayHeader, todayRows, yestHeader, yestRows, cta()].join('\n')
+
+      // 신규 섹션이 들어왔으면 새 템플릿, 아니면 기존 호환 템플릿
+      const useNewTemplate = !!(p.leaveSection || p.completedSection || p.needSection || p.needAfterSection)
+
+      if (!useNewTemplate) {
+        // legacy
+        const todayHeader = `🕘[ ${koreanDate(p.todayDate)} 출근 보고 ]`
+        const todayRows   = p.todayCheckins.map(m => `🔹 ${m.name} : ${m.status}`).join('\n')
+        const yestHeader  = `🕘[ ${koreanDate(p.yesterdayDate)} 퇴근 보고 ]`
+        const yestRows    = p.yesterdayWorkLogs.map(m => `🔹 ${m.name} : ${m.status}`).join('\n')
+        return [todayHeader, todayRows, yestHeader, yestRows, cta()].join('\n')
+      }
+
+      // ── 새 템플릿: 4섹션 + 어제 퇴근보고 요약 ─────────────────────────────────
+      const lines: string[] = []
+      lines.push(`🌅 ${koreanDate(p.todayDate)} 오늘의 근무 현황`)
+      lines.push('')
+
+      const leaveItems = p.leaveSection ?? []
+      const completed = p.completedSection ?? []
+      const need = p.needSection ?? []
+      const needAfter = p.needAfterSection ?? []
+
+      if (leaveItems.length > 0) {
+        lines.push(`🏖️ 휴가/반차 (${leaveItems.length})`)
+        for (const it of leaveItems) {
+          lines.push(`- ${it.name}: ${it.label}`)
+        }
+        lines.push('')
+      }
+
+      if (completed.length > 0) {
+        lines.push(`✅ 출근보고 완료 (${completed.length})`)
+        for (const it of completed) {
+          lines.push(`- ${it.name}: ${it.status}`)
+        }
+        lines.push('')
+      }
+
+      if (need.length > 0) {
+        lines.push(`⚠️ 출근보고 필요 (${need.length})`)
+        for (const it of need) {
+          lines.push(`- ${it.name}`)
+        }
+        lines.push('')
+      }
+
+      if (needAfter.length > 0) {
+        lines.push(`🕐 오후 출근보고 필요 (${needAfter.length}) — 오전반차 후 출근 예정`)
+        for (const it of needAfter) {
+          lines.push(`- ${it.name}: ${it.label}`)
+        }
+        lines.push('')
+      }
+
+      // 어제 퇴근보고 요약 (참고)
+      if (p.yesterdayWorkLogs.length > 0) {
+        lines.push(`🕘 ${koreanDate(p.yesterdayDate)} 퇴근 보고`)
+        for (const m of p.yesterdayWorkLogs) {
+          lines.push(`- ${m.name}: ${m.status}`)
+        }
+        lines.push('')
+      }
+
+      lines.push(cta())
+      // 빈 줄 정리 (연속 빈 줄 → 1개)
+      const compact = lines.reduce<string[]>((acc, line) => {
+        if (line === '' && acc[acc.length - 1] === '') return acc
+        acc.push(line)
+        return acc
+      }, [])
+      return compact.join('\n')
     }
 
     default:

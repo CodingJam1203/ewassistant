@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { X, Loader2 } from 'lucide-react'
+import { X, Loader2, Calendar } from 'lucide-react'
 import WorkLocationTimelineInput, { defaultTimeline } from '@/components/WorkLocationTimelineInput'
 import LeaveTimelineInput from '@/components/LeaveTimelineInput'
 import { validateTimeline } from '@/lib/work-location-timeline'
-import { isFullDayLeave, validateLeaveTimeline } from '@/lib/leave-timeline'
+import { buildLeaveItem, isFullDayLeave, validateLeaveTimeline } from '@/lib/leave-timeline'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
+import type { UserCalendarLookup, CalendarEventChunk } from '@/types/leave-calendar'
 
 interface CheckInModalProps {
   /** 초기 날짜 (사용자가 모달 안에서 자유롭게 변경 가능) */
@@ -20,6 +21,17 @@ interface CheckInModalProps {
 }
 
 const BREAK_OPTS = ['00:00', '00:30', '01:00', '01:30', '02:00', '02:30', '03:00']
+
+/** 일정 1줄 포매터 — "10:00~12:00 미팅" 또는 "(종일) 워크샵" */
+function formatEventLine(ev: CalendarEventChunk): string {
+  if (ev.startTime && ev.endTime) {
+    return `${ev.startTime}~${ev.endTime} ${ev.title}`
+  }
+  if (ev.startTime) {
+    return `${ev.startTime}~ ${ev.title}`
+  }
+  return `(종일) ${ev.title}`
+}
 
 /** 'HH:mm' 분이 30분 단위인지 확인 후 그렇지 않으면 30분 단위로 보정해서 반환 */
 function normalizeStartTimeTo30(input: string | undefined, fallback: string): string {
@@ -58,6 +70,7 @@ export default function CheckInModal({
     return base
   })
   const [loadingPrefill, setLoadingPrefill] = useState(true)
+  const [calendarLookup, setCalendarLookup] = useState<UserCalendarLookup | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState<string | null>(null)
 
@@ -87,6 +100,34 @@ export default function CheckInModal({
     }
     fetchPrefill()
     return () => { cancelled = true }
+  }, [date])
+
+  /** 외부 캘린더 일정 조회 (DB cache 경유) */
+  useEffect(() => {
+    let cancelled = false
+    const fetchCalendar = async () => {
+      try {
+        const res = await fetch(`/api/team-status/calendar-events?date=${encodeURIComponent(date)}`)
+        if (!res.ok) return
+        const data = await res.json() as UserCalendarLookup
+        if (cancelled) return
+        setCalendarLookup(data)
+        // 캘린더가 휴가로 표시되어 있고, 사용자가 아직 휴가를 선택 안 했다면 자동 prefill
+        if (
+          data.leaveType
+          && (!leaveTimeline || leaveTimeline.length === 0)
+        ) {
+          setLeaveTimeline([
+            buildLeaveItem(data.leaveType, data.leaveLabel ?? undefined, 'calendar'),
+          ])
+        }
+      } catch {
+        // 무시
+      }
+    }
+    fetchCalendar()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date])
 
   const isAllDayLeave = isFullDayLeave(leaveTimeline)
@@ -169,6 +210,31 @@ export default function CheckInModal({
               className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
+
+          {/* 외부 캘린더 일정 안내 박스 */}
+          {calendarLookup?.enabled && (calendarLookup.leaveType || calendarLookup.events.length > 0 || calendarLookup.fetchFailed) && (
+            <div className="rounded-lg border border-blue-100 bg-blue-50/60 dark:border-blue-900/40 dark:bg-blue-900/10 px-3 py-2">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Calendar className="h-3.5 w-3.5 text-blue-500" />
+                <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">캘린더 일정 ({date})</span>
+              </div>
+              {calendarLookup.fetchFailed ? (
+                <p className="text-xs text-amber-700">캘린더 데이터를 불러오지 못했습니다 (이전 캐시도 없음).</p>
+              ) : (
+                <ul className="text-xs text-gray-700 dark:text-gray-300 space-y-0.5">
+                  {calendarLookup.leaveType && (
+                    <li>
+                      <span className="font-medium text-amber-700">{calendarLookup.leaveLabel}</span>
+                      <span className="ml-1 text-gray-500">— 아래 휴가/반차에 자동 반영됨</span>
+                    </li>
+                  )}
+                  {calendarLookup.events.map((ev, i) => (
+                    <li key={i}>{formatEventLine(ev)}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {/* 휴가/반차 */}
           <div>

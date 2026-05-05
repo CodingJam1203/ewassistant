@@ -1,18 +1,39 @@
 /**
  * GET /api/cron/morning-summary
- * 매일 07:00 KST (22:00 UTC 전날) — 오늘 출근보고 + 전일 퇴근보고 요약
- * 팀별로 라우팅 테이블을 사용해 각 팀의 출근보고 스레드에 개별 발송
+ * 매일 07:00 KST — 팀별로 오늘의 휴가/근무 현황 정리해서 출근보고 채널에 발송.
+ *
+ * 흐름:
+ *   1. 외부 캘린더 강제 갱신 (Google Sheets → leave_calendar_cache)
+ *   2. user_profiles + 오늘 work_logs(출근보고) + 어제 work_logs(퇴근보고) 일괄 조회
+ *   3. 사용자별 휴가 판정 (N-Click 입력 + 캘린더, 어느 쪽이든 휴가면 휴가)
+ *   4. 사람별 분류:
+ *        🏖️ 휴가/반차 (종일 / 오전반차 / 오후반차)
+ *        ✅ 출근보고 완료
+ *        ⚠️ 출근보고 필요
+ *        🕐 오후 출근보고 필요 (오전반차 후 오후 근무 예정자가 출근보고 미작성)
+ *   5. 팀별 메시지 빌드 → notifyMorningSummary 발송
  */
 
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyMorningSummary } from '@/lib/notifications/teams'
-import { formatMorningCheckinStatus, formatMorningWorklogStatus } from '@/lib/notifications/messages'
+import { formatMorningWorklogStatus } from '@/lib/notifications/messages'
+import { forceRefreshCalendar, getDepartmentDailyParsed } from '@/lib/leave-calendar'
+import { parseLeaveLabel } from '@/lib/leave-timeline'
+import type { LeaveType, LeaveTimeline } from '@/types/leave-timeline'
 
 function getKstDate(offsetDays = 0): string {
   const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
   d.setUTCDate(d.getUTCDate() + offsetDays)
   return d.toISOString().slice(0, 10)
+}
+
+interface UserRow {
+  email: string
+  display_name: string | null
+  division: string | null
+  team: string | null
+  display_order: number | null
 }
 
 export async function GET(request: Request) {
@@ -31,7 +52,7 @@ export async function GET(request: Request) {
 
   const adminClient = createAdminClient()
 
-  const { data: users } = await adminClient
+  const { data: usersRaw } = await adminClient
     .from('user_profiles')
     .select('email, display_name, division, team, display_order')
     .eq('is_active', true)
@@ -40,30 +61,59 @@ export async function GET(request: Request) {
     .order('team', { ascending: true })
     .order('display_name', { ascending: true })
 
-  if (!users || users.length === 0) {
+  const users: UserRow[] = (usersRaw ?? []) as UserRow[]
+  if (users.length === 0) {
     return NextResponse.json({ skipped: true, reason: 'no active users' })
   }
 
-  // 오늘 출근보고
+  // ─── 오늘 출근보고(work_logs) 조회 — leave_timeline까지 ─────────────────────
   const { data: checkins } = await adminClient
     .from('work_logs')
-    .select('user_email, expected_work_location, expected_work_time, created_at')
+    .select('user_email, expected_work_location, expected_work_time, leave_timeline, expected_leave_timeline, created_at')
     .eq('expected_start_date', todayDate)
     .eq('attendance_record_type', '출근보고 진행 (주말출근, 휴가 포함)')
     .eq('is_deleted', false)
     .order('created_at', { ascending: false })
 
-  const checkinMap = new Map<string, { expected_work_location: string | null; expected_work_time: string | null }>()
+  // 사용자가 직접 입력한 오늘의 work_log (오늘 leave_date 기준)
+  const { data: todayLogs } = await adminClient
+    .from('work_logs')
+    .select('user_email, leave_timeline, work_location, start_time, end_time, created_at')
+    .eq('leave_date', todayDate)
+    .eq('is_deleted', false)
+    .order('created_at', { ascending: false })
+
+  interface CheckinInfo {
+    expected_work_location: string | null
+    expected_work_time: string | null
+    expected_leave_timeline: LeaveTimeline | null
+  }
+  const checkinMap = new Map<string, CheckinInfo>()
   for (const c of checkins ?? []) {
     if (!checkinMap.has(c.user_email)) {
       checkinMap.set(c.user_email, {
         expected_work_location: c.expected_work_location,
         expected_work_time:     c.expected_work_time,
+        expected_leave_timeline: (c.expected_leave_timeline as LeaveTimeline | null) ?? null,
       })
     }
   }
 
-  // 전일 퇴근보고
+  interface TodayLogInfo {
+    leave_timeline: LeaveTimeline | null
+    work_location: string | null
+  }
+  const todayLogMap = new Map<string, TodayLogInfo>()
+  for (const t of todayLogs ?? []) {
+    if (!todayLogMap.has(t.user_email)) {
+      todayLogMap.set(t.user_email, {
+        leave_timeline: (t.leave_timeline as LeaveTimeline | null) ?? null,
+        work_location:  t.work_location,
+      })
+    }
+  }
+
+  // ─── 어제 퇴근보고 — 메시지 하단 표시용 (기존 유지) ───────────────────────
   const { data: workLogs } = await adminClient
     .from('work_logs')
     .select('user_email, start_time, end_time, break_time, work_location, created_at')
@@ -83,8 +133,28 @@ export async function GET(request: Request) {
     }
   }
 
-  // 팀별 그루핑
-  const teamGroups = new Map<string, { division: string; team: string; users: typeof users }>()
+  // ─── 외부 캘린더 강제 갱신 + 본부별 휴가자 조회 ───────────────────────────
+  await forceRefreshCalendar(todayDate)
+
+  // 본부별 캘린더 entries 캐시 (아래에서 user 매칭에 사용)
+  const calendarByDeptUser = new Map<string, { leaveType: LeaveType | null; leaveLabel: string | null }>()
+  // department -> already fetched
+  const fetchedDepts = new Set<string>()
+  async function ensureDepartmentLoaded(dept: string) {
+    if (fetchedDepts.has(dept)) return
+    fetchedDepts.add(dept)
+    const result = await getDepartmentDailyParsed({ date: todayDate, department: dept })
+    if (!result.enabled || result.fetchFailed) return
+    for (const entry of result.entries) {
+      calendarByDeptUser.set(`${dept}||${entry.name}`, {
+        leaveType: entry.leaveType,
+        leaveLabel: entry.leaveLabel,
+      })
+    }
+  }
+
+  // ─── 팀별 그루핑 ────────────────────────────────────────────────────────────
+  const teamGroups = new Map<string, { division: string; team: string; users: UserRow[] }>()
   for (const u of users) {
     if (!u.division || !u.team) continue
     const key = `${u.division}||${u.team}`
@@ -94,27 +164,108 @@ export async function GET(request: Request) {
     teamGroups.get(key)!.users.push(u)
   }
 
-  // 팀별 발송
+  // 본부별 캘린더 사전 로드
+  const allDepts = Array.from(new Set(Array.from(teamGroups.values()).map(g => g.division)))
+  for (const dept of allDepts) {
+    await ensureDepartmentLoaded(dept)
+  }
+
+  // ─── 팀별 사용자 분류 + 발송 ───────────────────────────────────────────────
   const promises = Array.from(teamGroups.values()).map(group => {
-    const todayCheckins = group.users.map(u => ({
-      name:   u.display_name || u.email,
-      status: formatMorningCheckinStatus(checkinMap.get(u.email)),
-    }))
+    const leaveSection: Array<{ name: string; label: string; leaveType: LeaveType }> = []
+    const completedSection: Array<{ name: string; status: string }> = []
+    const needSection: Array<{ name: string }> = []
+    const needAfterSection: Array<{ name: string; label: string }> = []
+
+    for (const u of group.users) {
+      const name = u.display_name || u.email
+      const checkinInfo = checkinMap.get(u.email)
+      const todayInfo = todayLogMap.get(u.email)
+
+      // 휴가 판정 — 다음 우선순위:
+      //   1) 오늘 work_logs의 leave_timeline 첫 항목
+      //   2) 어제 work_logs의 expected_leave_timeline 첫 항목
+      //   3) 외부 캘린더 셀 값
+      let leaveType: LeaveType | null = null
+      let leaveLabel: string | null = null
+      const todayLeave = todayInfo?.leave_timeline?.[0]
+      const expectedLeave = checkinInfo?.expected_leave_timeline?.[0]
+      const calendarHit = u.division ? calendarByDeptUser.get(`${u.division}||${name}`) : null
+
+      if (todayLeave) {
+        leaveType = todayLeave.leaveType
+        leaveLabel = todayLeave.label
+      } else if (expectedLeave) {
+        leaveType = expectedLeave.leaveType
+        leaveLabel = expectedLeave.label
+      } else if (calendarHit?.leaveType) {
+        leaveType = calendarHit.leaveType
+        leaveLabel = calendarHit.leaveLabel ?? '휴가'
+        // 캘린더 라벨이 자유 텍스트면 표준 라벨로 보정
+        const stdType = parseLeaveLabel(leaveLabel)
+        if (stdType) leaveType = stdType
+      }
+
+      // 분류
+      const hasCheckin = !!checkinInfo
+      const isFullDay = leaveType === 'full_day'
+      const isMorningHalf = leaveType === 'morning_half'
+      const isAfternoonHalf = leaveType === 'afternoon_half'
+
+      if (isFullDay) {
+        // 종일 휴가 — 휴가 섹션만, 출근보고 필요 안 함
+        leaveSection.push({ name, label: leaveLabel || '휴가', leaveType })
+        continue
+      }
+
+      if (isMorningHalf || isAfternoonHalf) {
+        leaveSection.push({ name, label: leaveLabel || (isMorningHalf ? '오전반차' : '오후반차'), leaveType })
+      }
+
+      if (hasCheckin) {
+        const status = checkinInfo?.expected_work_location && checkinInfo?.expected_work_time
+          ? `${checkinInfo.expected_work_location} ${checkinInfo.expected_work_time}~`
+          : '작성됨'
+        completedSection.push({ name, status })
+      } else if (isMorningHalf) {
+        // 오전반차 + 출근보고 미작성 → 오후 출근보고 필요
+        needAfterSection.push({ name, label: leaveLabel || '오전반차' })
+      } else {
+        // 휴가 없음 / 오후반차이나 미작성 → 일반 출근보고 필요
+        needSection.push({ name })
+      }
+    }
+
     const yesterdayWorkLogs = group.users.map(u => ({
       name:   u.display_name || u.email,
       status: formatMorningWorklogStatus(workLogMap.get(u.email)),
     }))
+
     return notifyMorningSummary({
       division:   group.division,
       team:       group.team,
       todayDate,
       yesterdayDate,
-      todayCheckins,
+      // 신규 4섹션
+      leaveSection,
+      completedSection,
+      needSection,
+      needAfterSection,
+      // 어제 퇴근보고 (기존 표시 유지)
       yesterdayWorkLogs,
+      // legacy 필드는 빈 배열로 유지 (타입 호환)
+      todayCheckins: completedSection.map(c => ({ name: c.name, status: c.status })),
     })
   })
 
   await Promise.allSettled(promises)
 
-  return NextResponse.json({ ok: true, todayDate, yesterdayDate, teamCount: teamGroups.size, userCount: users.length })
+  return NextResponse.json({
+    ok: true,
+    todayDate,
+    yesterdayDate,
+    teamCount: teamGroups.size,
+    userCount: users.length,
+    calendarEnabled: !!process.env.LEAVE_CALENDAR_WEBHOOK_URL,
+  })
 }

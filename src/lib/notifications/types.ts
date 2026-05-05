@@ -155,6 +155,18 @@ export interface MorningSummaryData {
   team: string               // 라우팅용
   todayDate: string
   yesterdayDate: string
-  todayCheckins: Array<{ name: string; status: string }>
+
+  /** 🏖️ 오늘 휴가/반차자 (종일/오전/오후) */
+  leaveSection?: Array<{ name: string; label: string; leaveType: 'full_day' | 'morning_half' | 'afternoon_half' }>
+  /** ✅ 오늘 출근보고 작성 완료 */
+  completedSection?: Array<{ name: string; status: string }>
+  /** ⚠️ 오늘 출근보고 필요 (휴가 없음/오후반차자 + 미작성) */
+  needSection?: Array<{ name: string }>
+  /** 🕐 오후 출근보고 필요 (오전반차 + 미작성) */
+  needAfterSection?: Array<{ name: string; label: string }>
+
+  /** 어제 퇴근보고 요약 (기존 표시 유지) */
   yesterdayWorkLogs: Array<{ name: string; status: string }>
+  /** @deprecated legacy — 기존 메시지 빌더 호환용. 신규 코드는 completedSection 사용 */
+  todayCheckins: Array<{ name: string; status: string }>
 }
