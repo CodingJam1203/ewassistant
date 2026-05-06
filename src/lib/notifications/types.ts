@@ -6,7 +6,9 @@ import type { LeaveTimeline } from '@/types/leave-timeline'
 export type EventType =
   | 'worklog_submitted'
   | 'checkout_resubmitted'
-  | 'worklog_updated'
+  | 'worklog_updated'           // @deprecated — 호환용. 신규 코드는 worklog_updated_checkin/_checkout 사용
+  | 'worklog_updated_checkin'   // 출근보고 수정 → 출근보고 채널
+  | 'worklog_updated_checkout'  // 퇴근보고 수정 → 퇴근보고 채널
   | 'worklog_deleted'
   | 'checkin_submitted'
   | 'location_changed'
@@ -62,10 +64,19 @@ export interface WorklogNotifyPayload {
   team?: string | null
 }
 
+/**
+ * 수정된 필드 1건. kind로 출근/퇴근 분류.
+ *
+ * - 'check_in'  : 출근보고 영역 필드 (expected_*)
+ * - 'check_out' : 퇴근보고 영역 필드 (실근무 + 메타 필드)
+ *
+ * 라우팅과 메시지 헤더 분기에 사용.
+ */
 export interface ChangedField {
   label: string
   before: string
   after: string
+  kind: 'check_in' | 'check_out'
 }
 
 export interface WorklogUpdateNotifyPayload {

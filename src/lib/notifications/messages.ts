@@ -274,10 +274,11 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
     }
 
     case 'worklog_updated': {
+      // @deprecated — 신규 코드는 worklog_updated_checkin / _checkout 사용
       const p = payload as WorklogUpdateNotifyPayload
       const reportLabel = p.originalReportType === '출근보고' ? '출근보고' : '퇴근보고'
       const header = `[수정] ${p.name} ${reportLabel} 수정 / ${koreanDate(p.leaveDate)}`
-      
+
       const fixedRows = [
         `출근 예정 날짜: ${p.scheduledWorkDate || '미입력'}`,
         `출근 예정 시간: ${p.scheduledWorkTime ? fmtTime(p.scheduledWorkTime) : '미입력'}`
@@ -287,6 +288,25 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       const footer = `수정자: ${p.updatedByName}`
 
       return [header, fixedRows, changedRows, footer, cta()].filter(Boolean).join('\n')
+    }
+
+    case 'worklog_updated_checkin': {
+      // 출근보고(=expected_*) 영역 수정 → 출근보고 채널 발송
+      const p = payload as WorklogUpdateNotifyPayload
+      const targetDate = p.scheduledWorkDate ? koreanDate(p.scheduledWorkDate) : koreanDate(p.leaveDate)
+      const header = `📝 ${p.name} 출근보고 수정 / ${targetDate}`
+      const changedRows = p.changedFields.map(f => `🔹${f.label} : ${f.before} → ${f.after}`).join('\n')
+      const footer = `수정자: ${p.updatedByName}`
+      return [header, changedRows, footer, cta()].filter(Boolean).join('\n')
+    }
+
+    case 'worklog_updated_checkout': {
+      // 퇴근보고 영역 수정 → 퇴근보고 채널 발송
+      const p = payload as WorklogUpdateNotifyPayload
+      const header = `📝 ${p.name} 퇴근보고 수정 / ${koreanDate(p.leaveDate)}`
+      const changedRows = p.changedFields.map(f => `🔹${f.label} : ${f.before} → ${f.after}`).join('\n')
+      const footer = `수정자: ${p.updatedByName}`
+      return [header, changedRows, footer, cta()].filter(Boolean).join('\n')
     }
 
     case 'worklog_deleted': {

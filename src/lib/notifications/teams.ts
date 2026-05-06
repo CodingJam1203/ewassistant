@@ -280,6 +280,10 @@ export function notifyCheckoutResubmitted(payload: WorklogNotifyPayload): void {
   ).catch(err => console.warn('[Teams] checkout_resubmitted failed:', err))
 }
 
+/**
+ * @deprecated 신규 코드는 notifyWorkLogUpdatedSplit 사용.
+ * 호환용으로 유지. leave_date 기반 분기.
+ */
 export function notifyWorkLogUpdated(payload: WorklogUpdateNotifyPayload): void {
   const reportType = resolveTeamsRouteReportType({
     action: 'update',
@@ -292,6 +296,47 @@ export function notifyWorkLogUpdated(payload: WorklogUpdateNotifyPayload): void 
     reportType,
     payload
   ).catch(err => console.warn('[Teams] worklog_updated failed:', err))
+}
+
+/**
+ * 수정 알림을 출근/퇴근 보고 유형별로 **분리해서 발송**.
+ *
+ * - changedFields의 kind로 그룹화 (check_in / check_out)
+ * - check_in 그룹 있으면 → 출근보고 채널에 'worklog_updated_checkin'
+ * - check_out 그룹 있으면 → 퇴근보고 채널에 'worklog_updated_checkout'
+ * - 동시 변경 시 두 알림 각각 별도 발송
+ *
+ * leave_date 기반 분기는 더 이상 사용하지 않음.
+ */
+export function notifyWorkLogUpdatedSplit(payload: WorklogUpdateNotifyPayload): void {
+  const checkInFields  = payload.changedFields.filter(f => f.kind === 'check_in')
+  const checkOutFields = payload.changedFields.filter(f => f.kind === 'check_out')
+
+  // 출근보고 영역 변경 → 출근보고 채널
+  if (checkInFields.length > 0) {
+    routeAndSend(
+      'worklog_updated_checkin',
+      payload.division,
+      payload.team,
+      '출근보고',
+      { ...payload, changedFields: checkInFields }
+    ).catch(err => console.warn('[Teams] worklog_updated_checkin failed:', err))
+  }
+
+  // 퇴근보고 영역 변경 → 퇴근보고 채널
+  if (checkOutFields.length > 0) {
+    routeAndSend(
+      'worklog_updated_checkout',
+      payload.division,
+      payload.team,
+      '퇴근보고',
+      { ...payload, changedFields: checkOutFields }
+    ).catch(err => console.warn('[Teams] worklog_updated_checkout failed:', err))
+  }
+
+  if (checkInFields.length === 0 && checkOutFields.length === 0) {
+    console.log('[Teams] worklog updated but no classifiable changes — skipping notification')
+  }
 }
 
 export function notifyWorkLogDeleted(payload: WorklogDeletedNotifyPayload): void {
