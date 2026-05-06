@@ -77,12 +77,18 @@ export async function GET(request: Request) {
     const isLeaderOrAdmin = !!leaderScope
 
     // ── 대상 프로필 조회 ─────────────────────────────────────────────────────
+    // ?mine=true → 권한 무관 본인 row 1건만 (mypage WorkHoursCard용)
+    const mineOnly = searchParams.get('mine') === 'true'
+
     let profileQuery = adminClient
       .from('user_profiles')
       .select('email, display_name, division, team, is_active')
       .eq('is_active', true)
 
-    if (!isLeaderOrAdmin) {
+    if (mineOnly) {
+      // mine=true 명시 — 권한 무관 본인만
+      profileQuery = profileQuery.eq('email', user.email!)
+    } else if (!isLeaderOrAdmin) {
       // 일반 user: 본인만
       profileQuery = profileQuery.eq('email', user.email!)
     } else if (leaderScope!.scope.kind === 'team') {

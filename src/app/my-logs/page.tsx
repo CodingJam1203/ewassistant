@@ -121,12 +121,11 @@ export default function MyLogsPage() {
 
   useEffect(() => {
     const now = new Date()
-    fetch(`/api/work-hours?year=${now.getFullYear()}&month=${now.getMonth() + 1}`)
+    // mine=true → 권한 무관 본인 1명만 반환 (admin도 본인 row만 받음)
+    fetch(`/api/work-hours?year=${now.getFullYear()}&month=${now.getMonth() + 1}&mine=true`)
       .then(r => r.ok ? r.json() : null)
       .then((d: { baselines: MonthBaselines; users: UserMonthSummary[] } | null) => {
         if (!d) return
-        // 본인은 응답에 1명만 있을 가능성 높음 (user 권한일 때 서버에서 본인만 반환)
-        // 다중일 수도 있으니 첫 번째 또는 본인 매칭
         setHoursSummary({
           baselines: d.baselines,
           me: d.users[0] ?? null,
@@ -197,12 +196,12 @@ export default function MyLogsPage() {
         />
       )}
 
-      {/* 본인 이번 달 근로현황 카드 — 상단 */}
+      {/* 본인 이번 달 근로현황 카드 — 상단 (compact) */}
       {hoursSummary?.me && (
         <WorkHoursCard
           baselines={hoursSummary.baselines}
           summary={hoursSummary.me}
-          subtitle="이번 달 누적 근로 현황"
+          compact
         />
       )}
 
