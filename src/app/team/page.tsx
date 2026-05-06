@@ -6,8 +6,15 @@ import { ko } from 'date-fns/locale'
 import { ChevronLeft, ChevronRight, RefreshCw, MapPin, Clock, Coffee, LogIn, LogOut, X } from 'lucide-react'
 import CheckInModal from '@/components/CheckInModal'
 import { getKstTodayDateString } from '@/lib/utils/date'
-import CheckInTimeModal from '@/components/CheckInTimeModal'
 import WorkLogModal from '@/components/WorkLogModal'
+
+/** 현재 시각을 30분 단위로 floor한 'HH:mm' 문자열 (KST 기준) */
+function nowRoundedTo30(): string {
+  const now = new Date()
+  const h = now.getHours().toString().padStart(2, '0')
+  const m = now.getMinutes() < 30 ? '00' : '30'
+  return `${h}:${m}`
+}
 import type { TeamMemberCard } from '@/app/api/team-status/route'
 
 // ─── 상태 색상 ────────────────────────────────────────────────────────────────
@@ -315,8 +322,8 @@ export default function TeamPage() {
   const [filterDiv, setFilterDiv] = useState('')
   const [filterTeam, setFilterTeam] = useState('')
   const [orgDivisions, setOrgDivisions] = useState<{ id: string; name: string; teams: { id: string; name: string }[] }[]>([])
-  const [checkInTimeTarget, setCheckInTimeTarget] = useState<TeamMemberCard | null>(null)
-  const [checkInTarget,     setCheckInTarget]     = useState<{ card: TeamMemberCard; startTime: string } | null>(null)
+  // 출근 버튼 → 곧바로 CheckInModal(풀 폼)을 띄움. 시각만 받는 작은 팝업 단계는 제거.
+  const [checkInTarget, setCheckInTarget] = useState<{ card: TeamMemberCard; startTime: string } | null>(null)
   const [checkOutTarget,    setCheckOutTarget]    = useState<TeamMemberCard | null>(null)
   const [showHeaderCheckIn, setShowHeaderCheckIn] = useState(false)  // 우상단 출근보고 작성
   const [myProfile, setMyProfile] = useState<{ display_name: string | null; division: string | null; team: string | null } | null>(null)
@@ -464,28 +471,14 @@ export default function TeamPage() {
               card={card}
               date={date}
               onAction={fetchCards}
-              onOpenCheckInTime={setCheckInTimeTarget}
+              onOpenCheckInTime={(c) => setCheckInTarget({ card: c, startTime: nowRoundedTo30() })}
               onCheckOutNeeded={setCheckOutTarget}
             />
           ))}
         </div>
       )}
 
-      {/* 출근 시각 선택 팝업 */}
-      {checkInTimeTarget && (
-        <CheckInTimeModal
-          date={date}
-          workLogId={checkInTimeTarget.work_log_id ?? null}
-          onClose={() => setCheckInTimeTarget(null)}
-          onDone={() => { setCheckInTimeTarget(null); fetchCards() }}
-          onNeedWorkLog={startTime => {
-            setCheckInTimeTarget(null)
-            setCheckInTarget({ card: checkInTimeTarget, startTime })
-          }}
-        />
-      )}
-
-      {/* 출근보고 작성 모달 (work_log 없을 때 / 우상단 버튼) */}
+      {/* 출근보고 작성 모달 (출근 버튼 / 우상단 버튼 모두) */}
       {(checkInTarget || showHeaderCheckIn) && (
         <CheckInModal
           date={date}
