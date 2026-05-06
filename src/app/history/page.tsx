@@ -206,6 +206,85 @@ export default function HistoryPage() {
         <h2 className="text-2xl font-bold leading-7 text-gray-900">전체 제출 내역</h2>
       </div>
 
+      {/* ─── 공통 필터 바 (두 탭 모두 적용) ─── */}
+      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-wrap gap-3 items-end">
+        {/* 본부 */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700">본부</label>
+          <select
+            className="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border px-3 py-2 bg-white"
+            value={filterDivision}
+            onChange={e => handleDivisionChange(e.target.value)}
+            disabled={filterMine}
+          >
+            <option value="">전체</option>
+            {org.map(d => (
+              <option key={d.id} value={d.name}>{d.name}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* 팀 */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700">팀</label>
+          <select
+            className="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border px-3 py-2 bg-white disabled:bg-gray-50 disabled:text-gray-400"
+            value={filterTeam}
+            onChange={e => setFilterTeam(e.target.value)}
+            disabled={filterMine || !filterDivision || availableTeams.length === 0}
+          >
+            <option value="">전체 팀</option>
+            {availableTeams.map(t => (
+              <option key={t.id} value={t.name}>{t.name}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* 이름 검색 */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700">이름 검색</label>
+          <input
+            type="text"
+            placeholder="이름 일부..."
+            className="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border px-3 py-2"
+            value={filterName}
+            onChange={e => setFilterName(e.target.value)}
+          />
+        </div>
+
+        {/* 내 기록만 */}
+        <div className="flex items-center gap-2 pb-2">
+          <input
+            id="filterMineHistory"
+            type="checkbox"
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            checked={filterMine}
+            onChange={e => setFilterMine(e.target.checked)}
+          />
+          <label htmlFor="filterMineHistory" className="text-sm text-gray-900">내 기록만</label>
+        </div>
+
+        <div className="flex items-center gap-3 ml-auto pb-2">
+          <button
+            onClick={() => {
+              setFilterDivision('')
+              setFilterTeam('')
+              setFilterName('')
+              setFilterMine(false)
+            }}
+            className="text-xs text-gray-500 hover:text-gray-700"
+          >
+            필터 초기화
+          </button>
+          <button
+            onClick={fetchLogs}
+            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
+          >
+            <RefreshCw className="h-4 w-4" /> 새로고침
+          </button>
+        </div>
+      </div>
+
       {/* ─── 탭 ─── */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex gap-6" aria-label="탭">
