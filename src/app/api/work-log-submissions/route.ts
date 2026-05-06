@@ -99,11 +99,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: '조회 실패' }, { status: 500 })
     }
 
-    // Supabase 타입 추론이 union(GenericStringError 포함)이라 명시적 cast
-    let rows = (data ?? []) as Array<Record<string, unknown> & { name?: string | null }>
+    // Supabase 타입 추론이 union(GenericStringError 포함)이라 unknown 한 번 거쳐서 cast
+    let rows = ((data ?? []) as unknown) as Array<{ name?: string | null }>
     if (filterName) {
       const needle = filterName.toLowerCase()
-      rows = rows.filter(r => ((r.name as string | null | undefined) ?? '').toLowerCase().includes(needle))
+      rows = rows.filter(r => (r.name ?? '').toLowerCase().includes(needle))
     }
 
     return NextResponse.json({ rows })
