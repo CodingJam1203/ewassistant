@@ -239,6 +239,11 @@ export default function HistoryPage() {
             ...(filterName ? { name: filterName } : {}),
           }}
           allowOrgFilter
+          onEditWorkLog={isAdmin ? (workLogId) => {
+            const log = logs.find(l => l.id === workLogId)
+            if (log) setEditingLog(log)
+            else fetchLogs()
+          } : undefined}
         />
       )}
 
@@ -253,6 +258,11 @@ export default function HistoryPage() {
             ...(filterName ? { name: filterName } : {}),
           }}
           allowOrgFilter
+          onEditWorkLog={isAdmin ? (workLogId) => {
+            const log = logs.find(l => l.id === workLogId)
+            if (log) setEditingLog(log)
+            else fetchLogs()
+          } : undefined}
         />
       )}
 

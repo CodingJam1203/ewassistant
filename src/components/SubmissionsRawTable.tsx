@@ -12,8 +12,33 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
-import { Pencil } from 'lucide-react'
+import { Pencil, Copy, Check } from 'lucide-react'
 import Pagination from '@/components/Pagination'
+
+function CopyButton({ text }: { text: string | null }) {
+  const [copied, setCopied] = useState(false)
+  if (!text) return <span className="text-gray-300">-</span>
+  const handle = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      alert('복사 실패. 브라우저 권한을 확인해주세요.')
+    }
+  }
+  return (
+    <button
+      onClick={handle}
+      title="EW 복사 문구 복사"
+      className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors whitespace-nowrap
+        ${copied ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+    >
+      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+      {copied ? '완료' : '복사'}
+    </button>
+  )
+}
 
 export interface ChangedFieldRow {
   kind?: 'check_in' | 'check_out'
@@ -288,6 +313,8 @@ export default function SubmissionsRawTable({
             <table className="min-w-full divide-y divide-gray-200 text-xs">
               <thead className="bg-gray-50">
                 <tr>
+                  <Th className="text-center">복사</Th>
+                  <Th className="text-center">수정</Th>
                   <Th>보고유형</Th>
                   <Th>제출일시</Th>
                   <Th>대상일</Th>
@@ -311,7 +338,6 @@ export default function SubmissionsRawTable({
                   <Th>출근예정장소</Th>
                   <Th>출근유형</Th>
                   <Th>변경 필드</Th>
-                  <Th className="text-center">수정</Th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -319,6 +345,22 @@ export default function SubmissionsRawTable({
                   const isUpdate = r.report_type.endsWith('_update')
                   return (
                     <tr key={r.id} className="hover:bg-gray-50">
+                      <Td className="text-center">
+                        <CopyButton text={r.copy_text} />
+                      </Td>
+                      <Td className="text-center">
+                        {r.work_log_id && onEditWorkLog ? (
+                          <button
+                            onClick={() => onEditWorkLog(r.work_log_id!)}
+                            className="text-gray-400 hover:text-blue-600"
+                            title="원본 work_log 수정"
+                          >
+                            <Pencil className="h-3.5 w-3.5 inline" />
+                          </button>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </Td>
                       <Td>
                         <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${reportTypeBadgeClass(r.report_type)}`}>
                           {reportTypeLabel(r.report_type)}
@@ -357,19 +399,6 @@ export default function SubmissionsRawTable({
                             ))}
                           </ul>
                         ) : '-'}
-                      </Td>
-                      <Td className="text-center">
-                        {r.work_log_id && onEditWorkLog ? (
-                          <button
-                            onClick={() => onEditWorkLog(r.work_log_id!)}
-                            className="text-gray-400 hover:text-blue-600"
-                            title="원본 work_log 수정"
-                          >
-                            <Pencil className="h-3.5 w-3.5 inline" />
-                          </button>
-                        ) : (
-                          <span className="text-gray-300">-</span>
-                        )}
                       </Td>
                     </tr>
                   )

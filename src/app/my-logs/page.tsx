@@ -258,12 +258,26 @@ export default function MyLogsPage() {
 
       {/* ─── RAW 탭 ─── */}
       {tab === 'raw' && (
-        <SubmissionsRawTable mine mode="raw" />
+        <SubmissionsRawTable
+          mine mode="raw"
+          onEditWorkLog={(workLogId) => {
+            const log = logs.find(l => l.id === workLogId)
+            if (log) setEditingLog(log)
+            else fetchLogs()  // 캐시에 없으면 다시 fetch
+          }}
+        />
       )}
 
       {/* ─── 일자별 최종 탭 (출근/퇴근 분리, RAW 테이블 final 모드) ─── */}
       {tab === 'final' && (
-        <SubmissionsRawTable mine mode="final" />
+        <SubmissionsRawTable
+          mine mode="final"
+          onEditWorkLog={(workLogId) => {
+            const log = logs.find(l => l.id === workLogId)
+            if (log) setEditingLog(log)
+            else fetchLogs()
+          }}
+        />
       )}
 
       {/* (legacy 기존 테이블 — 사용 안 함, 유지보수 시 참조용. 항상 false) */}
