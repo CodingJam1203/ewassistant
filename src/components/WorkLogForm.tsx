@@ -170,6 +170,13 @@ interface WorkLogFormProps {
    * resubmitLogId와 동시에 줄 수 없음 (편집은 별도 흐름).
    */
   editingLog?: WorkLog | null
+  /**
+   * 수정 모드에서 어떤 영역만 보여줄지 — 보고유형 단위 분리 편집.
+   *   'check_in'  : 출근보고 영역만 (출근예정일/시각/장소/휴가, attendanceRecordType)
+   *   'check_out' : 퇴근보고 영역만 (근무장소 timeline, leave timeline, 휴게/근무내용, 지각수정)
+   *   undefined   : 전체 (기존 동작)
+   */
+  editScope?: 'check_in' | 'check_out'
   onCalculate: (result: EwCalculationResult | null, error: string | null) => void
   onSubmitSuccess: () => void
 }
@@ -239,10 +246,14 @@ export default function WorkLogForm({
   initialEndTime,
   resubmitLogId,
   editingLog,
+  editScope,
   onCalculate,
   onSubmitSuccess,
 }: WorkLogFormProps) {
   const isEditing = !!editingLog
+  // 영역별 표시 분기 — undefined면 전부 표시
+  const showCheckOutSections = editScope === undefined || editScope === 'check_out'
+  const showCheckInSections  = editScope === undefined || editScope === 'check_in'
 
   // 휴게 자동값 — 수정 모드면 editingLog의 값 우선
   const breakAutoActualMinutes = isEditing
@@ -618,7 +629,8 @@ export default function WorkLogForm({
         </div>
       </div>
 
-      {/* 2. 휴가/반차 */}
+      {/* 2. 휴가/반차 (퇴근보고 영역) */}
+      {showCheckOutSections && (
       <div>
         <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 border-b pb-2">휴가/반차</h3>
         <LeaveTimelineInput
@@ -631,9 +643,10 @@ export default function WorkLogForm({
           </p>
         )}
       </div>
+      )}
 
-      {/* 3. 근무장소 타임라인 — 종일 휴가가 아닐 때만 노출 */}
-      {!isAllDay && (
+      {/* 3. 근무장소 타임라인 — 종일 휴가가 아닐 때만 노출 (퇴근보고 영역) */}
+      {showCheckOutSections && !isAllDay && (
         <div>
           <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 border-b pb-2">근무장소 타임라인</h3>
           <p className="text-xs text-gray-500 mb-3">

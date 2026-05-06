@@ -77,11 +77,25 @@ export interface SubmissionRow {
   expected_start_date: string | null
   expected_work_time: string | null
   expected_work_location: string | null
+  /** 출근 timeline 마지막 항목(expected_checkout)에서 퇴근예정시각 추출용 */
+  expected_work_location_timeline?: Array<{ kind?: string; startTime?: string }> | null
 
   changed_fields: ChangedFieldRow[] | null
 
   work_type_label: string | null
   attendance_record_type: string | null
+}
+
+/** expected_work_location_timeline의 마지막 expected_checkout startTime → 퇴근예정시각 */
+function extractExpectedCheckoutTime(
+  tl: Array<{ kind?: string; startTime?: string }> | null | undefined
+): string | null {
+  if (!Array.isArray(tl) || tl.length === 0) return null
+  const last = tl[tl.length - 1]
+  if (last?.kind === 'expected_checkout' || last?.kind === 'checkout') {
+    return last.startTime ?? null
+  }
+  return null
 }
 
 const REPORT_TYPE_OPTIONS: Array<{ value: ''; label: string } | { value: SubmissionRow['report_type']; label: string }> = [
@@ -335,6 +349,7 @@ export default function SubmissionsRawTable({
                   <Th>지각사유</Th>
                   <Th>출근예정일</Th>
                   <Th>출근예정시각</Th>
+                  <Th>퇴근예정시각</Th>
                   <Th>출근예정장소</Th>
                   <Th>출근유형</Th>
                   <Th>변경 필드</Th>
@@ -394,6 +409,7 @@ export default function SubmissionsRawTable({
                       <Td className="max-w-[120px] truncate text-gray-500" title={r.late_reason ?? ''}>{isCheckOut ? (r.late_reason ?? '-') : dash}</Td>
                       <Td>{isCheckIn ? (r.expected_start_date ?? '-') : dash}</Td>
                       <Td>{isCheckIn ? fmtTime(r.expected_work_time) : dash}</Td>
+                      <Td>{isCheckIn ? fmtTime(extractExpectedCheckoutTime(r.expected_work_location_timeline)) : dash}</Td>
                       <Td>{isCheckIn ? (r.expected_work_location ?? '-') : dash}</Td>
                       <Td className="text-gray-500 max-w-[120px] truncate" title={r.attendance_record_type ?? ''}>
                         {r.attendance_record_type ?? '-'}

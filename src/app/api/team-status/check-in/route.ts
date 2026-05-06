@@ -210,6 +210,8 @@ export async function POST(request: Request) {
       workLogId = newLog.id
 
       // ─── submissions 로그 (check_in: 당일 출근보고) ─────────────────
+      // 카드 [출근] = 당일 출근보고. 출근 시점 정보 = 그 날의 출근예정과 동일 의미.
+      // → expected_* 영역을 같은 정보로 채워서 SubmissionsRawTable의 출근보고 행에서 정상 표시.
       void recordSubmission({
         user_id: user.id,
         user_email: user.email!,
@@ -220,23 +222,15 @@ export async function POST(request: Request) {
         target_date: date,
         submitted_at: submissionNow,
         work_log_id: workLogId,
-        // 출근 시점 정보를 expected_* 가 아닌 실제 출근 정보로 기록
-        start_time: startTime,
-        end_time: endTime,
-        break_time: `${breakTime}:00`,
-        actual_work_time: `${snapMinutes(calcResult.actualWorkMinutes, 'round')} minutes`,
-        work_location: workLocation,
-        work_location_timeline: timeline ?? null,
-        leave_timeline: leaveTimeline ?? null,
-        work_content: workContent || null,
-        ew_value: calcResult.ewValue,
-        ew_start: calcResult.ewStartText,
-        ew_end: calcResult.ewEndText,
-        copy_text: calcResult.copyText,
-        late_or_attendance_status: '아니오',
+        // 출근보고 영역 (실제 출근 정보 = 당일 출근예정과 동일)
+        expected_start_date:    date,
+        expected_work_time:     startTime,
+        expected_work_location: workLocation,
+        expected_work_location_timeline: timeline ?? null,
+        expected_leave_timeline: leaveTimeline ?? null,
         work_type_label: '기본근무 등록',
-        work_type_code: calcResult.workTypeCode,
-        attendance_record_type: '스킵(누락퇴근보고, 퇴근보고 수정)',
+        work_type_code:  calcResult.workTypeCode,
+        attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
       })
 
       await adminClient
