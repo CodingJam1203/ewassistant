@@ -6,8 +6,11 @@ import { format } from 'date-fns'
 import WorkLogModal from '@/components/WorkLogModal'
 import WorkHoursCard from '@/components/WorkHoursCard'
 import Pagination from '@/components/Pagination'
+import SubmissionsRawTable from '@/components/SubmissionsRawTable'
 import type { WorkLog } from '@/types/work-log'
 import type { MonthBaselines, UserMonthSummary } from '@/lib/utils/work-hours'
+
+type TabKey = 'final' | 'raw'
 
 function CopyCell({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -102,6 +105,9 @@ export default function MyLogsPage() {
   const [filterDate, setFilterDate] = useState('')
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  // ─── 탭 ────────────────────────────────────────────────────────
+  const [tab, setTab] = useState<TabKey>('final')
 
   // ─── 페이지네이션 ────────────────────────────────────────────
   const [page, setPage] = useState(1)
@@ -203,16 +209,20 @@ export default function MyLogsPage() {
       <div className="sm:flex sm:items-center sm:justify-between gap-4">
         <h2 className="text-2xl font-bold leading-7 text-gray-900">내 제출 내역</h2>
         <div className="flex items-center gap-3 mt-2 sm:mt-0">
-          <input
-            type="date"
-            value={filterDate}
-            onChange={e => setFilterDate(e.target.value)}
-            className="rounded-md border border-gray-300 text-sm px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          {filterDate && (
-            <button onClick={() => setFilterDate('')} className="text-xs text-gray-500 hover:text-gray-700">
-              초기화
-            </button>
+          {tab === 'final' && (
+            <>
+              <input
+                type="date"
+                value={filterDate}
+                onChange={e => setFilterDate(e.target.value)}
+                className="rounded-md border border-gray-300 text-sm px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {filterDate && (
+                <button onClick={() => setFilterDate('')} className="text-xs text-gray-500 hover:text-gray-700">
+                  초기화
+                </button>
+              )}
+            </>
           )}
           <button
             onClick={fetchLogs}
@@ -224,7 +234,35 @@ export default function MyLogsPage() {
         </div>
       </div>
 
-      {loading ? (
+      {/* ─── 탭 ─── */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex gap-6" aria-label="탭">
+          {[
+            { key: 'final' as TabKey, label: '일자별 최종 보고' },
+            { key: 'raw'   as TabKey, label: 'RAW 제출 내역' },
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                tab === t.key
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* ─── RAW 탭 ─── */}
+      {tab === 'raw' && (
+        <SubmissionsRawTable mine />
+      )}
+
+      {/* ─── 일자별 최종 탭 (기존 테이블) ─── */}
+      {tab === 'final' && (loading ? (
         <div className="space-y-2 mt-4">
           {[...Array(5)].map((_, i) => (
             <div key={i} className="h-10 bg-gray-100 dark:bg-gray-700 rounded animate-pulse" />
@@ -346,7 +384,7 @@ export default function MyLogsPage() {
             />
           )}
         </div>
-      )}
+      ))}
     </div>
   )
 }
