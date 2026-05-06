@@ -542,26 +542,38 @@ export default function WorkLogForm({
       {showEwPopup && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">EW 페이지로 이동할까요?</h3>
-            <p className="text-sm text-gray-600 mb-6">
-              복사한 내용을 Enjoy Working 페이지에 붙여넣어 등록할 수 있습니다.
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">다음 단계로 이동할까요?</h3>
+            <p className="text-sm text-gray-600 mb-5">
+              복사한 내용을 EW(Enjoy Working) 또는 NPM(휴가 상신)에 붙여 넣어 등록할 수 있습니다.
             </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => { setShowEwPopup(false); onSubmitSuccess() }}
-                className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-              >
-                취소
-              </button>
+            <div className="flex flex-col gap-2">
+              {/* 1. EW 상신 */}
               <a
                 href="https://working.univ.me/Home"
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => { setShowEwPopup(false); onSubmitSuccess() }}
-                className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-center"
+                className="w-full px-4 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-center"
               >
-                이동하기
+                EW 상신하기 (EW)
               </a>
+              {/* 2. 휴가 상신 (NPM) */}
+              <a
+                href="https://intra.univ.me/Approval/AprCreateDoc"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => { setShowEwPopup(false); onSubmitSuccess() }}
+                className="w-full px-4 py-2.5 text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors text-center"
+              >
+                휴가 상신하기 (NPM)
+              </a>
+              {/* 3. 닫기 */}
+              <button
+                onClick={() => { setShowEwPopup(false); onSubmitSuccess() }}
+                className="w-full px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                닫기
+              </button>
             </div>
           </div>
         </div>
