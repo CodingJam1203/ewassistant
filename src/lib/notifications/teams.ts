@@ -35,6 +35,8 @@ const EVENT_ENV_MAP: Record<EventType, string> = {
   worklog_submitted:          'ENABLE_WORKLOG_SUBMIT_NOTIFY',
   checkout_resubmitted:       'ENABLE_WORKLOG_SUBMIT_NOTIFY',
   worklog_updated:            'ENABLE_WORKLOG_UPDATE_NOTIFY',
+  worklog_updated_checkin:    'ENABLE_WORKLOG_UPDATE_NOTIFY',
+  worklog_updated_checkout:   'ENABLE_WORKLOG_UPDATE_NOTIFY',
   worklog_deleted:            'ENABLE_WORKLOG_DELETE_NOTIFY',
   checkin_submitted:          'ENABLE_CHECKIN_NOTIFY',
   location_changed:           'ENABLE_LOCATION_CHANGE_NOTIFY',
