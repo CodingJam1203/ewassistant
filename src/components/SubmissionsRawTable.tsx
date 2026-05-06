@@ -98,12 +98,15 @@ function extractExpectedCheckoutTime(
   return null
 }
 
-const REPORT_TYPE_OPTIONS: Array<{ value: ''; label: string } | { value: SubmissionRow['report_type']; label: string }> = [
-  { value: '',                label: '전체 보고유형' },
-  { value: 'check_in',        label: '출근보고' },
-  { value: 'check_out',       label: '퇴근보고' },
-  { value: 'check_in_update', label: '출근보고 수정' },
-  { value: 'check_out_update',label: '퇴근보고 수정' },
+/**
+ * 보고유형 필터 옵션 — 출근/퇴근 family 기준 (수정 row도 같은 family에 포함).
+ *  - 'check_in'  : check_in + check_in_update
+ *  - 'check_out' : check_out + check_out_update
+ */
+const REPORT_TYPE_OPTIONS: Array<{ value: '' | 'check_in' | 'check_out'; label: string }> = [
+  { value: '',          label: '전체 보고유형' },
+  { value: 'check_in',  label: '출근보고' },
+  { value: 'check_out', label: '퇴근보고' },
 ]
 
 function reportTypeLabel(t: SubmissionRow['report_type']): string {
@@ -190,7 +193,7 @@ export default function SubmissionsRawTable({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [reportType, setReportType] = useState<'' | SubmissionRow['report_type']>('')
+  const [reportType, setReportType] = useState<'' | 'check_in' | 'check_out'>('')
   const [updatedOnly, setUpdatedOnly] = useState(false)
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -205,10 +208,10 @@ export default function SubmissionsRawTable({
     try {
       const params = new URLSearchParams()
       if (mine) params.set('mine', 'true')
-      // final 모드는 모든 row를 받아서 클라이언트에서 latest 추출
-      if (mode === 'raw') {
-        if (reportType) params.set('report_type', reportType)
-        else if (updatedOnly) params.set('updated_only', 'true')
+      // 보고유형 family 필터(reportType)는 클라이언트 측에서 처리 — 수정 row 포함
+      // updated_only(수정만 보기)는 raw 모드에서만 서버 필터
+      if (mode === 'raw' && updatedOnly) {
+        params.set('updated_only', 'true')
       }
       if (from) params.set('from', from)
       if (to)   params.set('to',   to)
@@ -237,16 +240,16 @@ export default function SubmissionsRawTable({
 
   const processedRows = useMemo(() => {
     let r = rows
-    // 일자별 최종 추출
+    // 일자별 최종 추출 (family 단위로 가장 최신 1건)
     if (mode === 'final') r = pickLatestPerDay(r)
-    // 클라이언트 측 이름 필터
+    // 보고유형 family 필터 — 'check_in' → check_in + check_in_update, 'check_out' → check_out + check_out_update
+    if (reportType) {
+      r = r.filter(x => x.report_type.startsWith(reportType))
+    }
+    // 이름 필터
     if (nameQuery) {
       const q = nameQuery.toLowerCase()
       r = r.filter(x => (x.name ?? '').toLowerCase().includes(q))
-    }
-    // final 모드에서는 보고유형 필터를 클라이언트 측에서
-    if (mode === 'final' && reportType) {
-      r = r.filter(x => x.report_type === reportType)
     }
     return r
   }, [rows, mode, nameQuery, reportType])
