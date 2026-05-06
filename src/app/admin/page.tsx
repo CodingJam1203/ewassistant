@@ -461,6 +461,7 @@ function EditUserModal({
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
               >
                 <option value="user">일반</option>
+                <option value="leader">리더 (본인 팀/본부)</option>
                 <option value="admin">관리자</option>
               </select>
             </div>
@@ -585,6 +586,7 @@ function RegisterForm({ org, onDone }: { org: OrgDivision[]; onDone: () => void 
           <select value={form.role} onChange={e => set('role', e.target.value)}
             className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
             <option value="user">일반</option>
+            <option value="leader">리더</option>
             <option value="admin">관리자</option>
           </select>
         </div>
@@ -824,8 +826,10 @@ export default function AdminPage() {
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
                         ${user.role === 'admin'
                           ? 'bg-purple-100 text-purple-700'
-                          : 'bg-gray-100 text-gray-600'}`}>
-                        {user.role === 'admin' ? '관리자' : '일반'}
+                          : user.role === 'leader'
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-gray-100 text-gray-600'}`}>
+                        {user.role === 'admin' ? '관리자' : user.role === 'leader' ? '리더' : '일반'}
                       </span>
                     </td>
                     {/* 상태 */}

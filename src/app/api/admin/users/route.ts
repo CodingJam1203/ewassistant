@@ -117,7 +117,7 @@ export async function POST(request: Request) {
       display_name: display_name?.trim() || null,
       division: division?.trim() || null,
       team: team?.trim() || null,
-      role: role === 'admin' ? 'admin' : 'user',
+      role: role === 'admin' ? 'admin' : role === 'leader' ? 'leader' : 'user',
     })
     .select()
     .single()

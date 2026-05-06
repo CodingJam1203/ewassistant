@@ -122,3 +122,64 @@ export async function requireActiveUser() {
     return null
   }
 }
+
+// ─── leader 권한 ──────────────────────────────────────────────────────────────
+
+export interface LeaderScope {
+  /** 권한 범위. 'admin' = 전체, 'team' = 본인 팀, 'division' = 본인 본부(본부장), null = leader 아님 */
+  kind: 'admin' | 'team' | 'division' | null
+  division: string | null
+  team: string | null
+}
+
+/**
+ * leader 또는 admin 권한을 요구. 반환값으로 권한 범위(scope)를 제공.
+ * - admin → kind='admin'
+ * - leader (team 있음) → kind='team', team=본인 팀
+ * - leader (team 없음, 본부장) → kind='division', division=본인 본부
+ * - 그 외 → null
+ *
+ * API 라우트에서 데이터 필터링에 사용.
+ */
+export async function requireLeaderOrAdmin(): Promise<{
+  user: Awaited<ReturnType<typeof requireActiveUser>>
+  scope: LeaderScope
+} | null> {
+  const user = await requireActiveUser()
+  if (!user) return null
+
+  // 부트스트랩 관리자 — 무조건 admin scope
+  if (isBootstrapAdmin(user.email)) {
+    return { user, scope: { kind: 'admin', division: null, team: null } }
+  }
+
+  const supabase = await createClient()
+  try {
+    const { data: profile, error } = await supabase
+      .from('user_profiles')
+      .select('role, division, team')
+      .eq('id', user.id)
+      .single()
+    if (error || !profile) return null
+
+    if (profile.role === 'admin') {
+      return { user, scope: { kind: 'admin', division: null, team: null } }
+    }
+    if (profile.role === 'leader') {
+      const team = (profile.team ?? '').trim()
+      const division = (profile.division ?? '').trim()
+      if (team) {
+        return { user, scope: { kind: 'team', division: division || null, team } }
+      }
+      if (division) {
+        return { user, scope: { kind: 'division', division, team: null } }
+      }
+      // leader인데 division/team 둘 다 비어있으면 권한 없음 (실수 방지)
+      return null
+    }
+    return null
+  } catch (err) {
+    console.error('[requireLeaderOrAdmin] exception', err)
+    return null
+  }
+}

@@ -4,7 +4,9 @@ import { useState, useEffect } from 'react'
 import { Copy, Check, RefreshCw, Pencil, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import WorkLogModal from '@/components/WorkLogModal'
+import WorkHoursCard from '@/components/WorkHoursCard'
 import type { WorkLog } from '@/types/work-log'
+import type { MonthBaselines, UserMonthSummary } from '@/lib/utils/work-hours'
 
 function CopyCell({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -97,6 +99,28 @@ export default function MyLogsPage() {
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
+  // 본인 이번 달 근로현황 (상단 카드)
+  const [hoursSummary, setHoursSummary] = useState<{
+    baselines: MonthBaselines
+    me: UserMonthSummary | null
+  } | null>(null)
+
+  useEffect(() => {
+    const now = new Date()
+    fetch(`/api/work-hours?year=${now.getFullYear()}&month=${now.getMonth() + 1}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { baselines: MonthBaselines; users: UserMonthSummary[] } | null) => {
+        if (!d) return
+        // 본인은 응답에 1명만 있을 가능성 높음 (user 권한일 때 서버에서 본인만 반환)
+        // 다중일 수도 있으니 첫 번째 또는 본인 매칭
+        setHoursSummary({
+          baselines: d.baselines,
+          me: d.users[0] ?? null,
+        })
+      })
+      .catch(() => {})
+  }, [])
+
   const fetchLogs = async () => {
     setLoading(true)
     try {
@@ -150,6 +174,15 @@ export default function MyLogsPage() {
           editingLog={editingLog}
           onClose={() => setEditingLog(null)}
           onSuccess={handleEditSuccess}
+        />
+      )}
+
+      {/* 본인 이번 달 근로현황 카드 — 상단 */}
+      {hoursSummary?.me && (
+        <WorkHoursCard
+          baselines={hoursSummary.baselines}
+          summary={hoursSummary.me}
+          subtitle="이번 달 누적 근로 현황"
         />
       )}
 
@@ -300,7 +333,7 @@ export default function MyLogsPage() {
                           onClick={() => setEditingLog(log)}
                           className="text-gray-400 hover:text-blue-600 transition-colors"
                           title="수정"
-                        >
+                       >
                           <Pencil className="h-4 w-4" />
                         </button>
                         <button

@@ -103,7 +103,7 @@ export async function PATCH(
     if (typeof body.is_active === 'boolean') updates.is_active = body.is_active
     if (typeof body.display_order === 'number') updates.display_order = body.display_order
     if (typeof body.role === 'string' && !isBootstrapAdmin(target.email)) {
-      updates.role = body.role === 'admin' ? 'admin' : 'user'
+      updates.role = body.role === 'admin' ? 'admin' : body.role === 'leader' ? 'leader' : 'user'
     }
 
     if (Object.keys(updates).length > 0) {
@@ -128,7 +128,7 @@ export async function PATCH(
   if (typeof body.is_active === 'boolean') updates.is_active = body.is_active
   if (typeof body.display_order === 'number') updates.display_order = body.display_order
   if (typeof body.role === 'string' && !isBootstrapAdmin(target.email)) {
-    updates.role = body.role === 'admin' ? 'admin' : 'user'
+    updates.role = body.role === 'admin' ? 'admin' : body.role === 'leader' ? 'leader' : 'user'
   }
 
   if (Object.keys(updates).length === 0) {

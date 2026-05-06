@@ -14,6 +14,7 @@ export default async function Navbar() {
   if (!user) return null
 
   let isAdmin = isBootstrapAdmin(user.email)
+  let isLeader = false
   let displayName = ''
   try {
     const { data: profile, error } = await supabase
@@ -23,6 +24,7 @@ export default async function Navbar() {
       .single()
     if (!error && profile) {
       if (!isAdmin) isAdmin = profile.role === 'admin'
+      isLeader = profile.role === 'leader'
       displayName = (profile.display_name || '').trim()
     }
   } catch (err) {
@@ -35,6 +37,7 @@ export default async function Navbar() {
     { href: '/team',    label: '상태 둘러보기' },
     { href: '/my-logs', label: 'My Page' },
     { href: '/history', label: '전체 제출 내역' },
+    ...((isAdmin || isLeader) ? [{ href: '/work-hours', label: '근로시간 관리' }] : []),
     ...(isAdmin ? [{ href: '/admin', label: '관리자' }] : []),
   ]
 

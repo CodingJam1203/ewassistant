@@ -59,10 +59,11 @@ export async function updateSession(request: NextRequest) {
     } | null = null
     let profileFetchFailed = false
 
+    let role: string | null = null
     try {
       const { data, error } = await supabase
         .from('user_profiles')
-        .select('is_active, terms_version, privacy_version')
+        .select('is_active, terms_version, privacy_version, role')
         .eq('id', user.id)
         .single()
       if (error) {
@@ -71,6 +72,7 @@ export async function updateSession(request: NextRequest) {
         console.warn('[middleware] profile fetch error', error.code, error.message)
       } else {
         profile = data
+        role = (data as { role?: string | null })?.role ?? null
       }
     } catch (err) {
       profileFetchFailed = true
@@ -101,10 +103,27 @@ export async function updateSession(request: NextRequest) {
       url.pathname = '/blocked'
       return NextResponse.redirect(url)
     }
+
+    // 3. /work-hours 페이지는 admin/leader만 접근 — user는 /team으로 보냄
+    if (pathname.startsWith('/work-hours')) {
+      if (role !== 'admin' && role !== 'leader') {
+        const url = request.nextUrl.clone()
+        url.pathname = '/team'
+        return NextResponse.redirect(url)
+      }
+    }
+
+    // 4. /admin 페이지는 admin만 접근
+    if (pathname.startsWith('/admin')) {
+      if (role !== 'admin') {
+        const url = request.nextUrl.clone()
+        url.pathname = '/team'
+        return NextResponse.redirect(url)
+      }
+    }
   }
 
   // /consent 접근: 이미 동의 완료했으면 상태에 따라 redirect
-  // 조회 실패 시 사용자는 /consent에 그대로 머물러 onboarding 가능 (fail-safe)
   if (user && isConsentRoute) {
     try {
       const { data: profile, error } = await supabase
