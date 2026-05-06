@@ -12,6 +12,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { RefreshCw, X } from 'lucide-react'
 import WorkHoursCard from '@/components/WorkHoursCard'
+import Pagination from '@/components/Pagination'
 import {
   fmtHours,
   riskLabel,
@@ -67,6 +68,10 @@ export default function WorkHoursPage() {
   const [error, setError] = useState<string | null>(null)
   const [orgDivisions, setOrgDivisions] = useState<OrgDivision[]>([])
   const [selectedUser, setSelectedUser] = useState<UserMonthSummary | null>(null)
+
+  // ─── 페이지네이션 (개인별 테이블) ─────────────────────────────
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
 
   // ─── org 로드 ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -132,6 +137,14 @@ export default function WorkHoursPage() {
     orgDivisions.find(d => d.name === filterDiv)?.teams ?? [],
     [orgDivisions, filterDiv]
   )
+
+  // 필터/정렬 변경 시 1페이지로 리셋
+  useEffect(() => { setPage(1) }, [
+    year, month, filterDiv, filterTeam, filterName, filterRisk, sortKey, sortedUsers.length,
+  ])
+
+  const pageStart = (page - 1) * pageSize
+  const pagedUsers = sortedUsers.slice(pageStart, pageStart + pageSize)
 
   const isLeaderScope = data?.scope.kind === 'team' || data?.scope.kind === 'division'
 
@@ -308,7 +321,7 @@ export default function WorkHoursPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {sortedUsers.map(u => (
+                {pagedUsers.map(u => (
                   <tr
                     key={u.email}
                     onClick={() => setSelectedUser(u)}
@@ -347,6 +360,16 @@ export default function WorkHoursPage() {
               <div className="py-12 text-center text-sm text-gray-500">조건에 맞는 인원이 없습니다.</div>
             )}
           </div>
+          {sortedUsers.length > 0 && (
+            <Pagination
+              totalCount={sortedUsers.length}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              unit="명"
+            />
+          )}
         </div>
       )}
 

@@ -5,6 +5,7 @@ import { Copy, Check, RefreshCw, Pencil, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import WorkLogModal from '@/components/WorkLogModal'
+import Pagination from '@/components/Pagination'
 import type { WorkLog } from '@/types/work-log'
 
 interface OrgTeam { id: string; division_id: string; name: string }
@@ -93,6 +94,10 @@ export default function HistoryPage() {
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
+  // ─── 페이지네이션 ────────────────────────────────────────────
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+
   // 관리자 여부 확인 + 조직 목록 + 내 프로필 기본값 — 병렬 호출
   useEffect(() => {
     Promise.all([
@@ -144,6 +149,14 @@ export default function HistoryPage() {
     if (filterDate && log.leave_date !== filterDate) return false
     return true
   })
+
+  // 필터/리스트 변경 시 1페이지로 리셋
+  useEffect(() => { setPage(1) }, [
+    filterMine, filterDivision, filterTeam, filterName, filterDate, logs.length,
+  ])
+
+  const pageStart = (page - 1) * pageSize
+  const pagedLogs = filteredLogs.slice(pageStart, pageStart + pageSize)
 
   const handleDelete = async (id: string) => {
     if (!confirm('이 기록을 삭제하시겠습니까?')) return
@@ -293,7 +306,7 @@ export default function HistoryPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-100">
-                {filteredLogs.map(log => (
+                {pagedLogs.map(log => (
                   <tr key={log.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-3 py-3 text-center">
                       <CopyCell text={log.copy_text} />
@@ -366,9 +379,13 @@ export default function HistoryPage() {
           </div>
 
           {filteredLogs.length > 0 && (
-            <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400">
-              총 {filteredLogs.length}건
-            </div>
+            <Pagination
+              totalCount={filteredLogs.length}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+            />
           )}
         </div>
       )}

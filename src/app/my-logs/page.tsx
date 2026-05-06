@@ -5,6 +5,7 @@ import { Copy, Check, RefreshCw, Pencil, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import WorkLogModal from '@/components/WorkLogModal'
 import WorkHoursCard from '@/components/WorkHoursCard'
+import Pagination from '@/components/Pagination'
 import type { WorkLog } from '@/types/work-log'
 import type { MonthBaselines, UserMonthSummary } from '@/lib/utils/work-hours'
 
@@ -99,6 +100,10 @@ export default function MyLogsPage() {
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
+  // ─── 페이지네이션 ────────────────────────────────────────────
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+
   // 본인 이번 달 근로현황 (상단 카드)
   const [hoursSummary, setHoursSummary] = useState<{
     baselines: MonthBaselines
@@ -141,6 +146,12 @@ export default function MyLogsPage() {
     if (filterDate && log.leave_date !== filterDate) return false
     return true
   })
+
+  // 필터/리스트 변경 시 1페이지로 리셋
+  useEffect(() => { setPage(1) }, [filterDate, logs.length])
+
+  const pageStart = (page - 1) * pageSize
+  const pagedLogs = filtered.slice(pageStart, pageStart + pageSize)
 
   const handleDelete = async (id: string) => {
     if (!confirm('이 기록을 삭제하시겠습니까? 삭제 후 복구할 수 없습니다.')) return
@@ -237,7 +248,7 @@ export default function MyLogsPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-100">
-                {filtered.map(log => (
+                {pagedLogs.map(log => (
                   <tr key={log.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-3 py-3 text-center">
                       <CopyCell text={log.copy_text} />
@@ -359,9 +370,13 @@ export default function MyLogsPage() {
           </div>
 
           {filtered.length > 0 && (
-            <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400">
-              총 {filtered.length}건
-            </div>
+            <Pagination
+              totalCount={filtered.length}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+            />
           )}
         </div>
       )}
