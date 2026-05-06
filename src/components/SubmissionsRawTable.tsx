@@ -339,47 +339,40 @@ export default function SubmissionsRawTable({
                   <Th className="text-center">복사</Th>
                   <Th className="text-center">수정</Th>
                   <Th>보고유형</Th>
-                  <Th>제출일시</Th>
                   <Th>대상일</Th>
+                  <Th>제출일시</Th>
                   <Th>이름</Th>
-                  <Th>본부</Th>
-                  <Th>팀</Th>
-                  <Th>근무유형</Th>
-                  <Th>출근시각</Th>
-                  <Th>퇴근시각</Th>
+                  <Th>시작</Th>
+                  <Th>종료</Th>
+                  <Th>장소</Th>
                   <Th>휴게</Th>
                   <Th>실근무</Th>
-                  <Th>근무장소</Th>
                   <Th>EW</Th>
                   <Th>근무내용</Th>
-                  <Th>지각수정</Th>
-                  <Th>이전보고</Th>
-                  <Th>변경보고</Th>
-                  <Th>지각사유</Th>
-                  <Th>출근예정일</Th>
-                  <Th>출근예정시각</Th>
-                  <Th>퇴근예정시각</Th>
-                  <Th>출근예정장소</Th>
-                  <Th>출근유형</Th>
                   <Th>변경 필드</Th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {pagedRows.map(r => {
-                  const isUpdate  = r.report_type.endsWith('_update')
+                  const isUpdate   = r.report_type.endsWith('_update')
                   const isCheckOut = r.report_type === 'check_out' || r.report_type === 'check_out_update'
-                  const isCheckIn  = !isCheckOut
-                  // 출근보고 row → 퇴근 영역 비움 / 퇴근보고 row → 출근예정 영역 비움
                   const dash = <span className="text-gray-300">-</span>
+
+                  // 통합 컬럼 — 보고유형에 따라 시작/종료/장소를 동적 매핑
+                  const startVal = isCheckOut
+                    ? fmtTime(r.start_time)
+                    : fmtTime(r.expected_work_time)
+                  const endVal = isCheckOut
+                    ? fmtTime(r.end_time)
+                    : fmtTime(extractExpectedCheckoutTime(r.expected_work_location_timeline))
+                  const locVal = isCheckOut
+                    ? (r.work_location ?? '-')
+                    : (r.expected_work_location ?? '-')
+
                   return (
                     <tr key={r.id} className="hover:bg-gray-50">
                       <Td className="text-center">
-                        {/* 복사 버튼은 퇴근보고에만 (EW 복사 문구는 퇴근시점에 생성됨) */}
-                        {isCheckOut ? (
-                          <CopyButton text={r.copy_text} />
-                        ) : (
-                          <span className="text-gray-300">-</span>
-                        )}
+                        {isCheckOut ? <CopyButton text={r.copy_text} /> : dash}
                       </Td>
                       <Td className="text-center">
                         {r.work_log_id && onEditWorkLog ? (
@@ -390,40 +383,31 @@ export default function SubmissionsRawTable({
                           >
                             <Pencil className="h-3.5 w-3.5 inline" />
                           </button>
-                        ) : (
-                          <span className="text-gray-300">-</span>
-                        )}
+                        ) : dash}
                       </Td>
                       <Td>
                         <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${reportTypeBadgeClass(r.report_type)}`}>
                           {reportTypeLabel(r.report_type)}
                         </span>
                       </Td>
-                      <Td>{format(new Date(r.submitted_at), 'MM/dd HH:mm')}</Td>
                       <Td className="font-medium text-gray-900">{r.target_date}</Td>
-                      <Td>{r.name ?? '-'}</Td>
-                      <Td className="text-gray-500">{r.division ?? '-'}</Td>
-                      <Td className="text-gray-500">{r.team ?? '-'}</Td>
-                      <Td className="text-gray-500">{r.work_type_label ?? '-'}</Td>
-                      <Td>{isCheckOut ? fmtTime(r.start_time) : dash}</Td>
-                      <Td>{isCheckOut ? fmtTime(r.end_time) : dash}</Td>
+                      <Td className="text-gray-500">{format(new Date(r.submitted_at), 'MM/dd HH:mm')}</Td>
+                      <Td>
+                        <div>{r.name ?? '-'}</div>
+                        <div className="text-[10px] text-gray-400">
+                          {(r.division ?? '-') + ' / ' + (r.team ?? '-')}
+                        </div>
+                      </Td>
+                      <Td>{startVal}</Td>
+                      <Td>{endVal}</Td>
+                      <Td>{locVal}</Td>
                       <Td>{isCheckOut ? fmtInterval(r.break_time) : dash}</Td>
                       <Td>{isCheckOut ? fmtInterval(r.actual_work_time) : dash}</Td>
-                      <Td>{isCheckOut ? (r.work_location ?? '-') : dash}</Td>
                       <Td className="font-bold text-blue-600">{isCheckOut ? (r.ew_value ?? '-') : dash}</Td>
-                      <Td className="max-w-[160px] truncate text-gray-500" title={r.work_content ?? ''}>{isCheckOut ? (r.work_content ?? '-') : dash}</Td>
-                      <Td className="text-gray-500">{isCheckOut ? (r.late_or_attendance_status ?? '-') : dash}</Td>
-                      <Td>{isCheckOut ? fmtTime(r.previous_report_time) : dash}</Td>
-                      <Td>{isCheckOut ? fmtTime(r.current_report_time) : dash}</Td>
-                      <Td className="max-w-[120px] truncate text-gray-500" title={r.late_reason ?? ''}>{isCheckOut ? (r.late_reason ?? '-') : dash}</Td>
-                      <Td>{isCheckIn ? (r.expected_start_date ?? '-') : dash}</Td>
-                      <Td>{isCheckIn ? fmtTime(r.expected_work_time) : dash}</Td>
-                      <Td>{isCheckIn ? fmtTime(extractExpectedCheckoutTime(r.expected_work_location_timeline)) : dash}</Td>
-                      <Td>{isCheckIn ? (r.expected_work_location ?? '-') : dash}</Td>
-                      <Td className="text-gray-500 max-w-[120px] truncate" title={r.attendance_record_type ?? ''}>
-                        {r.attendance_record_type ?? '-'}
+                      <Td className="max-w-[200px] truncate text-gray-500" title={r.work_content ?? ''}>
+                        {isCheckOut ? (r.work_content ?? '-') : dash}
                       </Td>
-                      <Td className="max-w-[220px]">
+                      <Td className="max-w-[260px]">
                         {isUpdate && r.changed_fields && r.changed_fields.length > 0 ? (
                           <ul className="space-y-0.5 list-none">
                             {r.changed_fields.map((cf, i) => (
@@ -432,7 +416,7 @@ export default function SubmissionsRawTable({
                               </li>
                             ))}
                           </ul>
-                        ) : '-'}
+                        ) : dash}
                       </Td>
                     </tr>
                   )
