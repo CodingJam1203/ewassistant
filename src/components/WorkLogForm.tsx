@@ -255,6 +255,29 @@ export default function WorkLogForm({
     const mm = m % 60
     return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
   })()
+
+  /**
+   * 신규 모드 휴게시간 default 추론 — 점심 자동 차감 폐지(2026.05) 후 휴게에 점심도 포함됨.
+   *  1) 휴게 시작/종료 버튼 누적값(>0)이 있으면 그것 우선
+   *  2) 출/퇴근이 점심시간(11:30~13:30) 포함 → 1:00 (점심 1H 가정)
+   *  3) 그 외 → 0:00 (사용자가 필요 시 select로 변경)
+   */
+  const defaultBreakHHmm = (() => {
+    if (breakAutoRoundedMinutes > 0) return breakAutoHHmm
+    const startStr = trimToHHmm(initialStartTime)
+    const endStr   = trimToHHmm(initialEndTime)
+    const toMin = (s: string): number | null => {
+      const m = /^([0-2]?\d|3[0-6]):([0-5]\d)$/.exec(s)
+      if (!m) return null
+      return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
+    }
+    const sm = toMin(startStr)
+    const em = toMin(endStr)
+    if (sm === null || em === null) return '00:00'
+    // 점심 시간(11:30~13:30) 완전히 포함 시 1:00
+    if (sm <= 11 * 60 + 30 && em >= 13 * 60 + 30) return '01:00'
+    return '00:00'
+  })()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [showEwPopup, setShowEwPopup] = useState(false)
@@ -306,8 +329,11 @@ export default function WorkLogForm({
           leaveDate: getKstTodayDateString(),
           workLocationTimeline: buildInitialTimeline(initialTimeline, initialStartTime, initialEndTime),
           leaveTimeline: (initialLeaveTimeline ?? []) as LeaveTimeline,
-          // 휴게 자동값이 있으면 그것을 기본값으로, 없으면 00:00
-          breakTime: breakAutoRoundedMinutes > 0 ? breakAutoHHmm : '00:00',
+          // 휴게 default 추론 (점심 자동 차감 폐지 — 점심도 휴게에 포함):
+          //   자동 누적값 > 0 → 그 값
+          //   점심시간(11:30~13:30) 포함 → 1:00
+          //   그 외 → 0:00
+          breakTime: defaultBreakHHmm,
           workContent: '',
           lateOrAttendanceStatus: '아니오',
           // 퇴근보고 모달 default — '출근보고 진행' (다음 출근 사전 보고를 자연스럽게 유도).
@@ -631,7 +657,10 @@ export default function WorkLogForm({
         <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 border-b pb-2">휴게 및 근무내용</h3>
         <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-2">
           <div>
-            <label className="block text-sm font-medium text-gray-700">휴게시간 *</label>
+            <label className="block text-sm font-medium text-gray-700">휴게시간 * <span className="text-xs font-normal text-gray-500">(점심 포함)</span></label>
+            <p className="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+              💡 점심 1시간을 자동으로 빼지 않습니다. <strong>점심 먹었다면 1:00, 안 먹었다면 0:00</strong>으로 직접 선택해주세요.
+            </p>
             {breakAutoRoundedMinutes > 0 && (
               <p className="mt-1 mb-1 text-xs text-gray-500">
                 자동 계산 (휴게 시작/종료 로그): 실제 {breakAutoActualMinutes}분 / 30분 올림 {minutesToDisplay(breakAutoRoundedMinutes)}
@@ -644,7 +673,7 @@ export default function WorkLogForm({
             >
               <option value="00:00">00:00 (휴게 없음)</option>
               <option value="00:30">00:30 (30분)</option>
-              <option value="01:00">01:00 (1시간)</option>
+              <option value="01:00">01:00 (1시간 / 점심)</option>
               <option value="01:30">01:30 (1시간 30분)</option>
               <option value="02:00">02:00 (2시간)</option>
               <option value="02:30">02:30 (2시간 30분)</option>

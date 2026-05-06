@@ -100,17 +100,23 @@ export function diffMinutes(startMinutes: number, endMinutes: number): number {
 
 // 7.3 실근무시간 Y
 //
-// 실근무시간 = (퇴근 - 출근) - 휴게(30분 올림) - 휴가(차감) - 점심(자동, 단 휴가가 점심 포함하면 0)
+// 실근무시간 = (퇴근 - 출근) - 휴게(30분 올림) - 휴가(차감)
+//
+// 정책 변경(2026.05): 점심 자동 차감 제거.
+// - 점심을 먹었으면 사용자가 휴게시간(예: 1:00)에 직접 입력
+// - 점심을 안 먹었으면 휴게 0:00으로 두면 그대로 반영됨
+// - 이전엔 점심 1H를 자동 차감해서 짧은 근무자가 퇴근시각을 가짜로 늘려 입력하는 문제 있었음
+//
+// 인자 deductionMinutes / leaveIncludesLunch는 호환성을 위해 시그니처에 남겨두지만 사용하지 않음.
 export function getActualWorkMinutes(
   startMinutes: number,
   endMinutes: number,
   breakMinutes: number,
-  deductionMinutes: number,
+  _deductionMinutes: number,
   leaveMinutes: number = 0,
-  leaveIncludesLunch: boolean = false
+  _leaveIncludesLunch: boolean = false
 ): number {
-  const lunchDeduction = leaveIncludesLunch ? 0 : deductionMinutes;
-  return diffMinutes(startMinutes, endMinutes) - breakMinutes - leaveMinutes - lunchDeduction;
+  return diffMinutes(startMinutes, endMinutes) - breakMinutes - leaveMinutes;
 }
 
 // 7.4 날짜 표시값 Z
@@ -132,21 +138,23 @@ export function getEwStartMinutes(startMinutes: number): number {
 }
 
 // 7.7 EW 종료시간 AH
+// 정책 변경(2026.05): 점심 자동 차감 제거 → EW 종료 = ewStart + 실근무 + 휴게
+//   (휴게에 점심이 포함되어 있어 이전과 동일한 결과를 사용자가 명시적으로 만듦)
 export function getEwEndMinutes(
   ewStartMinutes: number,
   actualWorkMinutes: number,
-  deductionMinutes: number
+  breakMinutes: number
 ): number {
-  return ewStartMinutes + actualWorkMinutes + deductionMinutes;
+  return ewStartMinutes + actualWorkMinutes + breakMinutes;
 }
 
 // 7.8 간주근로용 AC
 export function getAcMinutes(
   startMinutes: number,
   actualWorkMinutes: number,
-  deductionMinutes: number
+  breakMinutes: number
 ): number {
-  return startMinutes + actualWorkMinutes + deductionMinutes;
+  return startMinutes + actualWorkMinutes + breakMinutes;
 }
 
 // 7.9 간주근로 EW 값 AB
@@ -234,9 +242,9 @@ export function calculateEw(input: EwInput): EwCalculationResult {
   const leaveMinutes = Number.isFinite(input.leaveMinutes) ? Math.max(0, Number(input.leaveMinutes)) : 0;
   const leaveIncludesLunch = !!input.leaveIncludesLunch;
 
-  // 휴가가 점심을 포함하면 자동 점심 1H 차감을 끔 (중복 차감 방지)
-  const lunchDeduction = leaveIncludesLunch ? 0 : deductionMinutes;
-
+  // 정책 변경(2026.05): 점심 자동 차감 제거.
+  // - 실근무: (퇴근 - 출근) - 휴게 - 휴가
+  // - EW 종료/간주근로 종료: ewStart + 실근무 + 휴게 (= 사용자 입력 출퇴근 시각 그대로)
   const actualWorkMinutes = getActualWorkMinutes(
     startMinutes,
     endMinutes,
@@ -248,12 +256,11 @@ export function calculateEw(input: EwInput): EwCalculationResult {
   const actualWorkText = formatDurationHHMM(actualWorkMinutes);
 
   const ewStartMinutes = getEwStartMinutes(startMinutes);
-  // EW 종료시간/간주근로 EW는 점심 자동 차감을 그대로 사용 (휴가가 점심 포함하면 lunchDeduction = 0)
-  const ewEndMinutes = getEwEndMinutes(ewStartMinutes, actualWorkMinutes, lunchDeduction);
+  const ewEndMinutes = getEwEndMinutes(ewStartMinutes, actualWorkMinutes, breakMinutes);
 
   let deemedWorkEwValue: string | null = null;
   if (workTypeCode === 2) {
-    const acMinutes = getAcMinutes(startMinutes, actualWorkMinutes, lunchDeduction);
+    const acMinutes = getAcMinutes(startMinutes, actualWorkMinutes, breakMinutes);
     deemedWorkEwValue = getDeemedWorkEwValue(actualWorkMinutes, acMinutes, ewEndMinutes);
   }
 
