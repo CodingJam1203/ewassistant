@@ -1,9 +1,15 @@
 // Teams 라우팅 테이블 및 라우팅 결정 함수
 // Make Webhook payload: { teamId, channelId, messageId, message }
+//
+// 데이터 소스:
+//   1) DB teams_routing (관리자가 /admin/teams-routing에서 관리)
+//   2) 코드 fallback (DB 비어있거나 오류 시 — 첫 배포 직전 안전망)
+//   in-memory 캐시 60초 TTL.
 
 export type ReportType = '출근보고' | '퇴근보고'
 export type NotificationAction = 'create' | 'update'
 import { getKstTodayDateString } from '@/lib/utils/date'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export interface TeamsReplyTarget {
   teamId: string
@@ -26,7 +32,11 @@ interface RoutingEntry {
   target: TeamsReplyTarget
 }
 
-const ROUTING_TABLE: RoutingEntry[] = [
+/**
+ * 코드 fallback 테이블 — DB 조회 실패 / 비어있을 때만 사용.
+ * DB seed가 들어간 뒤에는 사실상 사용되지 않음. 안전망.
+ */
+const FALLBACK_TABLE: RoutingEntry[] = [
   // ── HR임팩트본부 / 출근보고
   { department: 'HR임팩트본부', teamName: '디자인크리에이티브3파트', reportType: '출근보고',
     target: { teamId: 'c2dcd308-5ef9-4c2f-a038-2db41410180e', channelId: '19:d70449b5ffec46338662a94f06d1e9be@thread.tacv2', messageId: '1767335177747' } },
@@ -91,15 +101,78 @@ export function normalizeTeamName(teamName: string): string {
   return ALIAS_MAP[normalized] || normalized
 }
 
-// ─── 라우팅 대상 조회 ─────────────────────────────────────────────────────────
+// ─── 라우팅 대상 조회 (DB 우선, 60초 캐시, 실패 시 코드 fallback) ───────────
 
-export function getTeamsReplyTarget(params: {
+interface CachedRoutes {
+  routes: RoutingEntry[]
+  loadedAt: number
+  /** DB 조회 성공 여부 — false면 fallback */
+  fromDb: boolean
+}
+
+const CACHE_TTL_MS = 60 * 1000  // 60초
+let cache: CachedRoutes | null = null
+
+/** DB → RoutingEntry[] 로드 (실패 시 null) */
+async function loadRoutesFromDb(): Promise<RoutingEntry[] | null> {
+  try {
+    const admin = createAdminClient()
+    const { data, error } = await admin
+      .from('teams_routing')
+      .select('department, team_name, report_type, team_id, channel_id, message_id, is_active')
+      .eq('is_active', true)
+    if (error) {
+      console.warn('[teams-routing] DB load failed, using fallback:', error.message)
+      return null
+    }
+    return (data ?? []).map(r => ({
+      department: r.department,
+      teamName:   r.team_name,
+      reportType: r.report_type as ReportType,
+      target: {
+        teamId:    r.team_id,
+        channelId: r.channel_id,
+        messageId: r.message_id,
+      },
+    }))
+  } catch (err) {
+    console.warn('[teams-routing] DB load exception, using fallback:', err)
+    return null
+  }
+}
+
+/** 캐시 우선 조회. expired면 비동기 갱신 */
+async function getRoutes(): Promise<RoutingEntry[]> {
+  const now = Date.now()
+  if (cache && now - cache.loadedAt < CACHE_TTL_MS) {
+    return cache.routes
+  }
+  const fromDb = await loadRoutesFromDb()
+  if (fromDb && fromDb.length > 0) {
+    cache = { routes: fromDb, loadedAt: now, fromDb: true }
+  } else {
+    cache = { routes: FALLBACK_TABLE, loadedAt: now, fromDb: false }
+  }
+  return cache.routes
+}
+
+/** 캐시 강제 무효화 — 관리자 페이지에서 routing 변경 시 호출 */
+export function invalidateRoutingCache(): void {
+  cache = null
+}
+
+/**
+ * 라우팅 대상 1건 조회.
+ * DB 우선 → 실패 시 코드 fallback. 60초 캐시.
+ */
+export async function getTeamsReplyTarget(params: {
   department: string
   teamName: string
   reportType: ReportType
-}): TeamsReplyTarget | null {
+}): Promise<TeamsReplyTarget | null> {
   const normalizedTeam = normalizeTeamName(params.teamName)
-  const entry = ROUTING_TABLE.find(
+  const routes = await getRoutes()
+  const entry = routes.find(
     r => r.department === params.department &&
          r.teamName   === normalizedTeam &&
          r.reportType === params.reportType

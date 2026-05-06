@@ -205,7 +205,7 @@ async function routeAndSend(
   }
 
   const normalizedTeam = normalizeTeamName(teamName)
-  const target = getTeamsReplyTarget({ department, teamName: normalizedTeam, reportType })
+  const target = await getTeamsReplyTarget({ department, teamName: normalizedTeam, reportType })
   if (!target) {
     console.warn('[Teams notify skipped]', {
       reason: 'Route target not found',

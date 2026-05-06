@@ -721,11 +721,16 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center flex-wrap gap-2">
         <h2 className="text-2xl font-bold text-gray-900">관리자 — 계정 관리</h2>
-        <Link href="/admin/notifications" className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200">
-          알림 발송 내역 보기
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/admin/teams-routing" className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors border border-purple-200">
+            Teams 라우팅 관리
+          </Link>
+          <Link href="/admin/notifications" className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200">
+            알림 발송 내역 보기
+          </Link>
+        </div>
       </div>
 
       {/* 조직 구조 관리 */}

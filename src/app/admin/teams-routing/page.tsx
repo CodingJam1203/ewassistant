@@ -1,0 +1,508 @@
+'use client'
+
+/**
+ * Teams 라우팅 관리 페이지 (관리자 전용)
+ *
+ * 기능:
+ *   - 전체 라우팅 row 표 표시 (본부/팀/보고유형/teamId/channelId/messageId/active/메모)
+ *   - 인라인 편집 (각 row 우측 "수정" 버튼 → 모달)
+ *   - 새 row 추가
+ *   - 활성/비활성 토글
+ *   - 삭제 (확인 모달)
+ *
+ * /admin 페이지에서 이 경로로 링크.
+ */
+
+import { useEffect, useState, useMemo } from 'react'
+import { Pencil, Trash2, Plus, RefreshCw, Save, X, AlertTriangle } from 'lucide-react'
+
+interface RoutingRow {
+  id: string
+  department: string
+  team_name: string
+  report_type: '출근보고' | '퇴근보고'
+  team_id: string
+  channel_id: string
+  message_id: string
+  is_active: boolean
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+type FormState = Omit<RoutingRow, 'id' | 'created_at' | 'updated_at'>
+
+const EMPTY_FORM: FormState = {
+  department: '',
+  team_name: '',
+  report_type: '출근보고',
+  team_id: '',
+  channel_id: '',
+  message_id: '',
+  is_active: true,
+  notes: null,
+}
+
+export default function TeamsRoutingAdminPage() {
+  const [rows, setRows] = useState<RoutingRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [editingRow, setEditingRow] = useState<RoutingRow | null>(null)
+  const [creating, setCreating] = useState(false)
+
+  const fetchRows = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/admin/teams-routing')
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? '조회 실패')
+        return
+      }
+      setRows(json.rows ?? [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '네트워크 오류')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { fetchRows() }, [])
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, RoutingRow[]>()
+    for (const r of rows) {
+      const key = `${r.department}__${r.report_type}`
+      const arr = map.get(key) ?? []
+      arr.push(r)
+      map.set(key, arr)
+    }
+    return map
+  }, [rows])
+
+  const handleDelete = async (row: RoutingRow) => {
+    if (!confirm(
+      `정말 삭제하시겠습니까?\n\n` +
+      `${row.department} / ${row.team_name} / ${row.report_type}`
+    )) return
+    try {
+      const res = await fetch(`/api/admin/teams-routing/${row.id}`, { method: 'DELETE' })
+      const json = await res.json()
+      if (!res.ok) {
+        alert('삭제 실패: ' + (json.error ?? ''))
+        return
+      }
+      setRows(prev => prev.filter(r => r.id !== row.id))
+    } catch (err) {
+      alert('오류: ' + (err instanceof Error ? err.message : ''))
+    }
+  }
+
+  const handleToggleActive = async (row: RoutingRow) => {
+    try {
+      const res = await fetch(`/api/admin/teams-routing/${row.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !row.is_active }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        alert('변경 실패: ' + (json.error ?? ''))
+        return
+      }
+      setRows(prev => prev.map(r => r.id === row.id ? json.row : r))
+    } catch (err) {
+      alert('오류: ' + (err instanceof Error ? err.message : ''))
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Teams 알림 라우팅 관리</h2>
+          <p className="text-xs text-gray-500 mt-1">
+            본부/팀/보고유형 별로 Teams 채널 anchor 메시지를 매핑합니다. 변경은 60초 캐시 후 반영됩니다.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={fetchRows}
+            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 px-3 py-1.5 border border-blue-200 rounded"
+          >
+            <RefreshCw className="h-4 w-4" />
+            새로고침
+          </button>
+          <button
+            onClick={() => setCreating(true)}
+            className="inline-flex items-center gap-1 text-sm text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded"
+          >
+            <Plus className="h-4 w-4" />
+            새 라우팅 추가
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="space-y-2">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="h-12 bg-gray-100 rounded animate-pulse" />
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center text-sm text-gray-500">
+          등록된 라우팅이 없습니다. <span className="text-blue-600">"새 라우팅 추가"</span> 버튼으로 시작하세요.
+        </div>
+      ) : (
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <Th>본부</Th>
+                  <Th>팀</Th>
+                  <Th>보고유형</Th>
+                  <Th>Team ID</Th>
+                  <Th>Channel ID</Th>
+                  <Th>Message ID</Th>
+                  <Th className="text-center">활성</Th>
+                  <Th>메모</Th>
+                  <Th className="text-center">작업</Th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {rows.map(row => (
+                  <tr key={row.id} className={`hover:bg-gray-50 ${!row.is_active ? 'opacity-50' : ''}`}>
+                    <Td>{row.department}</Td>
+                    <Td>{row.team_name}</Td>
+                    <Td>
+                      <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                        row.report_type === '출근보고' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'
+                      }`}>
+                        {row.report_type}
+                      </span>
+                    </Td>
+                    <Td><Mono>{row.team_id}</Mono></Td>
+                    <Td><Mono>{row.channel_id}</Mono></Td>
+                    <Td><Mono>{row.message_id}</Mono></Td>
+                    <Td className="text-center">
+                      <button
+                        onClick={() => handleToggleActive(row)}
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                          row.is_active
+                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                            : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                        }`}
+                      >
+                        {row.is_active ? '활성' : '비활성'}
+                      </button>
+                    </Td>
+                    <Td>
+                      <span className="text-xs text-gray-500">{row.notes || '-'}</span>
+                    </Td>
+                    <Td className="text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => setEditingRow(row)}
+                          className="text-gray-400 hover:text-blue-600"
+                          title="수정"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(row)}
+                          className="text-gray-400 hover:text-red-600"
+                          title="삭제"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-500">
+            총 <span className="font-semibold text-gray-700">{rows.length}</span>건
+            {' · '}
+            본부 {new Set(rows.map(r => r.department)).size}개
+            {' · '}
+            활성 {rows.filter(r => r.is_active).length} / 비활성 {rows.filter(r => !r.is_active).length}
+          </div>
+        </div>
+      )}
+
+      {/* 편집/생성 모달 */}
+      {(editingRow || creating) && (
+        <RoutingFormModal
+          row={editingRow}
+          onClose={() => {
+            setEditingRow(null)
+            setCreating(false)
+          }}
+          onSaved={(saved) => {
+            if (editingRow) {
+              setRows(prev => prev.map(r => r.id === saved.id ? saved : r))
+            } else {
+              setRows(prev => [...prev, saved])
+            }
+            setEditingRow(null)
+            setCreating(false)
+          }}
+        />
+      )}
+
+      {/* 도움말 */}
+      <details className="bg-blue-50 rounded-lg border border-blue-100 p-3 text-xs text-gray-700">
+        <summary className="font-medium text-blue-700 cursor-pointer">
+          📘 messageId / channelId 어디서 가져오나요?
+        </summary>
+        <div className="mt-2 space-y-1 leading-relaxed">
+          <p>1. Make.com에서 새 Teams Channel에 anchor 메시지 1건 발송 (예: "출근보고 시작합니다 — 회신 thread")</p>
+          <p>2. Teams 웹/앱에서 해당 메시지 우클릭 → <strong>링크 복사</strong></p>
+          <p>3. 복사한 URL에서:</p>
+          <p className="ml-4">
+            <code className="bg-white px-1 rounded">
+              https://teams.microsoft.com/l/message/&lt;channelId&gt;/&lt;messageId&gt;?...&groupId=&lt;teamId&gt;
+            </code>
+          </p>
+          <p className="ml-4">groupId → Team ID, channelId의 19:xxx@thread.tacv2 → Channel ID, 끝의 숫자 → Message ID</p>
+          <p>4. 위에 매핑해서 "새 라우팅 추가" — 같은 본부/팀에 출근/퇴근 각 1건씩</p>
+        </div>
+      </details>
+    </div>
+  )
+}
+
+// ─── 편집/생성 모달 ──────────────────────────────────────────────────────────
+
+function RoutingFormModal({
+  row, onClose, onSaved,
+}: {
+  row: RoutingRow | null
+  onClose: () => void
+  onSaved: (saved: RoutingRow) => void
+}) {
+  const isEdit = !!row
+  const [form, setForm] = useState<FormState>(
+    row
+      ? {
+          department: row.department,
+          team_name: row.team_name,
+          report_type: row.report_type,
+          team_id: row.team_id,
+          channel_id: row.channel_id,
+          message_id: row.message_id,
+          is_active: row.is_active,
+          notes: row.notes,
+        }
+      : EMPTY_FORM
+  )
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    setErr(null)
+    try {
+      const url = isEdit ? `/api/admin/teams-routing/${row!.id}` : '/api/admin/teams-routing'
+      const method = isEdit ? 'PATCH' : 'POST'
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setErr(json.error ?? '저장 실패')
+        return
+      }
+      onSaved(json.row)
+    } catch (er) {
+      setErr(er instanceof Error ? er.message : '오류')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 overflow-y-auto py-6"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-xl bg-white rounded-lg shadow-xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <h3 className="text-lg font-semibold text-gray-900">
+            {isEdit ? 'Teams 라우팅 수정' : '새 Teams 라우팅 추가'}
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="본부 *">
+              <input
+                type="text"
+                required
+                value={form.department}
+                onChange={e => setForm({ ...form, department: e.target.value })}
+                placeholder="HR임팩트본부"
+                className={inputCls}
+              />
+            </Field>
+            <Field label="팀 *">
+              <input
+                type="text"
+                required
+                value={form.team_name}
+                onChange={e => setForm({ ...form, team_name: e.target.value })}
+                placeholder="HR비즈니스팀"
+                className={inputCls}
+              />
+            </Field>
+          </div>
+          <Field label="보고유형 *">
+            <select
+              value={form.report_type}
+              onChange={e => setForm({ ...form, report_type: e.target.value as '출근보고' | '퇴근보고' })}
+              className={inputCls}
+            >
+              <option value="출근보고">출근보고</option>
+              <option value="퇴근보고">퇴근보고</option>
+            </select>
+          </Field>
+          <Field label="Team ID *" hint="Microsoft Teams 팀 그룹 GUID (groupId=)">
+            <input
+              type="text"
+              required
+              value={form.team_id}
+              onChange={e => setForm({ ...form, team_id: e.target.value })}
+              placeholder="c2dcd308-5ef9-4c2f-a038-2db41410180e"
+              className={`${inputCls} font-mono text-xs`}
+            />
+          </Field>
+          <Field label="Channel ID *" hint="19:xxx@thread.tacv2">
+            <input
+              type="text"
+              required
+              value={form.channel_id}
+              onChange={e => setForm({ ...form, channel_id: e.target.value })}
+              placeholder="19:d70449b5ffec46338662a94f06d1e9be@thread.tacv2"
+              className={`${inputCls} font-mono text-xs`}
+            />
+          </Field>
+          <Field label="Anchor Message ID *" hint="해당 채널의 thread root 메시지 ID (숫자)">
+            <input
+              type="text"
+              required
+              value={form.message_id}
+              onChange={e => setForm({ ...form, message_id: e.target.value })}
+              placeholder="1767335177747"
+              className={`${inputCls} font-mono text-xs`}
+            />
+          </Field>
+          <Field label="메모 (선택)">
+            <input
+              type="text"
+              value={form.notes ?? ''}
+              onChange={e => setForm({ ...form, notes: e.target.value || null })}
+              placeholder="예: 2026-05 신설"
+              className={inputCls}
+              maxLength={500}
+            />
+          </Field>
+          <Field>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.is_active}
+                onChange={e => setForm({ ...form, is_active: e.target.checked })}
+                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              활성 (체크 해제 시 해당 라우팅으로 알림 안 감)
+            </label>
+          </Field>
+
+          {err && (
+            <div className="rounded bg-red-50 border border-red-200 p-2 text-xs text-red-700">
+              {err}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2 border-t">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-1.5 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
+            >
+              취소
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="inline-flex items-center gap-1 px-4 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50"
+            >
+              <Save className="h-4 w-4" />
+              {saving ? '저장 중...' : isEdit ? '수정 저장' : '추가'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── 작은 부품들 ────────────────────────────────────────────────────────────
+
+const inputCls =
+  'mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 ' +
+  'sm:text-sm px-3 py-1.5 border'
+
+function Field({
+  label, children, hint,
+}: { label?: string; children: React.ReactNode; hint?: string }) {
+  return (
+    <div>
+      {label && <label className="block text-xs font-medium text-gray-700">{label}</label>}
+      {children}
+      {hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>}
+    </div>
+  )
+}
+
+function Th({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return (
+    <th className={`px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider whitespace-nowrap ${className}`}>
+      {children}
+    </th>
+  )
+}
+
+function Td({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return (
+    <td className={`px-3 py-2 text-gray-700 whitespace-nowrap ${className}`}>{children}</td>
+  )
+}
+
+function Mono({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="font-mono text-xs text-gray-600 truncate max-w-[280px] inline-block align-middle"
+          title={typeof children === 'string' ? children : ''}>
+      {children}
+    </span>
+  )
+}
