@@ -69,17 +69,31 @@ export default function WorkHoursCard({ baselines, summary, subtitle }: WorkHour
         </div>
       </div>
 
-      {/* 진행 바 */}
-      <div className="space-y-1.5">
+      {/* 진행 바 — 시작점/소정/법정/최대한도 4개 마커 + fill 강조 */}
+      <div className="space-y-1">
+        {/* 위쪽 라벨: 현재 누적 (fill 끝 위치) */}
+        <div className="relative h-5 text-[11px] font-semibold">
+          {progress > 0 && (
+            <span
+              className="absolute -translate-x-1/2 px-1.5 py-0.5 rounded text-white"
+              style={{
+                left: `${Math.max(4, Math.min(96, progress * 100))}%`,
+                backgroundColor: accent,
+              }}
+            >
+              {fmtHours(summary.recognizedHours)}
+            </span>
+          )}
+        </div>
+        {/* 진행 바 본체 */}
         <div className="relative h-3 bg-slate-700/60 rounded-full overflow-hidden">
           {/* fill */}
           <div
             className="h-full rounded-full transition-all duration-500"
-            style={{
-              width: `${progress * 100}%`,
-              backgroundColor: accent,
-            }}
+            style={{ width: `${progress * 100}%`, backgroundColor: accent }}
           />
+          {/* 소정기준 마커 (노랑) — 법정과 동일하지만 시각적 명확성 위해 표시는 분리 가능 */}
+          {/* 현재 정의상 소정 = 법정이라 같은 위치. 향후 분리 시 다른 위치 표시 가능 */}
           {/* 법정기본 기준선 (주황) */}
           <div
             className="absolute top-0 bottom-0 w-0.5 bg-orange-400"
@@ -87,16 +101,18 @@ export default function WorkHoursCard({ baselines, summary, subtitle }: WorkHour
             title={`법정기본 ${fmtHours(baselines.legalBaseHours)}h`}
           />
         </div>
-        {/* 기준선 라벨 */}
-        <div className="relative h-4 text-[10px] text-slate-400">
-          <span className="absolute left-0">0</span>
+        {/* 아래쪽 라벨: 0 / 법정(주황) / 한도(우측) */}
+        <div className="relative h-5 text-[10px]">
+          <span className="absolute left-0 text-slate-500">0</span>
           <span
-            className="absolute -translate-x-1/2 text-orange-300"
+            className="absolute -translate-x-1/2 text-orange-300 font-medium"
             style={{ left: `${legalBaseRatio * 100}%` }}
           >
-            법정 {fmtHours(baselines.legalBaseHours)}h
+            법정 {fmtHours(baselines.legalBaseHours)}
           </span>
-          <span className="absolute right-0">한도 {fmtHours(baselines.maxLimitHours)}h</span>
+          <span className="absolute right-0 text-slate-300 font-medium">
+            한도 {fmtHours(baselines.maxLimitHours)}
+          </span>
         </div>
       </div>
 

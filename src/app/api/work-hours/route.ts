@@ -39,6 +39,8 @@ interface ProfileRow {
 
 interface WorkLogRow {
   user_email: string
+  leave_date: string
+  created_at: string
   actual_work_time: string | null
   leave_timeline: LeaveTimeline | null
   is_deleted: boolean | null
@@ -130,22 +132,36 @@ export async function GET(request: Request) {
 
     const emails = profiles.map(p => p.email)
 
+    // 같은 user + 같은 leave_date에 row가 여러 개면 가장 최근 created_at 1건만 채택.
+    // (resubmit/PATCH로 깔끔히 정리되지 않은 데이터 대비)
+    // → ORDER BY created_at DESC 하고 클라이언트 측에서 (user_email, leave_date) 중복 제거.
     const { data: workLogs, error: logErr } = await adminClient
       .from('work_logs')
-      .select('user_email, actual_work_time, leave_timeline, is_deleted')
+      .select('user_email, leave_date, created_at, actual_work_time, leave_timeline, is_deleted')
       .in('user_email', emails)
       .gte('leave_date', monthStart)
       .lte('leave_date', monthEnd)
       .eq('is_deleted', false)
+      .order('created_at', { ascending: false })
     if (logErr) throw logErr
 
-    const logsByEmail = new Map<string, UserMonthInputRow[]>()
+    // (user_email, leave_date) 단위 중복 제거 — 가장 최근 created_at만 유지
+    const seen = new Set<string>()
+    const dedupedLogs: WorkLogRow[] = []
     for (const row of (workLogs ?? []) as WorkLogRow[]) {
+      const key = `${row.user_email}__${row.leave_date}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      dedupedLogs.push(row)
+    }
+
+    const logsByEmail = new Map<string, UserMonthInputRow[]>()
+    for (const row of dedupedLogs) {
       const leaveMin = totalLeaveRoundedMinutes(row.leave_timeline ?? null)
       const arr = logsByEmail.get(row.user_email) ?? []
       arr.push({
         email: row.user_email,
-        display_name: null,  // 사용 안 함 (summarizeUser가 profile 기준)
+        display_name: null,
         division: null,
         team: null,
         actual_work_time: row.actual_work_time,
@@ -184,5 +200,4 @@ export async function GET(request: Request) {
   }
 }
 
-// 미사용 import 제거 (lint)
 void intervalToMinutes
