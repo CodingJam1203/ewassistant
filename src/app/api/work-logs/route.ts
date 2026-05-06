@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateEw } from '@/lib/ew-calculator'
 import { requireActiveUser } from '@/lib/admin-check'
 import { notifyWorkLogSubmitted, notifyCheckoutResubmitted } from '@/lib/notifications/teams'
+import { recordSubmission } from '@/lib/submission-log'
 import {
   validateTimeline,
   firstWorkLocation,
@@ -367,6 +368,75 @@ export async function POST(request: Request) {
       notifyCheckoutResubmitted(notifyPayload)
     } else {
       notifyWorkLogSubmitted(notifyPayload)
+    }
+
+    // ─── submissions 로그 기록 ─────────────────────────────────────
+    // 1) 퇴근보고 (check_out) — leave_date 대상
+    const submittedNow = new Date().toISOString()
+    void recordSubmission({
+      user_id: user.id,
+      user_email: user.email!,
+      name: body.name ?? null,
+      division: userDivision,
+      team: userTeam,
+      report_type: 'check_out',
+      target_date: body.leaveDate ?? '',
+      submitted_at: submittedNow,
+      work_log_id: data?.id ?? null,
+      // 퇴근보고 영역
+      start_time: dbStartTime,
+      end_time: dbEndTime,
+      break_time: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
+      actual_work_time: `${snappedActualMin} minutes`,
+      work_location: finalWorkLocation,
+      work_location_timeline: workLocationTimeline ?? null,
+      leave_timeline: leaveTimeline ?? null,
+      work_content: body.workContent || null,
+      ew_value: calcResult.ewValue,
+      ew_start: calcResult.ewStartText,
+      ew_end:   calcResult.ewEndText,
+      copy_text: calcResult.copyText,
+      late_or_attendance_status: body.lateOrAttendanceStatus || null,
+      previous_report_time: body.lateOrAttendanceStatus === '예' ? body.previousReportTime : null,
+      current_report_time:  body.lateOrAttendanceStatus === '예' ? body.currentReportTime  : null,
+      late_reason:          body.lateOrAttendanceStatus === '예' ? body.lateReason          : null,
+      break_reason: body.breakReason || null,
+      break_auto_actual_minutes:    breakAutoActualMin,
+      break_auto_rounded_minutes:   breakAutoRoundedMin,
+      break_manual_rounded_minutes: breakManualRoundedMin,
+      break_final_rounded_minutes:  breakFinalRoundedMin,
+      thanks_macaron: body.thanksMacaron || null,
+      work_type_label: body.workTypeLabel,
+      work_type_code: calcResult.workTypeCode,
+      attendance_record_type: body.attendanceRecordType || null,
+    })
+
+    // 2) (선택) 사전 출근보고 (check_in) — expected_start_date 대상
+    //    퇴근보고와 같은 trip에 입력된 다음날 출근 예정 정보를 별도 row로 분리 보관.
+    //    attendanceRecordType이 '출근보고 진행'일 때만.
+    if (
+      body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
+      && body.expectedStartDate
+    ) {
+      void recordSubmission({
+        user_id: user.id,
+        user_email: user.email!,
+        name: body.name ?? null,
+        division: userDivision,
+        team: userTeam,
+        report_type: 'check_in',
+        target_date: body.expectedStartDate,
+        submitted_at: submittedNow,
+        work_log_id: data?.id ?? null,
+        // 출근보고 영역만 채움
+        expected_start_date:    body.expectedStartDate,
+        expected_work_time:     mirrorExpectedWorkTime,
+        expected_work_location: finalExpectedWorkLocation,
+        expected_work_location_timeline: expectedTimeline ?? null,
+        expected_leave_timeline: expectedLeaveTimeline ?? null,
+        work_type_label: body.workTypeLabel,
+        attendance_record_type: body.attendanceRecordType,
+      })
     }
 
     return NextResponse.json(data)

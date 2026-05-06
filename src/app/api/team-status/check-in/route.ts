@@ -22,6 +22,7 @@ import {
   isHalfHour,
   isHalfHourHHmm,
 } from '@/lib/utils/half-hour'
+import { recordSubmission } from '@/lib/submission-log'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
@@ -205,6 +206,36 @@ export async function POST(request: Request) {
 
       if (logErr) throw logErr
       workLogId = newLog.id
+
+      // ─── submissions 로그 (check_in: 당일 출근보고) ─────────────────
+      void recordSubmission({
+        user_id: user.id,
+        user_email: user.email!,
+        name,
+        division: profile?.division ?? null,
+        team:     profile?.team ?? null,
+        report_type: 'check_in',
+        target_date: date,
+        submitted_at: submissionNow,
+        work_log_id: workLogId,
+        // 출근 시점 정보를 expected_* 가 아닌 실제 출근 정보로 기록
+        start_time: startTime,
+        end_time: endTime,
+        break_time: `${breakTime}:00`,
+        actual_work_time: `${snapMinutes(calcResult.actualWorkMinutes, 'round')} minutes`,
+        work_location: workLocation,
+        work_location_timeline: timeline ?? null,
+        leave_timeline: leaveTimeline ?? null,
+        work_content: workContent || null,
+        ew_value: calcResult.ewValue,
+        ew_start: calcResult.ewStartText,
+        ew_end: calcResult.ewEndText,
+        copy_text: calcResult.copyText,
+        late_or_attendance_status: '아니오',
+        work_type_label: '기본근무 등록',
+        work_type_code: calcResult.workTypeCode,
+        attendance_record_type: '스킵(누락퇴근보고, 퇴근보고 수정)',
+      })
 
       await adminClient
         .from('user_profiles')

@@ -4,6 +4,7 @@ import { getKstTodayDateString } from '@/lib/utils/date'
 import { requireAdmin, requireActiveUser } from '@/lib/admin-check'
 import { calculateEw } from '@/lib/ew-calculator'
 import { notifyWorkLogUpdatedSplit, notifyWorkLogDeleted } from '@/lib/notifications/teams'
+import { recordSubmission } from '@/lib/submission-log'
 import { recordAudit, extractRequestMeta } from '@/lib/audit-log'
 import type { ChangedField } from '@/lib/notifications/types'
 import { fmtTime, fmtBreak } from '@/lib/notifications/messages'
@@ -431,9 +432,6 @@ export async function PATCH(
       }
 
       // 출근/퇴근 영역별 분리 발송 (changedFields의 kind로 자동 분기)
-      // - 출근 영역 변경 → 출근채널, "출근보고 수정"
-      // - 퇴근 영역 변경 → 퇴근채널, "퇴근보고 수정"
-      // - 동시 변경 → 두 알림 각각 발송
       notifyWorkLogUpdatedSplit({
         name: body.name ?? log.name ?? '',
         leaveDate: body.leaveDate ?? log.leave_date ?? '',
@@ -444,6 +442,73 @@ export async function PATCH(
         scheduledWorkDate,
         changedFields,
       })
+
+      // ─── submissions 로그: 출근/퇴근 영역별 분리 행 ───────────────
+      const checkInChanges  = changedFields.filter(f => f.kind === 'check_in')
+      const checkOutChanges = changedFields.filter(f => f.kind === 'check_out')
+      const submittedNow2 = new Date().toISOString()
+
+      if (checkInChanges.length > 0) {
+        void recordSubmission({
+          user_id: log.user_id ?? null,
+          user_email: log.user_email ?? user.email ?? '',
+          name: body.name ?? log.name ?? null,
+          division: log.division ?? null,
+          team: log.team ?? null,
+          report_type: 'check_in_update',
+          target_date: body.expectedStartDate ?? log.expected_start_date ?? log.leave_date,
+          submitted_at: submittedNow2,
+          work_log_id: id,
+          expected_start_date:    body.expectedStartDate ?? log.expected_start_date,
+          expected_work_time:     mirrorExpectedWorkTime ?? log.expected_work_time,
+          expected_work_location: mirrorExpectedWorkLocation ?? log.expected_work_location,
+          expected_work_location_timeline: expectedTimelinePatch ?? log.expected_work_location_timeline,
+          expected_leave_timeline: expectedLeaveTimelinePatch ?? log.expected_leave_timeline,
+          changed_fields: checkInChanges,
+          work_type_label: body.workTypeLabel ?? log.work_type_label,
+          attendance_record_type: body.attendanceRecordType ?? log.attendance_record_type,
+        })
+      }
+
+      if (checkOutChanges.length > 0) {
+        void recordSubmission({
+          user_id: log.user_id ?? null,
+          user_email: log.user_email ?? user.email ?? '',
+          name: body.name ?? log.name ?? null,
+          division: log.division ?? null,
+          team: log.team ?? null,
+          report_type: 'check_out_update',
+          target_date: body.leaveDate ?? log.leave_date,
+          submitted_at: submittedNow2,
+          work_log_id: id,
+          start_time: body.startTime ?? log.start_time,
+          end_time:   body.endTime   ?? log.end_time,
+          break_time: body.breakTime ? `${body.breakTime}:00` : log.break_time,
+          actual_work_time: `${snappedActualMin} minutes`,
+          work_location: finalWorkLocation,
+          work_location_timeline: workLocationTimelinePatch ?? log.work_location_timeline,
+          leave_timeline: leaveTimelinePatch ?? log.leave_timeline,
+          work_content: body.workContent ?? log.work_content,
+          ew_value: calcResult.ewValue,
+          ew_start: calcResult.ewStartText,
+          ew_end:   calcResult.ewEndText,
+          copy_text: calcResult.copyText,
+          late_or_attendance_status: body.lateOrAttendanceStatus ?? log.late_or_attendance_status,
+          previous_report_time:      body.previousReportTime ?? log.previous_report_time,
+          current_report_time:       body.currentReportTime  ?? log.current_report_time,
+          late_reason:               body.lateReason         ?? log.late_reason,
+          break_reason: body.breakReason ?? log.break_reason,
+          break_auto_actual_minutes:    breakAutoActualMin,
+          break_auto_rounded_minutes:   breakAutoRoundedMin,
+          break_manual_rounded_minutes: breakManualRoundedMin,
+          break_final_rounded_minutes:  breakFinalRoundedMin,
+          thanks_macaron: body.thanksMacaron ?? log.thanks_macaron,
+          changed_fields: checkOutChanges,
+          work_type_label: body.workTypeLabel ?? log.work_type_label,
+          work_type_code: calcResult.workTypeCode,
+          attendance_record_type: body.attendanceRecordType ?? log.attendance_record_type,
+        })
+      }
 
       // 감사 로그 — 수정자 + 변경된 필드 라벨만 기록 (값에는 PII 가능)
       const auditMeta = extractRequestMeta(request)
