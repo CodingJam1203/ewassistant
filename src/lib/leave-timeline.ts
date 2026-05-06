@@ -100,6 +100,9 @@ export function validateLeaveTimeline(timeline: LeaveTimeline): LeaveValidationE
     }
     if (typeof it.roundedMinutes !== 'number' || it.roundedMinutes < 0) {
       errors.push({ message: '휴가 분 계산값이 올바르지 않습니다.', index: i })
+    } else if (it.roundedMinutes % 30 !== 0) {
+      // 30분 단위 정책 — UI는 30분 step이지만 API 우회 / legacy 클라이언트 방어
+      errors.push({ message: '휴가 차감시간은 30분 단위여야 합니다.', index: i })
     }
   })
 

@@ -17,6 +17,13 @@ import {
   totalLeaveRoundedMinutes,
   ceilTo30Min,
 } from '@/lib/leave-timeline'
+import {
+  snapMinutes,
+  snapHHmm,
+  isHalfHour,
+  isHalfHourHHmm,
+  hhmmToMinutes,
+} from '@/lib/utils/half-hour'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
@@ -111,18 +118,44 @@ export async function POST(request: Request) {
           ? (buildLocationSummary(workLocationTimeline) || finalWorkLocation)
           : finalWorkLocation)
 
-    // ─── 휴게 4분리 ─────────────────────────────────────────────────────────
+    // ─── 휴게 4분리 + 30분 정책 강제 (round) ────────────────────────────────
+    // breakAutoActualMin은 raw(보존), 나머지 _roundedMinutes는 30분 배수여야 함.
     const breakAutoActualMin: number = Number.isFinite(body.breakAutoActualMinutes)
       ? Math.max(0, Number(body.breakAutoActualMinutes)) : 0
-    const breakAutoRoundedMin: number = Number.isFinite(body.breakAutoRoundedMinutes)
+    const breakAutoRoundedMinRaw: number = Number.isFinite(body.breakAutoRoundedMinutes)
       ? Math.max(0, Number(body.breakAutoRoundedMinutes)) : ceilTo30Min(breakAutoActualMin)
-    const breakManualRoundedMin: number | null = (
+    const breakAutoRoundedMin = snapMinutes(breakAutoRoundedMinRaw, 'round')
+    const breakManualRoundedMinRaw: number | null = (
       body.breakManualRoundedMinutes !== undefined && body.breakManualRoundedMinutes !== null
     ) ? Math.max(0, Number(body.breakManualRoundedMinutes)) : null
-    // body.breakFinalRoundedMinutes 우선, 없으면 manual ?? auto
-    const breakFinalRoundedMin: number = Number.isFinite(body.breakFinalRoundedMinutes)
+    const breakManualRoundedMin = breakManualRoundedMinRaw === null
+      ? null
+      : snapMinutes(breakManualRoundedMinRaw, 'round')
+    const breakFinalRoundedMinRaw: number = Number.isFinite(body.breakFinalRoundedMinutes)
       ? Math.max(0, Number(body.breakFinalRoundedMinutes))
       : (breakManualRoundedMin ?? breakAutoRoundedMin)
+    const breakFinalRoundedMin = snapMinutes(breakFinalRoundedMinRaw, 'round')
+
+    // body.breakTime("HH:MM") 도 30분 단위만 허용
+    if (body.breakTime && !isHalfHourHHmm(body.breakTime)) {
+      return NextResponse.json(
+        { error: '휴게시간은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
+        { status: 400 }
+      )
+    }
+    // start/end fallback (timeline 없는 legacy 클라이언트) 도 30분만
+    if (body.startTime && !isHalfHourHHmm(body.startTime)) {
+      return NextResponse.json(
+        { error: '출근 시각은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
+        { status: 400 }
+      )
+    }
+    if (body.endTime && !isHalfHourHHmm(body.endTime)) {
+      return NextResponse.json(
+        { error: '퇴근 시각은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
+        { status: 400 }
+      )
+    }
 
     // ─── 출근보고 (다음 출근 예정) 타임라인 처리 ──────────────────────────────
     // 신규: body.expectedTimeline (배열) — 우선 사용
@@ -190,6 +223,18 @@ export async function POST(request: Request) {
       // leaveIncludesLunch 자동 처리 안 함 — 사용자가 차감시간 직접 조정
     })
 
+    // ─── 30분 정책 최종 강제 — actual_work_time을 30분 단위로 스냅 ──────────
+    // 입력값이 모두 30분 단위면 결과도 자연히 30분 단위가 됨. 그래도 방어적으로 round 적용.
+    const snappedActualMin = snapMinutes(calcResult.actualWorkMinutes, 'round')
+    if (!isHalfHour(calcResult.actualWorkMinutes)) {
+      // 비30분 결과가 나오면 입력 어딘가가 비30분 → 사후 보정 + 경고 로그
+      console.warn(
+        '[/api/work-logs POST] non-30min actual_work_time auto-snapped',
+        { raw: calcResult.actualWorkMinutes, snapped: snappedActualMin,
+          start: finalStartTime, end: finalEndTime, break: breakFinalRoundedMin, leave: leaveMinutes }
+      )
+    }
+
     let userDivision: string | null = null
     let userTeam: string | null = null
     try {
@@ -241,7 +286,7 @@ export async function POST(request: Request) {
       break_final_rounded_minutes:  breakFinalRoundedMin,
       thanks_macaron: body.thanksMacaron || null,
       deduction_time: `${calcResult.deductionMinutes} minutes`,
-      actual_work_time: `${calcResult.actualWorkMinutes} minutes`,
+      actual_work_time: `${snappedActualMin} minutes`,
       ew_start: calcResult.ewStartText,
       ew_end: calcResult.ewEndText,
       ew_value: calcResult.ewValue,

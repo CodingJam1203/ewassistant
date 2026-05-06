@@ -17,6 +17,11 @@ import {
   isFullDayLeave,
   totalLeaveRoundedMinutes,
 } from '@/lib/leave-timeline'
+import {
+  snapMinutes,
+  isHalfHour,
+  isHalfHourHHmm,
+} from '@/lib/utils/half-hour'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
@@ -103,6 +108,26 @@ export async function POST(request: Request) {
       const workContent  = body.work_content  ?? ''
       const name         = body.name ?? profile?.display_name ?? user.email!
 
+      // 30분 정책 — break_time / start_time / end_time 비30분 입력은 reject
+      if (breakTime && !isHalfHourHHmm(breakTime)) {
+        return NextResponse.json(
+          { error: '휴게시간은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
+          { status: 400 }
+        )
+      }
+      if (body.start_time && !isHalfHourHHmm(body.start_time)) {
+        return NextResponse.json(
+          { error: '출근 시각은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
+          { status: 400 }
+        )
+      }
+      if (body.end_time && !isHalfHourHHmm(body.end_time)) {
+        return NextResponse.json(
+          { error: '퇴근 시각은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
+          { status: 400 }
+        )
+      }
+
       // timeline에서 start/end/work_location 도출 (종일 휴가는 09:00~18:00 가정)
       const first  = timeline ? firstWorkLocation(timeline) : null
       const endIt  = timeline ? endItemOf(timeline) : null
@@ -129,6 +154,13 @@ export async function POST(request: Request) {
         leaveMinutes,
         // leaveIncludesLunch 자동 처리 안 함 — 사용자가 차감시간 직접 조정
       })
+
+      if (!isHalfHour(calcResult.actualWorkMinutes)) {
+        console.warn(
+          '[/api/team-status/check-in] non-30min actual_work_time auto-snapped',
+          { user: user.email, raw: calcResult.actualWorkMinutes, startTime, endTime, breakTime, leaveMinutes }
+        )
+      }
 
       const { data: newLog, error: logErr } = await adminClient
         .from('work_logs')
@@ -157,7 +189,7 @@ export async function POST(request: Request) {
           //   수정 시 WorkLogModal에서도 '스킵' default로 prefill됨.
           attendance_record_type: '스킵(누락퇴근보고, 퇴근보고 수정)',
           deduction_time: `${calcResult.deductionMinutes} minutes`,
-          actual_work_time: `${calcResult.actualWorkMinutes} minutes`,
+          actual_work_time: `${snapMinutes(calcResult.actualWorkMinutes, 'round')} minutes`,
           ew_start:  calcResult.ewStartText,
           ew_end:    calcResult.ewEndText,
           ew_value:  calcResult.ewValue,

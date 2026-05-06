@@ -20,6 +20,11 @@ import {
   totalLeaveRoundedMinutes,
   ceilTo30Min,
 } from '@/lib/leave-timeline'
+import {
+  snapMinutes,
+  isHalfHour,
+  isHalfHourHHmm,
+} from '@/lib/utils/half-hour'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
@@ -165,17 +170,42 @@ export async function PATCH(
       }
     }
 
-    // 휴게 4분리 (PATCH도 동일 규칙)
+    // 휴게 4분리 (PATCH도 동일 규칙) + 30분 정책 강제
     const breakAutoActualMin: number = Number.isFinite(body.breakAutoActualMinutes)
       ? Math.max(0, Number(body.breakAutoActualMinutes)) : 0
-    const breakAutoRoundedMin: number = Number.isFinite(body.breakAutoRoundedMinutes)
+    const breakAutoRoundedMinRaw: number = Number.isFinite(body.breakAutoRoundedMinutes)
       ? Math.max(0, Number(body.breakAutoRoundedMinutes)) : ceilTo30Min(breakAutoActualMin)
-    const breakManualRoundedMin: number | null = (
+    const breakAutoRoundedMin = snapMinutes(breakAutoRoundedMinRaw, 'round')
+    const breakManualRoundedMinRaw: number | null = (
       body.breakManualRoundedMinutes !== undefined && body.breakManualRoundedMinutes !== null
     ) ? Math.max(0, Number(body.breakManualRoundedMinutes)) : null
-    const breakFinalRoundedMin: number = Number.isFinite(body.breakFinalRoundedMinutes)
+    const breakManualRoundedMin = breakManualRoundedMinRaw === null
+      ? null
+      : snapMinutes(breakManualRoundedMinRaw, 'round')
+    const breakFinalRoundedMinRaw: number = Number.isFinite(body.breakFinalRoundedMinutes)
       ? Math.max(0, Number(body.breakFinalRoundedMinutes))
       : (breakManualRoundedMin ?? breakAutoRoundedMin)
+    const breakFinalRoundedMin = snapMinutes(breakFinalRoundedMinRaw, 'round')
+
+    // body.breakTime / startTime / endTime 30분 단위 강제 (legacy 클라이언트 방어)
+    if (body.breakTime && !isHalfHourHHmm(body.breakTime)) {
+      return NextResponse.json(
+        { error: '휴게시간은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
+        { status: 400 }
+      )
+    }
+    if (body.startTime && !isHalfHourHHmm(body.startTime)) {
+      return NextResponse.json(
+        { error: '출근 시각은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
+        { status: 400 }
+      )
+    }
+    if (body.endTime && !isHalfHourHHmm(body.endTime)) {
+      return NextResponse.json(
+        { error: '퇴근 시각은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
+        { status: 400 }
+      )
+    }
 
     const breakHHForCalc: string = (() => {
       const m = breakFinalRoundedMin
@@ -207,6 +237,15 @@ export async function PATCH(
       // leaveIncludesLunch 자동 처리 안 함 — 사용자가 차감시간 직접 조정
     })
 
+    // ─── 30분 정책 — actual_work_time 스냅 ─────────────────────────────────
+    const snappedActualMin = snapMinutes(calcResult.actualWorkMinutes, 'round')
+    if (!isHalfHour(calcResult.actualWorkMinutes)) {
+      console.warn(
+        '[/api/work-logs PATCH] non-30min actual_work_time auto-snapped',
+        { id, raw: calcResult.actualWorkMinutes, snapped: snappedActualMin }
+      )
+    }
+
     const updates: Record<string, unknown> = {
       name: body.name,
       work_type_label: body.workTypeLabel,
@@ -220,7 +259,7 @@ export async function PATCH(
       work_location: finalWorkLocation,
       work_location_type: body.workLocationType || null,
       deduction_time: `${calcResult.deductionMinutes} minutes`,
-      actual_work_time: `${calcResult.actualWorkMinutes} minutes`,
+      actual_work_time: `${snappedActualMin} minutes`,
       ew_start: calcResult.ewStartText,
       ew_end: calcResult.ewEndText,
       ew_value: calcResult.ewValue,

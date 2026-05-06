@@ -167,6 +167,10 @@ export function summarizeUser(
     actualMin += intervalToMinutes(r.actual_work_time)
     leaveMin  += Math.max(0, Number(r.leave_minutes_sum ?? 0))
   }
+  // 30분 정책 방어 — legacy 비30분 데이터가 합산에 들어와도 표시는 30분 단위로 정합
+  // (DB의 비30분 row는 별도 SQL/마이그레이션으로 보정. 그 전에 화면 표시만 안전하게)
+  actualMin = Math.round(actualMin / 30) * 30
+  leaveMin  = Math.round(leaveMin  / 30) * 30
   const actualHours = minutesToHours(actualMin)
   const leaveHours  = minutesToHours(leaveMin)
   // 인정 근로 = 실근로 (현재 정책)
