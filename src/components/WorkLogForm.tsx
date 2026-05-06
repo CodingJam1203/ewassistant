@@ -257,26 +257,16 @@ export default function WorkLogForm({
   })()
 
   /**
-   * 신규 모드 휴게시간 default 추론 — 점심 자동 차감 폐지(2026.05) 후 휴게에 점심도 포함됨.
-   *  1) 휴게 시작/종료 버튼 누적값(>0)이 있으면 그것 우선
-   *  2) 출/퇴근이 점심시간(11:30~13:30) 포함 → 1:00 (점심 1H 가정)
-   *  3) 그 외 → 0:00 (사용자가 필요 시 select로 변경)
+   * 신규 모드 휴게시간 default — 기본근로/간주근로는 항상 1:00 (점심 가정).
+   * 사용자가 점심 안 먹었으면 select에서 직접 변경.
+   *   1) 휴게 시작/종료 버튼 누적값(>0)이 있으면 그것 우선
+   *   2) 그 외 → 1:00 default (사용자가 필요 시 0:00으로 변경)
+   * (공휴일근로는 calculateEw에서 deductionMinutes=0이지만 default 휴게는 사용자 입력값 그대로 가니
+   *  여기서 1:00으로 두어도 사용자가 수정해서 사용하면 됨)
    */
   const defaultBreakHHmm = (() => {
     if (breakAutoRoundedMinutes > 0) return breakAutoHHmm
-    const startStr = trimToHHmm(initialStartTime)
-    const endStr   = trimToHHmm(initialEndTime)
-    const toMin = (s: string): number | null => {
-      const m = /^([0-2]?\d|3[0-6]):([0-5]\d)$/.exec(s)
-      if (!m) return null
-      return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
-    }
-    const sm = toMin(startStr)
-    const em = toMin(endStr)
-    if (sm === null || em === null) return '00:00'
-    // 점심 시간(11:30~13:30) 완전히 포함 시 1:00
-    if (sm <= 11 * 60 + 30 && em >= 13 * 60 + 30) return '01:00'
-    return '00:00'
+    return '01:00'
   })()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -336,12 +326,11 @@ export default function WorkLogForm({
           breakTime: defaultBreakHHmm,
           workContent: '',
           lateOrAttendanceStatus: '아니오',
-          // 퇴근보고 모달 default — '출근보고 진행' (다음 출근 사전 보고를 자연스럽게 유도).
-          // 단 expectedStartDate는 빈칸으로 두고 사용자가 직접 입력 (zod 필수 검증) →
-          // 사용자가 의식하지 않으면 통과 안 되므로 가짜 다른날 row 방지.
+          // 퇴근보고 모달 default — '출근보고 진행' + 명일을 출근 예정일로 자동 채움.
+          // 사용자가 다음날 출근 안 할 거면 attendanceRecordType을 '스킵'으로 변경.
           // (출근 경로/CheckInModal에서 만들어진 record는 서버에서 '스킵'으로 저장됨)
           attendanceRecordType: '출근보고 진행 (주말출근, 휴가 포함)',
-          expectedStartDate: '',
+          expectedStartDate: toKstDateString(addDays(new Date(), 1)),
           expectedTimeline: defaultTimeline(),
           expectedLeaveTimeline: [] as LeaveTimeline,
           sendTeams: true,
@@ -410,7 +399,8 @@ export default function WorkLogForm({
 
   useEffect(() => {
     try {
-      const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/
+      // 24+ 시간(명일 00:00 ~ 36:00 = 명일 12:00)도 인식
+      const timeRegex = /^([01]\d|2\d|3[0-6]):([0-5]\d)$/
       // 종일 휴가일 땐 work_location 시간 검증을 스킵하고 09:00~18:00을 가정
       const calcStart = isAllDay ? '09:00' : derivedStartTime
       const calcEnd   = isAllDay ? '18:00' : derivedEndTime
