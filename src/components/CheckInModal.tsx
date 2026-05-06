@@ -20,7 +20,6 @@ interface CheckInModalProps {
   onSuccess: () => void
 }
 
-const BREAK_OPTS = ['00:00', '00:30', '01:00', '01:30', '02:00', '02:30', '03:00']
 
 /** 일정 1줄 포매터 — "10:00~12:00 미팅" 또는 "(종일) 워크샵" */
 function formatEventLine(ev: CalendarEventChunk): string {
@@ -50,7 +49,8 @@ export default function CheckInModal({
   // 모달 안에서 사용자가 변경 가능한 날짜 (기본값: prop으로 받은 date)
   const [date, setDate] = useState<string>(initialDate)
   const [name, setName] = useState<string>(userName ?? '')
-  const [breakTime, setBreakTime] = useState<string>('00:00')
+  // 출근 시점 휴게시간은 입력받지 않음 — 휴게는 휴게 시작/종료 버튼 또는 퇴근보고 모달에서 처리
+  const breakTime = '00:00'
   const [workContent, setWorkContent] = useState<string>('')
   const [leaveTimeline, setLeaveTimeline] = useState<LeaveTimeline>([])
   const [timeline, setTimeline] = useState<WorkLocationTimeline>(() => {
@@ -260,18 +260,6 @@ export default function CheckInModal({
             </div>
           )}
 
-          {/* 휴게시간 */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">휴게시간</label>
-            <select
-              value={breakTime}
-              onChange={e => setBreakTime(e.target.value)}
-              className="w-full sm:w-1/2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {BREAK_OPTS.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-
           {/* 메모 */}
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">메모</label>
@@ -296,7 +284,7 @@ export default function CheckInModal({
             <button type="submit" disabled={saving || validationErrors.length > 0}
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-              출근보고 작성하기
+              저장
             </button>
           </div>
         </form>
