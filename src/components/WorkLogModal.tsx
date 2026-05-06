@@ -123,8 +123,9 @@ export default function WorkLogModal({
               <p className="text-sm text-gray-500">퇴근 처리 중...</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-2">
+            // 출근보고 수정 시에는 EW 계산 결과 패널 숨김 (출근 영역만 수정 — EW 무관)
+            editScope === 'check_in' ? (
+              <div className="max-w-3xl">
                 <WorkLogForm
                   userName={userName}
                   initialTimeline={initialTimeline}
@@ -139,10 +140,28 @@ export default function WorkLogModal({
                   onSubmitSuccess={handleSubmitSuccess}
                 />
               </div>
-              <div className="lg:col-span-1">
-                <CalculationPreview result={calculationResult} error={calculationError} />
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-2">
+                  <WorkLogForm
+                    userName={userName}
+                    initialTimeline={initialTimeline}
+                    initialLeaveTimeline={initialLeaveTimeline}
+                    initialBreakAutoActualMinutes={initialBreakAutoActualMinutes}
+                    initialStartTime={initialStartTime}
+                    initialEndTime={initialEndTime}
+                    resubmitLogId={resubmitWorkLogId}
+                    editingLog={editingLog}
+                    editScope={editScope}
+                    onCalculate={handleCalculate}
+                    onSubmitSuccess={handleSubmitSuccess}
+                  />
+                </div>
+                <div className="lg:col-span-1">
+                  <CalculationPreview result={calculationResult} error={calculationError} />
+                </div>
               </div>
-            </div>
+            )
           )}
         </div>
       </div>

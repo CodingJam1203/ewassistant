@@ -881,7 +881,9 @@ export default function WorkLogForm({
           ) : (
             <Copy className="h-5 w-5 mr-2" />
           )}
-          {isSubmitting ? '제출 중...' : '제출 및 복사하기'}
+          {isSubmitting
+            ? (isEditing ? '수정 중...' : '제출 중...')
+            : (isEditing ? '수정하기' : '제출하기')}
         </button>
       </div>
     </form>
