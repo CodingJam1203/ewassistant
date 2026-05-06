@@ -231,6 +231,7 @@ export default function HistoryPage() {
       {/* ─── RAW 탭 ─── */}
       {tab === 'raw' && (
         <SubmissionsRawTable
+          mode="raw"
           mine={filterMine}
           extraQuery={{
             ...(filterDivision ? { division: filterDivision } : {}),
@@ -241,8 +242,22 @@ export default function HistoryPage() {
         />
       )}
 
-      {/* ─── 일자별 최종 탭 (기존) ─── */}
-      {tab === 'final' && (<>
+      {/* ─── 일자별 최종 탭 (출근/퇴근 분리, RAW 테이블 final 모드) ─── */}
+      {tab === 'final' && (
+        <SubmissionsRawTable
+          mode="final"
+          mine={filterMine}
+          extraQuery={{
+            ...(filterDivision ? { division: filterDivision } : {}),
+            ...(filterTeam ? { team: filterTeam } : {}),
+            ...(filterName ? { name: filterName } : {}),
+          }}
+          allowOrgFilter
+        />
+      )}
+
+      {/* (legacy 기존 테이블 — 사용 안 함, 유지보수 시 참조용. 항상 false) */}
+      {false && (<>
       {/* 필터 */}
       <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-wrap gap-3 items-end">
         {/* 본부 필터 */}

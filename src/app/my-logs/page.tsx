@@ -258,11 +258,16 @@ export default function MyLogsPage() {
 
       {/* ─── RAW 탭 ─── */}
       {tab === 'raw' && (
-        <SubmissionsRawTable mine />
+        <SubmissionsRawTable mine mode="raw" />
       )}
 
-      {/* ─── 일자별 최종 탭 (기존 테이블) ─── */}
-      {tab === 'final' && (loading ? (
+      {/* ─── 일자별 최종 탭 (출근/퇴근 분리, RAW 테이블 final 모드) ─── */}
+      {tab === 'final' && (
+        <SubmissionsRawTable mine mode="final" />
+      )}
+
+      {/* (legacy 기존 테이블 — 사용 안 함, 유지보수 시 참조용. 항상 false) */}
+      {false && (loading ? (
         <div className="space-y-2 mt-4">
           {[...Array(5)].map((_, i) => (
             <div key={i} className="h-10 bg-gray-100 dark:bg-gray-700 rounded animate-pulse" />

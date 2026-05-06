@@ -52,8 +52,8 @@ CREATE TABLE IF NOT EXISTS work_log_submissions (
   ew_end          TEXT,
   copy_text       TEXT,
   late_or_attendance_status TEXT,
-  previous_report_time TIME,
-  current_report_time  TIME,
+  previous_report_time TEXT,  -- work_logs와 동일 타입 (TEXT)
+  current_report_time  TEXT,  -- work_logs와 동일 타입 (TEXT)
   late_reason     TEXT,
   break_reason    TEXT,
   break_auto_actual_minutes    INT,

@@ -1,16 +1,13 @@
 'use client'
 
 /**
- * RAW 제출 내역 테이블 — work_log_submissions 시간순 펼치기.
+ * 제출 이력 테이블 — work_log_submissions 기반.
  *
- * /my-logs, /history의 RAW 탭에서 공통 사용.
- * 컬럼은 가능한 한 한 화면에 다 펼침 — 가로 스크롤 허용.
+ * 두 가지 모드:
+ *   - mode='raw'   : 시간순 모든 제출 row (수정·재제출 누적)
+ *   - mode='final' : 일자/사용자별 출근/퇴근 각각 최신 1건 (일자별 최종)
  *
- * 보고 유형 4종:
- *   check_in         (출근보고)
- *   check_out        (퇴근보고)
- *   check_in_update  (출근보고 수정)
- *   check_out_update (퇴근보고 수정)
+ * 컬럼은 모든 셀을 RAW 그대로 펼침 — 가로 스크롤 허용.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -33,12 +30,11 @@ export interface SubmissionRow {
   team: string | null
 
   report_type: 'check_in' | 'check_out' | 'check_in_update' | 'check_out_update'
-  target_date: string  // YYYY-MM-DD
+  target_date: string
   submitted_at: string
 
   work_log_id: string | null
 
-  // 퇴근 영역
   start_time: string | null
   end_time: string | null
   break_time: string | null
@@ -48,16 +44,17 @@ export interface SubmissionRow {
   ew_value: string | null
   copy_text: string | null
   late_or_attendance_status: string | null
+  previous_report_time: string | null
+  current_report_time: string | null
+  late_reason: string | null
+  break_reason: string | null
 
-  // 출근 영역
   expected_start_date: string | null
   expected_work_time: string | null
   expected_work_location: string | null
 
-  // 수정
   changed_fields: ChangedFieldRow[] | null
 
-  // 메타
   work_type_label: string | null
   attendance_record_type: string | null
 }
@@ -103,17 +100,37 @@ function fmtInterval(s: string | null): string {
   return s
 }
 
+/** 일자별 최종 추출 — (user_email, target_date, family) 별 가장 최신 row 1건 */
+function pickLatestPerDay(rows: SubmissionRow[]): SubmissionRow[] {
+  const map = new Map<string, SubmissionRow>()
+  for (const r of rows) {
+    const family = r.report_type.startsWith('check_in') ? 'in' : 'out'
+    const key = `${r.user_email}__${r.target_date}__${family}`
+    const existing = map.get(key)
+    if (!existing || existing.submitted_at < r.submitted_at) {
+      map.set(key, r)
+    }
+  }
+  // 정렬: target_date desc, family ASC (in 먼저, out 나중) — 한 날 안에서는 출근→퇴근 순
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.target_date !== b.target_date) return a.target_date < b.target_date ? 1 : -1
+    const fa = a.report_type.startsWith('check_in') ? 0 : 1
+    const fb = b.report_type.startsWith('check_in') ? 0 : 1
+    return fa - fb
+  })
+}
+
 export interface SubmissionsRawTableProps {
-  /** API 엔드포인트 — 보통 '/api/work-log-submissions' */
   endpoint?: string
-  /** 본인 한정 조회 여부 */
   mine?: boolean
-  /** 외부에서 추가 필터를 넣고 싶으면 (queryString 일부) */
   extraQuery?: Record<string, string>
-  /** 수정 핸들러 — work_log_id를 받아서 해당 row를 편집 모드로 */
   onEditWorkLog?: (workLogId: string) => void
-  /** 본부 필터 가능한지 (admin/leader) */
   allowOrgFilter?: boolean
+  /**
+   * 'raw'  : 모든 제출 row 시간순
+   * 'final': 일자/사용자별 출근/퇴근 최신 1건
+   */
+  mode?: 'raw' | 'final'
 }
 
 export default function SubmissionsRawTable({
@@ -122,31 +139,32 @@ export default function SubmissionsRawTable({
   extraQuery,
   onEditWorkLog,
   allowOrgFilter,
+  mode = 'raw',
 }: SubmissionsRawTableProps) {
   const [rows, setRows] = useState<SubmissionRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // 필터
   const [reportType, setReportType] = useState<'' | SubmissionRow['report_type']>('')
   const [updatedOnly, setUpdatedOnly] = useState(false)
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [nameQuery, setNameQuery] = useState('')
 
-  // 페이지네이션
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
 
-  // ─── fetch ─────────────────────────────────────────────────────
   const fetchRows = async () => {
     setLoading(true)
     setError(null)
     try {
       const params = new URLSearchParams()
       if (mine) params.set('mine', 'true')
-      if (reportType) params.set('report_type', reportType)
-      else if (updatedOnly) params.set('updated_only', 'true')
+      // final 모드는 모든 row를 받아서 클라이언트에서 latest 추출
+      if (mode === 'raw') {
+        if (reportType) params.set('report_type', reportType)
+        else if (updatedOnly) params.set('updated_only', 'true')
+      }
       if (from) params.set('from', from)
       if (to)   params.set('to',   to)
       if (extraQuery) {
@@ -154,7 +172,7 @@ export default function SubmissionsRawTable({
           if (v) params.set(k, v)
         }
       }
-      params.set('limit', '500')
+      params.set('limit', '1000')
 
       const res = await fetch(`${endpoint}?${params}`)
       const json = await res.json()
@@ -170,18 +188,27 @@ export default function SubmissionsRawTable({
     }
   }
 
-  useEffect(() => { fetchRows() }, [reportType, updatedOnly, from, to, mine, JSON.stringify(extraQuery)]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchRows() }, [reportType, updatedOnly, from, to, mine, mode, JSON.stringify(extraQuery)]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── 클라이언트 측 이름 필터 ───────────────────────────────
-  const filteredRows = useMemo(() => {
-    if (!nameQuery) return rows
-    const q = nameQuery.toLowerCase()
-    return rows.filter(r => (r.name ?? '').toLowerCase().includes(q))
-  }, [rows, nameQuery])
+  const processedRows = useMemo(() => {
+    let r = rows
+    // 일자별 최종 추출
+    if (mode === 'final') r = pickLatestPerDay(r)
+    // 클라이언트 측 이름 필터
+    if (nameQuery) {
+      const q = nameQuery.toLowerCase()
+      r = r.filter(x => (x.name ?? '').toLowerCase().includes(q))
+    }
+    // final 모드에서는 보고유형 필터를 클라이언트 측에서
+    if (mode === 'final' && reportType) {
+      r = r.filter(x => x.report_type === reportType)
+    }
+    return r
+  }, [rows, mode, nameQuery, reportType])
 
-  useEffect(() => { setPage(1) }, [filteredRows.length])
+  useEffect(() => { setPage(1) }, [processedRows.length])
   const pageStart = (page - 1) * pageSize
-  const pagedRows = filteredRows.slice(pageStart, pageStart + pageSize)
+  const pagedRows = processedRows.slice(pageStart, pageStart + pageSize)
 
   return (
     <div className="space-y-3">
@@ -200,18 +227,20 @@ export default function SubmissionsRawTable({
           </select>
         </div>
 
-        <div>
-          <label className="block text-[11px] font-medium text-gray-600 mb-0.5">수정 이력만</label>
-          <label className="flex items-center gap-1 h-[26px]">
-            <input
-              type="checkbox"
-              checked={updatedOnly}
-              onChange={e => { setUpdatedOnly(e.target.checked); if (e.target.checked) setReportType('') }}
-              className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span className="text-xs text-gray-700">수정만 보기</span>
-          </label>
-        </div>
+        {mode === 'raw' && (
+          <div>
+            <label className="block text-[11px] font-medium text-gray-600 mb-0.5">수정 이력만</label>
+            <label className="flex items-center gap-1 h-[26px]">
+              <input
+                type="checkbox"
+                checked={updatedOnly}
+                onChange={e => { setUpdatedOnly(e.target.checked); if (e.target.checked) setReportType('') }}
+                className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-xs text-gray-700">수정만 보기</span>
+            </label>
+          </div>
+        )}
 
         <div>
           <label className="block text-[11px] font-medium text-gray-600 mb-0.5">대상일 시작</label>
@@ -235,7 +264,7 @@ export default function SubmissionsRawTable({
         )}
 
         <div className="ml-auto text-xs text-gray-500 flex items-end h-[26px]">
-          {filteredRows.length}건
+          {processedRows.length}건 ({mode === 'final' ? '일자별 최종' : 'RAW 누적'})
         </div>
       </div>
 
@@ -249,7 +278,7 @@ export default function SubmissionsRawTable({
             <div key={i} className="h-9 bg-gray-100 rounded animate-pulse" />
           ))}
         </div>
-      ) : filteredRows.length === 0 ? (
+      ) : processedRows.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-12 text-center text-sm text-gray-500">
           제출 이력이 없습니다.
         </div>
@@ -263,22 +292,31 @@ export default function SubmissionsRawTable({
                   <Th>제출일시</Th>
                   <Th>대상일</Th>
                   <Th>이름</Th>
-                  <Th>본부/팀</Th>
-                  <Th>유형</Th>
-                  <Th>출근/퇴근</Th>
-                  <Th>실근무</Th>
+                  <Th>본부</Th>
+                  <Th>팀</Th>
+                  <Th>근무유형</Th>
+                  <Th>출근시각</Th>
+                  <Th>퇴근시각</Th>
                   <Th>휴게</Th>
+                  <Th>실근무</Th>
                   <Th>근무장소</Th>
                   <Th>EW</Th>
+                  <Th>근무내용</Th>
+                  <Th>지각수정</Th>
+                  <Th>이전보고</Th>
+                  <Th>변경보고</Th>
+                  <Th>지각사유</Th>
+                  <Th>출근예정일</Th>
+                  <Th>출근예정시각</Th>
+                  <Th>출근예정장소</Th>
+                  <Th>출근유형</Th>
                   <Th>변경 필드</Th>
-                  <Th>메모</Th>
                   <Th className="text-center">수정</Th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {pagedRows.map(r => {
-                  const isCheckIn  = r.report_type === 'check_in' || r.report_type === 'check_in_update'
-                  const isUpdate   = r.report_type.endsWith('_update')
+                  const isUpdate = r.report_type.endsWith('_update')
                   return (
                     <tr key={r.id} className="hover:bg-gray-50">
                       <Td>
@@ -289,29 +327,26 @@ export default function SubmissionsRawTable({
                       <Td>{format(new Date(r.submitted_at), 'MM/dd HH:mm')}</Td>
                       <Td className="font-medium text-gray-900">{r.target_date}</Td>
                       <Td>{r.name ?? '-'}</Td>
-                      <Td className="text-gray-500">
-                        {r.division ?? '-'}<br/>
-                        <span className="text-gray-400">{r.team ?? '-'}</span>
-                      </Td>
+                      <Td className="text-gray-500">{r.division ?? '-'}</Td>
+                      <Td className="text-gray-500">{r.team ?? '-'}</Td>
                       <Td className="text-gray-500">{r.work_type_label ?? '-'}</Td>
-                      <Td>
-                        {isCheckIn ? (
-                          // 출근 영역 — expected_*
-                          <>
-                            {fmtTime(r.expected_work_time)} ~
-                            <br/><span className="text-[10px] text-gray-400">예정</span>
-                          </>
-                        ) : (
-                          // 퇴근 영역 — start ~ end
-                          <>{fmtTime(r.start_time)} ~ {fmtTime(r.end_time)}</>
-                        )}
-                      </Td>
-                      <Td>{!isCheckIn ? fmtInterval(r.actual_work_time) : '-'}</Td>
-                      <Td>{!isCheckIn ? fmtInterval(r.break_time) : '-'}</Td>
-                      <Td>
-                        {isCheckIn ? (r.expected_work_location ?? '-') : (r.work_location ?? '-')}
-                      </Td>
+                      <Td>{fmtTime(r.start_time)}</Td>
+                      <Td>{fmtTime(r.end_time)}</Td>
+                      <Td>{fmtInterval(r.break_time)}</Td>
+                      <Td>{fmtInterval(r.actual_work_time)}</Td>
+                      <Td>{r.work_location ?? '-'}</Td>
                       <Td className="font-bold text-blue-600">{r.ew_value ?? '-'}</Td>
+                      <Td className="max-w-[160px] truncate text-gray-500" title={r.work_content ?? ''}>{r.work_content ?? '-'}</Td>
+                      <Td className="text-gray-500">{r.late_or_attendance_status ?? '-'}</Td>
+                      <Td>{fmtTime(r.previous_report_time)}</Td>
+                      <Td>{fmtTime(r.current_report_time)}</Td>
+                      <Td className="max-w-[120px] truncate text-gray-500" title={r.late_reason ?? ''}>{r.late_reason ?? '-'}</Td>
+                      <Td>{r.expected_start_date ?? '-'}</Td>
+                      <Td>{fmtTime(r.expected_work_time)}</Td>
+                      <Td>{r.expected_work_location ?? '-'}</Td>
+                      <Td className="text-gray-500 max-w-[120px] truncate" title={r.attendance_record_type ?? ''}>
+                        {r.attendance_record_type ?? '-'}
+                      </Td>
                       <Td className="max-w-[220px]">
                         {isUpdate && r.changed_fields && r.changed_fields.length > 0 ? (
                           <ul className="space-y-0.5 list-none">
@@ -323,7 +358,6 @@ export default function SubmissionsRawTable({
                           </ul>
                         ) : '-'}
                       </Td>
-                      <Td className="max-w-[160px] truncate text-gray-500">{r.work_content ?? '-'}</Td>
                       <Td className="text-center">
                         {r.work_log_id && onEditWorkLog ? (
                           <button
@@ -344,7 +378,7 @@ export default function SubmissionsRawTable({
             </table>
           </div>
           <Pagination
-            totalCount={filteredRows.length}
+            totalCount={processedRows.length}
             page={page}
             pageSize={pageSize}
             onPageChange={setPage}
@@ -364,7 +398,7 @@ function Th({ children, className = '' }: { children: React.ReactNode; className
   )
 }
 
-function Td({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+function Td({ children, className = '' }: { children: React.ReactNode; className?: string; title?: string }) {
   return (
     <td className={`px-2 py-1.5 align-top text-gray-700 whitespace-nowrap ${className}`}>{children}</td>
   )
