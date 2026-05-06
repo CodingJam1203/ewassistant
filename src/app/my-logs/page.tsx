@@ -294,42 +294,6 @@ export default function MyLogsPage() {
                       )}
                     </td>
                     <td className="px-3 py-3 whitespace-nowrap">
-                      <StatusBadge log={log} />
-                    </td>
-                    <td className="px-3 py-3 text-gray-500 whitespace-nowrap">
-                      <div>{format(new Date(log.created_at), 'MM/dd HH:mm')}</div>
-                      {log.updated_by && log.updated_at && (
-                        <div className="text-xs text-amber-500">
-                          수정 {format(new Date(log.updated_at), 'MM/dd HH:mm')}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 font-medium text-gray-900 whitespace-nowrap">
-                      {log.leave_date}
-                    </td>
-                    <td className="px-3 py-3 text-gray-700 whitespace-nowrap">
-                      {log.name}
-                    </td>
-                    <td className="px-3 py-3 whitespace-nowrap">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
-                        {log.work_location}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 text-gray-700 whitespace-nowrap">
-                      {log.start_time.substring(0, 5)} ~ {log.end_time.substring(0, 5)}
-                      {getReportStatus(log).kind === 'check_in_only' && (
-                        <span className="ml-1 text-xs text-amber-600 font-medium">(예정)</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 text-gray-700 whitespace-nowrap">
-                      {formatInterval(log.actual_work_time)}
-                      <span className="text-gray-400 mx-1">/</span>
-                      {formatInterval(log.break_time)}
-                      {log.break_reason && (
-                        <span className="ml-1 text-xs text-gray-400">({log.break_reason})</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 whitespace-nowrap">
                       <span className="font-bold text-blue-600">{log.ew_value}</span>
                     </td>
                     <td className="px-3 py-3 text-gray-500 whitespace-nowrap text-xs">
