@@ -43,6 +43,43 @@ function formatInterval(str: string) {
   return str
 }
 
+/** 보고 상태 — timeline 마지막 kind로 판정 */
+function getReportStatus(log: WorkLog): {
+  kind: 'check_in_only' | 'completed'
+  hasAdvanceReport: boolean
+} {
+  const tl = log.work_location_timeline
+  const last = Array.isArray(tl) && tl.length > 0 ? tl[tl.length - 1] : null
+  const kind: 'check_in_only' | 'completed' =
+    last && last.kind === 'expected_checkout' ? 'check_in_only' : 'completed'
+  const hasAdvanceReport =
+    log.attendance_record_type === '출근보고 진행 (주말출근, 휴가 포함)' &&
+    !!log.expected_start_date
+  return { kind, hasAdvanceReport }
+}
+
+function StatusBadge({ log }: { log: WorkLog }) {
+  const { kind, hasAdvanceReport } = getReportStatus(log)
+  return (
+    <div className="flex flex-col items-start gap-0.5">
+      {kind === 'check_in_only' ? (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+          🕒 출근만 작성됨
+        </span>
+      ) : (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+          ✓ 퇴근 완료
+        </span>
+      )}
+      {hasAdvanceReport && (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700">
+          + 사전 출근보고
+        </span>
+      )}
+    </div>
+  )
+}
+
 export default function HistoryPage() {
   const [logs, setLogs] = useState<WorkLog[]>([])
   const [loading, setLoading] = useState(true)
@@ -241,6 +278,7 @@ export default function HistoryPage() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">복사</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">상태</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">근무일</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">이름</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">근무장소</th>
@@ -260,6 +298,9 @@ export default function HistoryPage() {
                     <td className="px-3 py-3 text-center">
                       <CopyCell text={log.copy_text} />
                     </td>
+                    <td className="px-3 py-3 whitespace-nowrap">
+                      <StatusBadge log={log} />
+                    </td>
                     <td className="px-3 py-3 font-medium text-gray-900 whitespace-nowrap">
                       {log.leave_date}
                     </td>
@@ -273,6 +314,9 @@ export default function HistoryPage() {
                     </td>
                     <td className="px-3 py-3 text-gray-700 whitespace-nowrap">
                       {log.start_time.substring(0, 5)} ~ {log.end_time.substring(0, 5)}
+                      {getReportStatus(log).kind === 'check_in_only' && (
+                        <span className="ml-1 text-xs text-amber-600 font-medium">(예정)</span>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-gray-700 whitespace-nowrap">
                       {formatInterval(log.actual_work_time)}
@@ -287,8 +331,8 @@ export default function HistoryPage() {
                     </td>
                     <td className="px-3 py-3 text-gray-400 whitespace-nowrap text-xs">
                       <div>{format(new Date(log.created_at), 'MM/dd HH:mm')}</div>
-                      {log.updated_at && (
-                        <div className="text-amber-500">수정 {format(new Date(log.updated_at), 'MM/dd HH:mm')}</div>
+                      {log.updated_by && log.updated_at && (
+                        <div className="text-xs text-amber-500">수정 {format(new Date(log.updated_at), 'MM/dd HH:mm')}</div>
                       )}
                     </td>
                     {isAdmin && (
@@ -303,8 +347,7 @@ export default function HistoryPage() {
                           </button>
                           <button
                             onClick={() => handleDelete(log.id)}
-                            disabled={deletingId === log.id}
-                            className="text-gray-400 hover:text-red-600 transition-colors disabled:opacity-40"
+                            className="text-gray-400 hover:text-red-600 transition-colors"
                             title="삭제"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -318,9 +361,7 @@ export default function HistoryPage() {
             </table>
 
             {filteredLogs.length === 0 && (
-              <div className="py-12 text-center text-sm text-gray-500">
-                조건에 맞는 기록이 없습니다.
-              </div>
+              <div className="py-16 text-center text-sm text-gray-500">제출 내역이 없습니다.</div>
             )}
           </div>
 
