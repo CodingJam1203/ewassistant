@@ -136,11 +136,11 @@ function pickLatestPerDay(rows: SubmissionRow[]): SubmissionRow[] {
       map.set(key, r)
     }
   }
-  // 정렬: target_date desc, family ASC (in 먼저, out 나중) — 한 날 안에서는 출근→퇴근 순
+  // 정렬: target_date desc, family — 한 날 안에서는 퇴근(out)이 위, 출근(in)이 아래
   return Array.from(map.values()).sort((a, b) => {
     if (a.target_date !== b.target_date) return a.target_date < b.target_date ? 1 : -1
-    const fa = a.report_type.startsWith('check_in') ? 0 : 1
-    const fb = b.report_type.startsWith('check_in') ? 0 : 1
+    const fa = a.report_type.startsWith('check_out') ? 0 : 1
+    const fb = b.report_type.startsWith('check_out') ? 0 : 1
     return fa - fb
   })
 }
@@ -342,11 +342,17 @@ export default function SubmissionsRawTable({
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {pagedRows.map(r => {
-                  const isUpdate = r.report_type.endsWith('_update')
+                  const isUpdate  = r.report_type.endsWith('_update')
+                  const isCheckOut = r.report_type === 'check_out' || r.report_type === 'check_out_update'
                   return (
                     <tr key={r.id} className="hover:bg-gray-50">
                       <Td className="text-center">
-                        <CopyButton text={r.copy_text} />
+                        {/* 복사 버튼은 퇴근보고에만 (EW 복사 문구는 퇴근시점에 생성됨) */}
+                        {isCheckOut ? (
+                          <CopyButton text={r.copy_text} />
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
                       </Td>
                       <Td className="text-center">
                         {r.work_log_id && onEditWorkLog ? (
