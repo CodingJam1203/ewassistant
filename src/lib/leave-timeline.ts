@@ -150,10 +150,11 @@ export function formatLeaveLines(timeline: LeaveTimeline | null | undefined): st
 
 /**
  * 30분 단위 올림.
- *   1~30분 → 30
- *   31~60분 → 60
- *   61~90분 → 90 …
- *   0 또는 음수 → 0
+ *   0분(휴게 없음) → 0   ← 휴게 자체를 안 한 케이스는 그대로 0
+ *   1~30분         → 30  ← 짧게라도 휴게했으면 최소 30분
+ *   31~60분        → 60
+ *   61~90분        → 90 …
+ *   음수 / NaN     → 0
  */
 export function ceilTo30Min(minutes: number): number {
   if (!Number.isFinite(minutes) || minutes <= 0) return 0
