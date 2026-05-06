@@ -56,13 +56,20 @@ function kstHHmm(iso: string): string {
   return `${h}:${m}`
 }
 
-/** "09:30" or "09:30:00" -> "9:30" (strip leading zero from hour) */
+/**
+ * "09:30" -> "9:30"
+ * "24:30" -> "(명일) 0:30" (새벽까지 근무 케이스)
+ * "30:00" -> "(명일) 6:00"
+ */
 export function fmtTime(timeStr: string): string {
   if (!timeStr) return ''
   const parts = timeStr.split(':')
-  const h = parseInt(parts[0], 10)
+  const rawH = parseInt(parts[0], 10)
   const m = (parts[1] ?? '00').padStart(2, '0')
-  return `${h}:${m}`
+  if (Number.isFinite(rawH) && rawH >= 24) {
+    return `(명일) ${rawH - 24}:${m}`
+  }
+  return `${rawH}:${m}`
 }
 
 /** "01:30:00" or "01:30" -> "01:30" (keep leading zero for break display) */

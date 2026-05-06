@@ -22,7 +22,23 @@ import {
 
 // ─── 시간 단위 유틸 ───────────────────────────────────────────────────────────
 
-const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
+// HH 부분: 00~23 (당일) + 24~36 (명일 00:00~12:00, 새벽 근무 / 야근 케이스용)
+const TIME_REGEX = /^([01]\d|2\d|3[0-6]):([0-5]\d)$/
+
+/** "HH:mm" → 표시용 "(명일) HH:mm" 또는 "HH:mm" */
+export function formatTimelineTimeForDisplay(hhmm: string): string {
+  if (!TIME_REGEX.test(hhmm)) return hhmm
+  const h = parseInt(hhmm.split(':')[0], 10)
+  if (h < 24) return hhmm
+  const adj = h - 24
+  return `(명일) ${String(adj).padStart(2, '0')}:${hhmm.split(':')[1]}`
+}
+
+/** "HH:mm" 시각이 명일(24+)인지 */
+export function isNextDayTime(hhmm: string): boolean {
+  if (!TIME_REGEX.test(hhmm)) return false
+  return parseInt(hhmm.split(':')[0], 10) >= 24
+}
 
 /** 'HH:mm' 분이 00 또는 30 인지 검사 */
 export function is30MinUnit(hhmm: string): boolean {

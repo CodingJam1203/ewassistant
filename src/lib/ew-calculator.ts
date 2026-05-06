@@ -169,7 +169,10 @@ export function getDeemedWorkEwValue(
   if (actualWorkMinutes <= 15 * 60 + 30) return "L8";
   if (actualWorkMinutes <= 16 * 60 + 30) return "L9";
 
-  throw new Error("간주근로 시간이 16:30을 초과했습니다.");
+  // 16:30 초과 시 L9로 cap (이전: 에러 throw)
+  // 운영 정책상 L9가 최대 코드. 그 이상 근무한 시간은 EW에 표시되지 않으며,
+  // 실근무시간(actualWorkMinutes) 자체는 그대로 유지됨.
+  return "L9";
 }
 
 // 7.10 최종 EW 값

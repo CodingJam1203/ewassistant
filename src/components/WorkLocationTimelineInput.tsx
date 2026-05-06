@@ -22,7 +22,7 @@ import {
 } from '@/types/work-location-timeline'
 import type { TimelineValidationError } from '@/lib/work-location-timeline'
 
-/** 30분 단위 시간 옵션 (00:00 ~ 23:30) — 컴포넌트 외부에서도 재사용 가능하도록 export */
+/** 30분 단위 당일 시간 옵션 (00:00 ~ 23:30) — 출근(첫 work_location 항목)에서 사용 */
 export const TIMELINE_TIME_OPTIONS: string[] = (() => {
   const opts: string[] = []
   for (let h = 0; h < 24; h++) {
@@ -31,6 +31,27 @@ export const TIMELINE_TIME_OPTIONS: string[] = (() => {
   }
   return opts
 })()
+
+/**
+ * 명일 시간 포함 옵션 (00:00 ~ 23:30 + 24:00 ~ 36:00 = 명일 12:00) —
+ * 두 번째 이후 항목 / 퇴근(예정) 항목에서 사용. 새벽까지 근무하는 케이스용.
+ */
+export const TIMELINE_TIME_OPTIONS_WITH_NEXT_DAY: string[] = (() => {
+  const opts: string[] = [...TIMELINE_TIME_OPTIONS]
+  for (let h = 24; h <= 36; h++) {
+    opts.push(`${String(h).padStart(2, '0')}:00`)
+    if (h < 36) opts.push(`${String(h).padStart(2, '0')}:30`)
+  }
+  return opts
+})()
+
+/** select option 라벨 — 24시 이상은 "(명일) HH:mm"으로 표기 */
+function timeLabel(value: string): string {
+  const h = parseInt(value.split(':')[0], 10)
+  if (h < 24) return value
+  const adj = h - 24
+  return `(명일) ${String(adj).padStart(2, '0')}:${value.split(':')[1]}`
+}
 
 interface WorkLocationTimelineInputProps {
   value: WorkLocationTimeline
@@ -210,20 +231,28 @@ export default function WorkLocationTimelineInput({
                 </select>
               )}
 
-              {/* 시간 select (30분 단위 강제) */}
-              <select
-                value={entry.startTime}
-                onChange={e => updateAt(i, { startTime: e.target.value })}
-                disabled={disabled}
-                className="rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {TIME_OPTIONS.map(t => (
-                  <option key={t} value={t}>
-                    {t}
-                    {isEnd ? '' : '~'}
-                  </option>
-                ))}
-              </select>
+              {/* 시간 select — 첫 항목(출근시각)은 당일만, 그 외(중간 근무지/퇴근)는 명일 12:00까지 선택 가능 */}
+              {(() => {
+                const allowNextDay = i > 0
+                const opts = allowNextDay
+                  ? TIMELINE_TIME_OPTIONS_WITH_NEXT_DAY
+                  : TIMELINE_TIME_OPTIONS
+                return (
+                  <select
+                    value={entry.startTime}
+                    onChange={e => updateAt(i, { startTime: e.target.value })}
+                    disabled={disabled}
+                    className="rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {opts.map(t => (
+                      <option key={t} value={t}>
+                        {timeLabel(t)}
+                        {isEnd ? '' : '~'}
+                      </option>
+                    ))}
+                  </select>
+                )
+              })()}
 
               {/* 삭제 버튼: work_location 행 + 2개 이상일 때만 */}
               {!isEnd && workLocCount > 1 && (

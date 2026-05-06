@@ -184,6 +184,15 @@ export async function PATCH(
       return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
     })()
 
+    // 명일(24+ HH) → DB의 PG `time` 컬럼은 0~24만 받으므로 mod 24 처리.
+    const mod24HHmm = (hhmm: string): string => {
+      if (!hhmm) return hhmm
+      const [hStr, mStr] = hhmm.split(':')
+      const h = parseInt(hStr, 10)
+      if (!Number.isFinite(h)) return hhmm
+      return `${String(h % 24).padStart(2, '0')}:${(mStr ?? '00').padStart(2, '0')}`
+    }
+
     const calcResult = calculateEw({
       name: body.name,
       workTypeLabel: body.workTypeLabel,
@@ -203,8 +212,8 @@ export async function PATCH(
       work_type_label: body.workTypeLabel,
       work_type_code: calcResult.workTypeCode,
       leave_date: body.leaveDate,
-      start_time: finalStartTime,
-      end_time: finalEndTime,
+      start_time: mod24HHmm(finalStartTime),
+      end_time:   mod24HHmm(finalEndTime),
       break_time: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
       break_reason: body.breakReason || null,
       work_content: body.workContent || null,
