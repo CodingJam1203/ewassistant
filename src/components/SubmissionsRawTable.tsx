@@ -344,6 +344,9 @@ export default function SubmissionsRawTable({
                 {pagedRows.map(r => {
                   const isUpdate  = r.report_type.endsWith('_update')
                   const isCheckOut = r.report_type === 'check_out' || r.report_type === 'check_out_update'
+                  const isCheckIn  = !isCheckOut
+                  // 출근보고 row → 퇴근 영역 비움 / 퇴근보고 row → 출근예정 영역 비움
+                  const dash = <span className="text-gray-300">-</span>
                   return (
                     <tr key={r.id} className="hover:bg-gray-50">
                       <Td className="text-center">
@@ -378,20 +381,20 @@ export default function SubmissionsRawTable({
                       <Td className="text-gray-500">{r.division ?? '-'}</Td>
                       <Td className="text-gray-500">{r.team ?? '-'}</Td>
                       <Td className="text-gray-500">{r.work_type_label ?? '-'}</Td>
-                      <Td>{fmtTime(r.start_time)}</Td>
-                      <Td>{fmtTime(r.end_time)}</Td>
-                      <Td>{fmtInterval(r.break_time)}</Td>
-                      <Td>{fmtInterval(r.actual_work_time)}</Td>
-                      <Td>{r.work_location ?? '-'}</Td>
-                      <Td className="font-bold text-blue-600">{r.ew_value ?? '-'}</Td>
-                      <Td className="max-w-[160px] truncate text-gray-500" title={r.work_content ?? ''}>{r.work_content ?? '-'}</Td>
-                      <Td className="text-gray-500">{r.late_or_attendance_status ?? '-'}</Td>
-                      <Td>{fmtTime(r.previous_report_time)}</Td>
-                      <Td>{fmtTime(r.current_report_time)}</Td>
-                      <Td className="max-w-[120px] truncate text-gray-500" title={r.late_reason ?? ''}>{r.late_reason ?? '-'}</Td>
-                      <Td>{r.expected_start_date ?? '-'}</Td>
-                      <Td>{fmtTime(r.expected_work_time)}</Td>
-                      <Td>{r.expected_work_location ?? '-'}</Td>
+                      <Td>{isCheckOut ? fmtTime(r.start_time) : dash}</Td>
+                      <Td>{isCheckOut ? fmtTime(r.end_time) : dash}</Td>
+                      <Td>{isCheckOut ? fmtInterval(r.break_time) : dash}</Td>
+                      <Td>{isCheckOut ? fmtInterval(r.actual_work_time) : dash}</Td>
+                      <Td>{isCheckOut ? (r.work_location ?? '-') : dash}</Td>
+                      <Td className="font-bold text-blue-600">{isCheckOut ? (r.ew_value ?? '-') : dash}</Td>
+                      <Td className="max-w-[160px] truncate text-gray-500" title={r.work_content ?? ''}>{isCheckOut ? (r.work_content ?? '-') : dash}</Td>
+                      <Td className="text-gray-500">{isCheckOut ? (r.late_or_attendance_status ?? '-') : dash}</Td>
+                      <Td>{isCheckOut ? fmtTime(r.previous_report_time) : dash}</Td>
+                      <Td>{isCheckOut ? fmtTime(r.current_report_time) : dash}</Td>
+                      <Td className="max-w-[120px] truncate text-gray-500" title={r.late_reason ?? ''}>{isCheckOut ? (r.late_reason ?? '-') : dash}</Td>
+                      <Td>{isCheckIn ? (r.expected_start_date ?? '-') : dash}</Td>
+                      <Td>{isCheckIn ? fmtTime(r.expected_work_time) : dash}</Td>
+                      <Td>{isCheckIn ? (r.expected_work_location ?? '-') : dash}</Td>
                       <Td className="text-gray-500 max-w-[120px] truncate" title={r.attendance_record_type ?? ''}>
                         {r.attendance_record_type ?? '-'}
                       </Td>
