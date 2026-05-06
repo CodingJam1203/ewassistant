@@ -728,7 +728,7 @@ export default function WorkLogForm({
 
       {/* 4. 추가 확인 섹션 (조건부) */}
       <div>
-        <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 border-b pb-2">추가 보고 사항</h3>
+        <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 border-b pb-2">출근보고</h3>
 
         <div className="space-y-6">
           {/* 지각 / 출근시간 수정 여부 (퇴근보고 영역) */}
@@ -783,7 +783,7 @@ export default function WorkLogForm({
           {/* 출근기록 선택 (출근보고 영역) */}
           {showCheckInSections && (
           <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
-            <label className="block text-sm font-medium text-gray-700 mb-1">출근기록 선택 (유형)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">출근보고 진행 여부</label>
             <p className="mb-2 text-xs text-amber-600">
               ※ 휴가자는 아래 출근보고에 <span className="font-medium">휴가 복귀날</span>을 선택 후 출근 보고 진행
             </p>
