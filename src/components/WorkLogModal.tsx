@@ -27,6 +27,13 @@ interface WorkLogModalProps {
    * resubmitWorkLogId와 동시에 줄 수 없음.
    */
   editingLog?: WorkLog | null
+  /**
+   * 수정 시 폼 영역 한정 표시:
+   *   'check_in'  : 출근보고(=expected_*) 영역만
+   *   'check_out' : 퇴근보고 영역만
+   *   undefined   : 전체 (기본)
+   */
+  editScope?: 'check_in' | 'check_out'
   onClose: () => void
   onSuccess: () => void  // 폼 제출 + check-out 완료 후 호출 (편집 모드에선 check-out 스킵)
 }
@@ -41,6 +48,7 @@ export default function WorkLogModal({
   initialEndTime,
   resubmitWorkLogId,
   editingLog,
+  editScope,
   onClose,
   onSuccess,
 }: WorkLogModalProps) {
@@ -79,7 +87,11 @@ export default function WorkLogModal({
     onSuccess()
   }
 
-  const headerTitle    = isEditing ? '제출 내역 수정' : '출퇴근보고 입력'
+  const headerTitle = isEditing
+    ? (editScope === 'check_in'  ? '출근보고 수정'
+      : editScope === 'check_out' ? '퇴근보고 수정'
+      : '제출 내역 수정')
+    : '출퇴근보고 입력'
   const headerSubtitle = isEditing
     ? `${date} — 필요한 항목을 수정한 후 제출 및 복사하기`
     : `${date} — 퇴근보고를 작성하면 퇴근 처리됩니다`
@@ -122,6 +134,7 @@ export default function WorkLogModal({
                   initialEndTime={initialEndTime}
                   resubmitLogId={resubmitWorkLogId}
                   editingLog={editingLog}
+                  editScope={editScope}
                   onCalculate={handleCalculate}
                   onSubmitSuccess={handleSubmitSuccess}
                 />

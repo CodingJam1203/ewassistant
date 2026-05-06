@@ -97,6 +97,7 @@ export default function HistoryPage() {
   const [filterName, setFilterName] = useState('')
   const [filterDate, setFilterDate] = useState('')
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null)
+  const [editScope,  setEditScope]  = useState<'check_in' | 'check_out' | undefined>(undefined)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   // ─── 탭 ─────────────────────────────────────────────────────
@@ -197,8 +198,9 @@ export default function HistoryPage() {
           date={editingLog.leave_date}
           userName={editingLog.name}
           editingLog={editingLog}
-          onClose={() => setEditingLog(null)}
-          onSuccess={handleEditSuccess}
+          editScope={editScope}
+          onClose={() => { setEditingLog(null); setEditScope(undefined) }}
+          onSuccess={() => { handleEditSuccess(); setEditScope(undefined) }}
         />
       )}
 
@@ -318,10 +320,12 @@ export default function HistoryPage() {
             ...(filterName ? { name: filterName } : {}),
           }}
           allowOrgFilter
-          onEditWorkLog={isAdmin ? (workLogId) => {
+          onEditWorkLog={isAdmin ? (workLogId, scope) => {
             const log = logs.find(l => l.id === workLogId)
-            if (log) setEditingLog(log)
-            else fetchLogs()
+            if (log) {
+              setEditScope(scope)
+              setEditingLog(log)
+            } else fetchLogs()
           } : undefined}
         />
       )}
@@ -337,10 +341,12 @@ export default function HistoryPage() {
             ...(filterName ? { name: filterName } : {}),
           }}
           allowOrgFilter
-          onEditWorkLog={isAdmin ? (workLogId) => {
+          onEditWorkLog={isAdmin ? (workLogId, scope) => {
             const log = logs.find(l => l.id === workLogId)
-            if (log) setEditingLog(log)
-            else fetchLogs()
+            if (log) {
+              setEditScope(scope)
+              setEditingLog(log)
+            } else fetchLogs()
           } : undefined}
         />
       )}

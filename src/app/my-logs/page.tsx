@@ -104,6 +104,7 @@ export default function MyLogsPage() {
   const [loading, setLoading] = useState(true)
   const [filterDate, setFilterDate] = useState('')
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null)
+  const [editScope,  setEditScope]  = useState<'check_in' | 'check_out' | undefined>(undefined)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   // ─── 탭 ────────────────────────────────────────────────────────
@@ -191,8 +192,9 @@ export default function MyLogsPage() {
           date={editingLog.leave_date}
           userName={editingLog.name}
           editingLog={editingLog}
-          onClose={() => setEditingLog(null)}
-          onSuccess={handleEditSuccess}
+          editScope={editScope}
+          onClose={() => { setEditingLog(null); setEditScope(undefined) }}
+          onSuccess={() => { handleEditSuccess(); setEditScope(undefined) }}
         />
       )}
 
@@ -259,10 +261,12 @@ export default function MyLogsPage() {
       {tab === 'raw' && (
         <SubmissionsRawTable
           mine mode="raw"
-          onEditWorkLog={(workLogId) => {
+          onEditWorkLog={(workLogId, scope) => {
             const log = logs.find(l => l.id === workLogId)
-            if (log) setEditingLog(log)
-            else fetchLogs()  // 캐시에 없으면 다시 fetch
+            if (log) {
+              setEditScope(scope)
+              setEditingLog(log)
+            } else fetchLogs()
           }}
         />
       )}
@@ -271,10 +275,12 @@ export default function MyLogsPage() {
       {tab === 'final' && (
         <SubmissionsRawTable
           mine mode="final"
-          onEditWorkLog={(workLogId) => {
+          onEditWorkLog={(workLogId, scope) => {
             const log = logs.find(l => l.id === workLogId)
-            if (log) setEditingLog(log)
-            else fetchLogs()
+            if (log) {
+              setEditScope(scope)
+              setEditingLog(log)
+            } else fetchLogs()
           }}
         />
       )}

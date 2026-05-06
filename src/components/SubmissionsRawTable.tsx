@@ -163,7 +163,13 @@ export interface SubmissionsRawTableProps {
   endpoint?: string
   mine?: boolean
   extraQuery?: Record<string, string>
-  onEditWorkLog?: (workLogId: string) => void
+  /**
+   * 수정 버튼 클릭 시 호출.
+   *  - workLogId : 원본 work_logs.id
+   *  - scope     : 'check_in' (출근보고 영역) / 'check_out' (퇴근보고 영역)
+   *                row의 보고유형으로 자동 판정해서 전달됨.
+   */
+  onEditWorkLog?: (workLogId: string, scope: 'check_in' | 'check_out') => void
   allowOrgFilter?: boolean
   /**
    * 'raw'  : 모든 제출 row 시간순
@@ -375,9 +381,9 @@ export default function SubmissionsRawTable({
                       <Td className="text-center">
                         {r.work_log_id && onEditWorkLog ? (
                           <button
-                            onClick={() => onEditWorkLog(r.work_log_id!)}
+                            onClick={() => onEditWorkLog(r.work_log_id!, isCheckOut ? 'check_out' : 'check_in')}
                             className="text-gray-400 hover:text-blue-600"
-                            title="원본 work_log 수정"
+                            title={isCheckOut ? '퇴근보고 수정' : '출근보고 수정'}
                           >
                             <Pencil className="h-3.5 w-3.5 inline" />
                           </button>
