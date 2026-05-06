@@ -53,9 +53,11 @@ function getReportStatus(log: WorkLog): {
   const last = Array.isArray(tl) && tl.length > 0 ? tl[tl.length - 1] : null
   const kind: 'check_in_only' | 'completed' =
     last && last.kind === 'expected_checkout' ? 'check_in_only' : 'completed'
+  // "+ 사전 출근보고" 배지는 다른 날짜에 대한 출근보고일 때만.
   const hasAdvanceReport =
     log.attendance_record_type === '출근보고 진행 (주말출근, 휴가 포함)' &&
-    !!log.expected_start_date
+    !!log.expected_start_date &&
+    log.expected_start_date !== log.leave_date
   return { kind, hasAdvanceReport }
 }
 

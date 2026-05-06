@@ -185,10 +185,12 @@ export async function POST(request: Request) {
           // 휴가
           leave_timeline: leaveTimeline,
           late_or_attendance_status: '아니오',
-          // 출근 경로(CheckInModal)에서 만든 record는 다음 출근 사전 보고를 포함하지 않음.
-          // → '스킵'으로 저장해야 my-logs 등에서 일관되게 표시되고,
-          //   수정 시 WorkLogModal에서도 '스킵' default로 prefill됨.
-          attendance_record_type: '스킵(누락퇴근보고, 퇴근보고 수정)',
+          // 정책: 카드 [출근]과 우측 [출근보고 작성] 모두 '출근보고' 개념으로 통일.
+          // - 차이는 단지 대상일(오늘 vs 다른 날) 뿐, my-logs/history에서 동일 배지로 노출.
+          // - 카드 [출근]은 expected_start_date를 오늘로 세팅 (= leave_date와 동일)
+          //   → my-logs 배지는 '출근만 작성됨' (timeline.last가 expected_checkout이라)
+          //   → "+ 사전 출근보고" 배지는 expected_start_date != leave_date 인 경우에만 뜸 (자연 분기).
+          attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
           deduction_time: `${calcResult.deductionMinutes} minutes`,
           actual_work_time: `${snapMinutes(calcResult.actualWorkMinutes, 'round')} minutes`,
           ew_start:  calcResult.ewStartText,
