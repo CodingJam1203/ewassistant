@@ -5,7 +5,7 @@ import { getKstTodayDateString } from '@/lib/utils/date'
 import { getCalendarForDate, parseCell, isCalendarEnabled } from '@/lib/leave-calendar'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { LeaveTimeline, LeaveType } from '@/types/leave-timeline'
-import type { CalendarBatchResponse } from '@/types/leave-calendar'
+import type { CalendarBatchResponse, CalendarEventChunk } from '@/types/leave-calendar'
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
 
@@ -56,6 +56,8 @@ export interface TeamMemberCard {
   /** 외부 캘린더(Google Sheets) 휴가 판정 — work_log 없을 때 카드 배지 표시용 */
   calendar_leave_type: LeaveType | null
   calendar_leave_label: string | null
+  /** 외부 캘린더(Google Sheets) 일반 일정 — 카드에 표시 */
+  calendar_events: CalendarEventChunk[]
 }
 
 // ─── 상태/색상 계산 ───────────────────────────────────────────────────────────
@@ -229,19 +231,23 @@ export async function GET(request: Request) {
       }
     }
 
-    /** 사용자 이름 + 본부로 캘린더 셀 조회 → 휴가/일반일정 파싱 */
-    function lookupCalendarLeave(division: string | null, displayName: string | null): {
+    /** 사용자 이름 + 본부로 캘린더 셀 조회 → 휴가/일반일정 파싱 (events 포함) */
+    function lookupCalendar(division: string | null, displayName: string | null): {
       leaveType: LeaveType | null
       label: string | null
+      events: CalendarEventChunk[]
     } {
-      if (!calendarBatch || !division || !displayName) return { leaveType: null, label: null }
+      if (!calendarBatch || !division || !displayName) {
+        return { leaveType: null, label: null, events: [] }
+      }
       const entries = calendarBatch.departments?.[division] ?? []
       const target = entries.find(e => e.name?.trim() === displayName.trim())
-      if (!target) return { leaveType: null, label: null }
+      if (!target) return { leaveType: null, label: null, events: [] }
       const parsed = parseCell(target.cellValue)
       return {
         leaveType: parsed.leaveType,
         label: parsed.leaveType ? target.cellValue.trim() : null,
+        events: parsed.events ?? [],
       }
     }
 
@@ -253,7 +259,7 @@ export async function GET(request: Request) {
 
       const division = (profile.division as string | null) ?? null
       const displayName = (profile.display_name as string | null) ?? null
-      const calLeave = lookupCalendarLeave(division, displayName)
+      const calLeave = lookupCalendar(division, displayName)
 
       const { color, status_text, status } = computeStatus(workLog, daily, calLeave.leaveType)
 
@@ -318,6 +324,7 @@ export async function GET(request: Request) {
           (workLog?.break_auto_rounded_minutes as number | null | undefined) ?? null,
         calendar_leave_type:  calLeave.leaveType,
         calendar_leave_label: calLeave.label,
+        calendar_events:      calLeave.events,
       }
     })
 

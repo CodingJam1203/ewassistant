@@ -231,6 +231,29 @@ function MemberCard({
         )}
       </div>
 
+      {/* 캘린더 오늘 일정 — 휴가가 아니고 events가 있을 때만 표시 */}
+      {!card.calendar_leave_type && card.calendar_events && card.calendar_events.length > 0 && (
+        <div className="rounded-md bg-purple-50 border border-purple-100 px-2.5 py-1.5">
+          <div className="text-[10px] font-semibold text-purple-700 mb-1">📅 오늘 일정</div>
+          <div className="space-y-0.5">
+            {card.calendar_events.slice(0, 3).map((ev, i) => (
+              <div key={i} className="text-xs text-purple-900 truncate">
+                {ev.startTime && ev.endTime
+                  ? `${ev.startTime}~${ev.endTime}  ${ev.title}`
+                  : ev.startTime
+                    ? `${ev.startTime}~  ${ev.title}`
+                    : `(종일) ${ev.title}`}
+              </div>
+            ))}
+            {card.calendar_events.length > 3 && (
+              <div className="text-[10px] text-purple-500">
+                외 {card.calendar_events.length - 3}건 더
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 근무지 */}
       {card.is_self ? (
         <LocationSelect
@@ -498,7 +521,6 @@ export default function TeamPage() {
           initialLeaveTimeline={checkOutTarget.leave_timeline ?? null}
           initialBreakAutoActualMinutes={checkOutTarget.break_auto_actual_minutes ?? null}
           initialStartTime={
-            // 출근 버튼으로 찍은 시각 우선 → 없으면 출근보고 예정 시각 (legacy)
             toHHmm(checkOutTarget.checked_in_at) ?? checkOutTarget.start_time ?? undefined
           }
           initialEndTime={checkOutTarget.end_time ?? undefined}
