@@ -152,7 +152,10 @@ export async function POST(request: Request) {
           // 휴가
           leave_timeline: leaveTimeline,
           late_or_attendance_status: '아니오',
-          attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
+          // 출근 경로(CheckInModal)에서 만든 record는 다음 출근 사전 보고를 포함하지 않음.
+          // → '스킵'으로 저장해야 my-logs 등에서 일관되게 표시되고,
+          //   수정 시 WorkLogModal에서도 '스킵' default로 prefill됨.
+          attendance_record_type: '스킵(누락퇴근보고, 퇴근보고 수정)',
           deduction_time: `${calcResult.deductionMinutes} minutes`,
           actual_work_time: `${calcResult.actualWorkMinutes} minutes`,
           ew_start:  calcResult.ewStartText,
@@ -228,6 +231,7 @@ export async function POST(request: Request) {
     return NextResponse.json(daily)
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
-    return NextResponse.json({ error: message }, { status: 500 })
+    console.error('[/api/team-status/check-in]', message)
+    return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
   }
 }

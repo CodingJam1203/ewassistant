@@ -310,9 +310,11 @@ export default function WorkLogForm({
           breakTime: breakAutoRoundedMinutes > 0 ? breakAutoHHmm : '00:00',
           workContent: '',
           lateOrAttendanceStatus: '아니오',
-          // default를 '스킵'으로 — '출근보고 진행'은 사용자가 명시적으로 다음 출근을
-          // 사전 보고할 때만 선택. 그래야 expected_start_date가 의도치 않게 채워지지 않음.
-          attendanceRecordType: '스킵(누락퇴근보고, 퇴근보고 수정)',
+          // 퇴근보고 모달 default — '출근보고 진행' (다음 출근 사전 보고를 자연스럽게 유도).
+          // 단 expectedStartDate는 빈칸으로 두고 사용자가 직접 입력 (zod 필수 검증) →
+          // 사용자가 의식하지 않으면 통과 안 되므로 가짜 다른날 row 방지.
+          // (출근 경로/CheckInModal에서 만들어진 record는 서버에서 '스킵'으로 저장됨)
+          attendanceRecordType: '출근보고 진행 (주말출근, 휴가 포함)',
           expectedStartDate: '',
           expectedTimeline: defaultTimeline(),
           expectedLeaveTimeline: [] as LeaveTimeline,
