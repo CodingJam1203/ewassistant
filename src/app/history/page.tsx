@@ -6,7 +6,10 @@ import { format } from 'date-fns'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import WorkLogModal from '@/components/WorkLogModal'
 import Pagination from '@/components/Pagination'
+import SubmissionsRawTable from '@/components/SubmissionsRawTable'
 import type { WorkLog } from '@/types/work-log'
+
+type TabKey = 'final' | 'raw'
 
 interface OrgTeam { id: string; division_id: string; name: string }
 interface OrgDivision { id: string; name: string; teams: OrgTeam[] }
@@ -95,6 +98,9 @@ export default function HistoryPage() {
   const [filterDate, setFilterDate] = useState('')
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  // ─── 탭 ─────────────────────────────────────────────────────
+  const [tab, setTab] = useState<TabKey>('final')
 
   // ─── 페이지네이션 ────────────────────────────────────────────
   const [page, setPage] = useState(1)
@@ -200,6 +206,43 @@ export default function HistoryPage() {
         <h2 className="text-2xl font-bold leading-7 text-gray-900">전체 제출 내역</h2>
       </div>
 
+      {/* ─── 탭 ─── */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex gap-6" aria-label="탭">
+          {[
+            { key: 'final' as TabKey, label: '일자별 최종 보고' },
+            { key: 'raw'   as TabKey, label: 'RAW 제출 내역' },
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                tab === t.key
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* ─── RAW 탭 ─── */}
+      {tab === 'raw' && (
+        <SubmissionsRawTable
+          mine={filterMine}
+          extraQuery={{
+            ...(filterDivision ? { division: filterDivision } : {}),
+            ...(filterTeam ? { team: filterTeam } : {}),
+            ...(filterName ? { name: filterName } : {}),
+          }}
+          allowOrgFilter
+        />
+      )}
+
+      {/* ─── 일자별 최종 탭 (기존) ─── */}
+      {tab === 'final' && (<>
       {/* 필터 */}
       <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-wrap gap-3 items-end">
         {/* 본부 필터 */}
@@ -391,6 +434,7 @@ export default function HistoryPage() {
           )}
         </div>
       )}
+      </>)}
     </div>
   )
 }
