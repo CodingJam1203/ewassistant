@@ -310,8 +310,10 @@ export default function WorkLogForm({
           breakTime: breakAutoRoundedMinutes > 0 ? breakAutoHHmm : '00:00',
           workContent: '',
           lateOrAttendanceStatus: '아니오',
-          attendanceRecordType: '출근보고 진행 (주말출근, 휴가 포함)',
-          expectedStartDate: toKstDateString(addDays(new Date(), 1)),
+          // default를 '스킵'으로 — '출근보고 진행'은 사용자가 명시적으로 다음 출근을
+          // 사전 보고할 때만 선택. 그래야 expected_start_date가 의도치 않게 채워지지 않음.
+          attendanceRecordType: '스킵(누락퇴근보고, 퇴근보고 수정)',
+          expectedStartDate: '',
           expectedTimeline: defaultTimeline(),
           expectedLeaveTimeline: [] as LeaveTimeline,
           sendTeams: true,
@@ -810,9 +812,11 @@ export default function WorkLogForm({
           className="w-full flex justify-center items-center py-4 px-4 border border-transparent rounded-md shadow-sm text-base font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
         >
           {isSubmitting ? (
-            <Loader2 className="animate-spin -ml-1 mr-2 h-5 w-5" />
-          ) : <Copy className="mr-2 h-5 w-5" />}
-          제출 및 복사하기
+            <Loader2 className="animate-spin h-5 w-5 mr-2" />
+          ) : (
+            <Copy className="h-5 w-5 mr-2" />
+          )}
+          {isSubmitting ? '제출 중...' : '제출 및 복사하기'}
         </button>
       </div>
     </form>
