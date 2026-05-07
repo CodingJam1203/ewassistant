@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 
 export default function ConsentPage() {
+  const [displayName, setDisplayName] = useState('')
   const [agreedTerms, setAgreedTerms] = useState(false)
   const [agreedPrivacy, setAgreedPrivacy] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -13,6 +14,15 @@ export default function ConsentPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    const trimmedName = displayName.trim()
+    if (!trimmedName) {
+      setError('이름을 입력해 주세요.')
+      return
+    }
+    if (trimmedName.length > 50) {
+      setError('이름은 50자 이하로 입력해 주세요.')
+      return
+    }
     if (!agreedTerms || !agreedPrivacy) {
       setError('모든 필수 항목에 동의해 주세요.')
       return
@@ -24,8 +34,10 @@ export default function ConsentPage() {
     try {
       const res = await fetch('/api/auth/consent', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: trimmedName }),
       })
-      
+
       const data = await res.json()
       if (!res.ok) {
         throw new Error(data.error || '동의 처리 중 오류가 발생했습니다.')
@@ -54,6 +66,27 @@ export default function ConsentPage() {
         
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4">
+            <div>
+              <label htmlFor="displayName" className="block text-sm font-medium text-gray-700">
+                이름 <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="displayName"
+                name="displayName"
+                type="text"
+                required
+                maxLength={50}
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="예: 김도담"
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                autoComplete="name"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                관리자가 가입자를 식별할 수 있도록 본인의 이름을 입력해 주세요.
+              </p>
+            </div>
+
             <div className="flex items-start">
               <div className="flex items-center h-5">
                 <input
@@ -110,7 +143,7 @@ export default function ConsentPage() {
           <div>
             <button
               type="submit"
-              disabled={isSubmitting || !agreedTerms || !agreedPrivacy}
+              disabled={isSubmitting || !agreedTerms || !agreedPrivacy || !displayName.trim()}
               className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
