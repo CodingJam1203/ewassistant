@@ -130,24 +130,17 @@ export async function GET(request: Request) {
 
     const adminClient = createAdminClient()
 
-    // ── 로그인 유저 프로필 조회 ────────────────────────────────────────────────
-    const { data: myProfile } = await adminClient
-      .from('user_profiles')
-      .select('email, division, team, display_name, display_order')
-      .eq('email', user.email!)
-      .single()
-
-    const targetDivision = filterDivision || myProfile?.division || ''
-    const targetTeam     = filterTeam     || myProfile?.team     || ''
-
     // ── 대상 팀원 목록 조회 ────────────────────────────────────────────────────
+    // 빈 division/team = 전체 (본인 본부/팀으로 fallback하지 않음)
+    // 일반 사용자도 전체 조직 카드 조회 가능 — 권한 제약 없음
+    // 본인 카드 표식(is_self)은 user.email 직접 비교(297행) — 별도 myProfile 조회 불필요
     let profileQuery = adminClient
       .from('user_profiles')
       .select('id, email, display_name, division, team, display_order, is_active')
       .eq('is_active', true)
 
-    if (targetDivision) profileQuery = profileQuery.eq('division', targetDivision)
-    if (targetTeam)     profileQuery = profileQuery.eq('team',     targetTeam)
+    if (filterDivision) profileQuery = profileQuery.eq('division', filterDivision)
+    if (filterTeam)     profileQuery = profileQuery.eq('team',     filterTeam)
 
     const { data: profiles, error: profileErr } = await profileQuery
     if (profileErr) throw profileErr
