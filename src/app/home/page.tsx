@@ -279,9 +279,10 @@ export default function HomePage() {
   // ── 렌더 ─────────────────────────────────────────────────────────
   const userName = myCard?.display_name ?? null
   const isCheckedIn = !!(myCard?.daily_status_id && !myCard?.checked_out_at)
-  // 퇴근보고는 출근 여부 무관하게 항상 가능 (사후 퇴근 / 출근 누락 케이스 지원).
-  // 단 이미 퇴근 처리된 상태면 숨김.
-  const showCheckOutBtn = !myCard?.checked_out_at
+  // 출근/퇴근보고 버튼은 상태와 무관하게 항상 표시 — (완료)로 시각 구분만.
+  // 이미 작성한 상태에서도 클릭 시 재제출/수정 가능.
+  const checkInDone = !!myCard?.checked_in_at
+  const checkOutDone = !!myCard?.checked_out_at
   // 휴게 / 근무지 변경은 출근한 상태에서만 의미가 있어 isCheckedIn 유지
   const showBreakBtn = isCheckedIn
   const showLocationSelect = isCheckedIn
@@ -397,22 +398,35 @@ export default function HomePage() {
 
           {/* 3행: 액션 버튼 + 근무지 */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* 출근보고 작성 — 항상 표시, 완료 시 회색+체크 */}
             <button
               onClick={openCheckInFlow}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm"
+              className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-lg shadow-sm transition-colors ${
+                checkInDone
+                  ? 'text-gray-700 bg-gray-100 border border-gray-300 hover:bg-gray-200'
+                  : 'text-white bg-blue-600 hover:bg-blue-700'
+              }`}
+              title={checkInDone ? '이미 작성됨 — 재제출/수정 가능' : undefined}
             >
-              <LogIn className="h-4 w-4" />
+              {checkInDone ? <Check className="h-4 w-4" /> : <LogIn className="h-4 w-4" />}
               출근보고 작성
+              {checkInDone && <span className="text-xs font-normal text-gray-500">(완료)</span>}
             </button>
-            {showCheckOutBtn && (
-              <button
-                onClick={openCheckOutFlow}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 shadow-sm"
-              >
-                <LogOut className="h-4 w-4" />
-                퇴근보고 작성
-              </button>
-            )}
+
+            {/* 퇴근보고 작성 — 항상 표시, 완료 시 회색+체크 */}
+            <button
+              onClick={openCheckOutFlow}
+              className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-lg shadow-sm transition-colors ${
+                checkOutDone
+                  ? 'text-gray-700 bg-gray-100 border border-gray-300 hover:bg-gray-200'
+                  : 'text-white bg-green-600 hover:bg-green-700'
+              }`}
+              title={checkOutDone ? '이미 작성됨 — 재제출/수정 가능' : undefined}
+            >
+              {checkOutDone ? <Check className="h-4 w-4" /> : <LogOut className="h-4 w-4" />}
+              퇴근보고 작성
+              {checkOutDone && <span className="text-xs font-normal text-gray-500">(완료)</span>}
+            </button>
             {showBreakBtn && (
               myCard?.is_on_break ? (
                 <button
