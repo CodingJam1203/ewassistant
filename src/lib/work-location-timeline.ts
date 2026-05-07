@@ -63,14 +63,27 @@ export function floorToHalfHour(hhmm: string): string {
   return `${String(h).padStart(2, '0')}:${String(flooredM).padStart(2, '0')}`
 }
 
-/** 현재 KST 시각을 HH:mm으로, 30분 단위 내림 적용 */
+/**
+ * 현재 KST 시각을 HH:mm으로, 30분 단위 내림.
+ *
+ * 환경-무관 구현: Intl.DateTimeFormat을 직접 써서 KST 시·분만 추출.
+ * (이전 구현은 toLocaleString → new Date() 재파싱 시 일부 브라우저에서
+ *  ±1시간 오차가 발생하는 환경 의존성이 있었음.)
+ */
 export function nowKstHHmmFloor(): string {
-  const now = new Date()
-  const kst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }))
-  const h = kst.getHours()
-  const m = kst.getMinutes()
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Seoul',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  const parts = fmt.formatToParts(new Date())
+  const h = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10)
+  const m = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10)
+  // hour: '2-digit' + hour12: false → "24"가 나올 수 있어 0으로 정규화
+  const safeH = h % 24
   const flooredM = m < 30 ? 0 : 30
-  return `${String(h).padStart(2, '0')}:${String(flooredM).padStart(2, '0')}`
+  return `${String(safeH).padStart(2, '0')}:${String(flooredM).padStart(2, '0')}`
 }
 
 /** 'HH:mm:ss' 또는 'HH:mm' → 'HH:mm' 정규화 */
