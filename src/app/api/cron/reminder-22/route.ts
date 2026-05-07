@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyDailyCheckinReminder } from '@/lib/notifications/teams'
 import { formatNightlyCheckinStatus } from '@/lib/notifications/messages'
+import { getDepartmentDailyParsed } from '@/lib/leave-calendar'
 
 function getKstDate(offsetDays = 0): string {
   const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
@@ -78,26 +79,76 @@ export async function GET(request: Request) {
     teamGroups.get(key)!.users.push(u)
   }
 
+  // 본부별 내일자 캘린더 일정 미리 로드 (휴가 제외, 일반 events만)
+  const allDepts = Array.from(new Set(Array.from(teamGroups.values()).map(g => g.division)))
+  const calendarByDept = new Map<
+    string,
+    Map<string, Array<{ startTime: string | null; endTime: string | null; title: string }>>
+  >()
+  for (const dept of allDepts) {
+    try {
+      const result = await getDepartmentDailyParsed({ date: targetDate, department: dept })
+      if (!result.enabled || result.fetchFailed) continue
+      const byUser = new Map<string, Array<{ startTime: string | null; endTime: string | null; title: string }>>()
+      for (const entry of result.entries) {
+        if (entry.events && entry.events.length > 0) {
+          byUser.set(entry.name, entry.events)
+        }
+      }
+      calendarByDept.set(dept, byUser)
+    } catch (err) {
+      console.warn('[cron/reminder-22] calendar fetch failed for dept:', dept, err)
+    }
+  }
+
   // 팀별 발송
   const promises = Array.from(teamGroups.values()).map(group => {
     const members = group.users.map(u => {
-      const c = checkinMap.get(u.email) || {}
+      const c = checkinMap.get(u.email)
       return {
         name:   u.display_name || u.email,
         division: u.division || '미입력',
         team: u.team || '미입력',
-        scheduledWorkDate: c.expected_start_date || targetDate,
-        scheduledWorkTime: c.expected_work_time || '',
-        scheduledWorkLocation: c.expected_work_location || '미입력',
-        attendanceRecordType: c.attendance_record_type || '미입력',
-        status: formatNightlyCheckinStatus(c) // fallback
+        scheduledWorkDate: c?.expected_start_date || targetDate,
+        scheduledWorkTime: c?.expected_work_time || '',
+        scheduledWorkLocation: c?.expected_work_location || '미입력',
+        attendanceRecordType: c?.attendance_record_type || '미입력',
+        status: formatNightlyCheckinStatus(c), // fallback
+        hasReport: !!c,
       }
     })
+
+    // 이 팀(=division)에 속한 사용자들의 내일 캘린더 일정 모음
+    const deptCalendar = calendarByDept.get(group.division)
+    const calendarEvents: Array<{
+      name: string
+      startTime: string | null
+      endTime: string | null
+      title: string
+    }> = []
+    if (deptCalendar) {
+      for (const u of group.users) {
+        const userName = u.display_name?.trim()
+        if (!userName) continue
+        const events = deptCalendar.get(userName)
+        if (!events) continue
+        for (const ev of events) {
+          calendarEvents.push({
+            name: userName,
+            startTime: ev.startTime,
+            endTime: ev.endTime,
+            title: ev.title,
+          })
+        }
+      }
+    }
+
     return notifyDailyCheckinReminder('daily_checkin_reminder_22', {
       division:   group.division,
       team:       group.team,
       targetDate,
       members,
+      calendarEvents,
     })
   })
 

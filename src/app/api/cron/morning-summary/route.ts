@@ -138,6 +138,19 @@ export async function GET(request: Request) {
     }
   }
 
+  /** EW 실근무 시간 (분) 계산 — (퇴근-출근) - 휴게. 명일 케이스 처리. 야근 판정용. */
+  function computeActualMinutes(start: string | null, end: string | null, br: string | null): number {
+    if (!start || !end) return 0
+    const toMin = (hhmm: string): number => {
+      const [h, m] = hhmm.slice(0, 5).split(':').map(Number)
+      return (h || 0) * 60 + (m || 0)
+    }
+    let mins = toMin(end) - toMin(start) - toMin(br ?? '00:00')
+    if (mins < 0) mins += 24 * 60
+    return mins
+  }
+  const OVERTIME_THRESHOLD_MIN = 480  // EW 실근무 8h 이상이면 야근
+
   // ─── 외부 캘린더 강제 갱신 + 본부별 휴가자 조회 ───────────────────────────
   await forceRefreshCalendar(todayDate)
 
@@ -242,10 +255,17 @@ export async function GET(request: Request) {
       }
     }
 
-    const yesterdayWorkLogs = group.users.map(u => ({
-      name:   u.display_name || u.email,
-      status: formatMorningWorklogStatus(workLogMap.get(u.email)),
-    }))
+    const yesterdayWorkLogs = group.users.map(u => {
+      const log = workLogMap.get(u.email)
+      const actualMin = log
+        ? computeActualMinutes(log.start_time, log.end_time, log.break_time)
+        : 0
+      return {
+        name:   u.display_name || u.email,
+        status: formatMorningWorklogStatus(log),
+        isOvertime: actualMin >= OVERTIME_THRESHOLD_MIN,
+      }
+    })
 
     return notifyMorningSummary({
       division:   group.division,

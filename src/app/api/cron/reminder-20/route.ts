@@ -81,16 +81,17 @@ export async function GET(request: Request) {
   // 팀별 발송
   const promises = Array.from(teamGroups.values()).map(group => {
     const members = group.users.map(u => {
-      const c = checkinMap.get(u.email) || {}
+      const c = checkinMap.get(u.email)
       return {
         name:   u.display_name || u.email,
         division: u.division || '미입력',
         team: u.team || '미입력',
-        scheduledWorkDate: c.expected_start_date || targetDate,
-        scheduledWorkTime: c.expected_work_time || '',
-        scheduledWorkLocation: c.expected_work_location || '미입력',
-        attendanceRecordType: c.attendance_record_type || '미입력',
-        status: formatNightlyCheckinStatus(c) // fallback
+        scheduledWorkDate: c?.expected_start_date || targetDate,
+        scheduledWorkTime: c?.expected_work_time || '',
+        scheduledWorkLocation: c?.expected_work_location || '미입력',
+        attendanceRecordType: c?.attendance_record_type || '미입력',
+        status: formatNightlyCheckinStatus(c), // fallback
+        hasReport: !!c,
       }
     })
     return notifyDailyCheckinReminder('daily_checkin_reminder_20', {

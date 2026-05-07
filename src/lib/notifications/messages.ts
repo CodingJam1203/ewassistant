@@ -424,19 +424,46 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
     case 'daily_checkin_reminder_20':
     case 'daily_checkin_reminder_22': {
       const p = payload as DailyCheckinReminderData
-      const header = `🕘[ ${koreanDate(p.targetDate)} 출근 보고 ]`
-      const memberBlocks = p.members.map(m => {
-        return [
-          `🔹 ${m.name}`,
-          `- 본부: ${m.division}`,
-          `- 팀명: ${m.team}`,
-          `- 출근 예정 날짜: ${m.scheduledWorkDate}`,
-          `- 출근 예정 시간: ${fmtTime(m.scheduledWorkTime)}`,
-          `- 출퇴근 예정 장소: ${m.scheduledWorkLocation}`,
-          `- 출근기록 선택 유형: ${m.attendanceRecordType}`
-        ].join('\n')
-      }).join('\n\n')
-      return [header, memberBlocks, cta()].join('\n\n')
+      const isLate = eventType === 'daily_checkin_reminder_22'
+      const teamLabel = `${p.team}`
+      const headerEmoji = isLate ? '🌙' : '🕘'
+      const header = `${headerEmoji} ${koreanDate(p.targetDate)} 출근보고 — ${teamLabel}`
+
+      // 1줄 per member: ✅ 이름  장소 시각~  /  ⚠️ 이름  미보고
+      const memberLines = p.members.map(m => {
+        if (m.hasReport) {
+          const loc = m.scheduledWorkLocation || '미입력'
+          const t   = m.scheduledWorkTime ? fmtTime(m.scheduledWorkTime) : ''
+          return `✅ ${m.name}  ${loc} ${t}~`.trimEnd()
+        }
+        return `⚠️ ${m.name}  미보고`
+      })
+
+      // 통계 줄
+      const reported = p.members.filter(m => m.hasReport).length
+      const missing  = p.members.length - reported
+      const statsLine = `(보고 ${reported} / 미보고 ${missing} / 총 ${p.members.length}명)`
+
+      const sections: string[] = [header, '', ...memberLines, '', statsLine]
+
+      // 22시 알림 — 내일 팀 캘린더 일정 추가
+      if (isLate && p.calendarEvents && p.calendarEvents.length > 0) {
+        sections.push('')
+        sections.push(`📅 내일 일정`)
+        for (const ev of p.calendarEvents) {
+          const time =
+            ev.startTime && ev.endTime
+              ? `${ev.startTime}~${ev.endTime}`
+              : ev.startTime
+                ? `${ev.startTime}~`
+                : '종일'
+          sections.push(`- ${time}  ${ev.title}${ev.name ? `  (${ev.name})` : ''}`)
+        }
+      }
+
+      sections.push('')
+      sections.push(cta())
+      return sections.join('\n')
     }
 
     case 'daily_morning_summary': {
@@ -496,11 +523,12 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
         lines.push('')
       }
 
-      // 어제 퇴근보고 요약 (참고)
+      // 어제 퇴근보고 요약 (참고) — 야근(EW 실근무 8h↑)은 ⚠️ 표식
       if (p.yesterdayWorkLogs.length > 0) {
         lines.push(`🕘 ${koreanDate(p.yesterdayDate)} 퇴근 보고`)
         for (const m of p.yesterdayWorkLogs) {
-          lines.push(`- ${m.name}: ${m.status}`)
+          const overtimeMark = m.isOvertime ? '  ⚠️ 야근' : ''
+          lines.push(`- ${m.name}: ${m.status}${overtimeMark}`)
         }
         lines.push('')
       }

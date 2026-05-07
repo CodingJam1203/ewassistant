@@ -161,6 +161,18 @@ export interface DailyCheckinReminderData {
     scheduledWorkLocation: string
     attendanceRecordType: string
     status: string // fallback display string
+    /** 다음날 출근보고 작성됨 여부 — 1줄 per person 새 포맷에서 ✅/⚠️ 표식 */
+    hasReport?: boolean
+  }>
+  /**
+   * 22시 알림에 추가되는 내일 캘린더 일정 (휴가 제외).
+   * 20시 알림에서는 비어있거나 undefined.
+   */
+  calendarEvents?: Array<{
+    name: string
+    startTime: string | null  // HH:mm 또는 null (종일)
+    endTime: string | null
+    title: string
   }>
 }
 
@@ -180,7 +192,12 @@ export interface MorningSummaryData {
   needAfterSection?: Array<{ name: string; label: string }>
 
   /** 어제 퇴근보고 요약 (기존 표시 유지) */
-  yesterdayWorkLogs: Array<{ name: string; status: string }>
+  yesterdayWorkLogs: Array<{
+    name: string
+    status: string
+    /** 야근 여부 — EW 실근무 8시간(=480분) 이상 */
+    isOvertime?: boolean
+  }>
   /** @deprecated legacy — 기존 메시지 빌더 호환용. 신규 코드는 completedSection 사용 */
   todayCheckins: Array<{ name: string; status: string }>
 }
