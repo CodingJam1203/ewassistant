@@ -1,7 +1,7 @@
 export default function NClickLogo({ className = '' }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 168 40"
+      viewBox="0 0 130 40"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       aria-label="N-Click"
