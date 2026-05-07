@@ -553,7 +553,7 @@ export default function WorkLogForm({
       {showEwPopup && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">다음 단계로 이동할까요?</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">상신할 내용이 복사되었습니다!</h3>
             <p className="text-sm text-gray-600 mb-5">
               복사한 내용을 EW(Enjoy Working) 또는 NPM(휴가 상신)에 붙여 넣어 등록할 수 있습니다.
             </p>
@@ -883,7 +883,7 @@ export default function WorkLogForm({
           )}
           {isSubmitting
             ? (isEditing ? '수정 중...' : '제출 중...')
-            : (isEditing ? '수정하기' : '제출하기')}
+            : (isEditing ? '수정하기' : '제출하고 복사하기')}
         </button>
       </div>
     </form>
