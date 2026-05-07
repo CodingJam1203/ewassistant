@@ -6,6 +6,7 @@ import { isBootstrapAdmin } from '@/lib/admin-check'
 import NClickLogo from '@/components/NClickLogo'
 
 const EW_URL = 'https://working.univ.me/Home'
+const NPM_URL = 'https://intra.univ.me/Approval/AprCreateDoc'
 
 export default async function Navbar() {
   const supabase = await createClient()
@@ -70,6 +71,15 @@ export default async function Navbar() {
                 EW 바로가기
                 <ExternalLink className="h-3 w-3" />
               </a>
+              <a
+                href={NPM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="border-transparent text-purple-500 hover:text-purple-700 inline-flex items-center gap-1 px-1 pt-1 border-b-2 text-sm font-medium transition-colors"
+              >
+                NPM 바로가기
+                <ExternalLink className="h-3 w-3" />
+              </a>
             </div>
           </div>
           <div className="flex items-center space-x-4">
@@ -96,13 +106,22 @@ export default async function Navbar() {
             {label}
           </Link>
         ))}
-                <a
+        <a
           href={EW_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="text-sm font-medium text-blue-600 whitespace-nowrap flex items-center gap-1"
         >
           EW 바로가기
+          <ExternalLink className="h-3 w-3" />
+        </a>
+        <a
+          href={NPM_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm font-medium text-purple-600 whitespace-nowrap flex items-center gap-1"
+        >
+          NPM 바로가기
           <ExternalLink className="h-3 w-3" />
         </a>
       </div>
