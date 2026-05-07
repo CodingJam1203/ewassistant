@@ -190,6 +190,36 @@ export default function HistoryPage() {
     fetchLogs()  // 수정 후 목록 갱신
   }
 
+  /**
+   * 수정 모달 열기 — SubmissionsRawTable의 ✏ 버튼이 호출.
+   * 로컬 logs 캐시에 있으면 바로 사용, 없으면 GET /api/work-logs/{id}로 단건 조회.
+   * (history 목록은 페이지네이션으로 일부만 캐시 → silent 실패 방지)
+   */
+  const openEditByWorkLogId = async (
+    workLogId: string,
+    scope: 'check_in' | 'check_out',
+  ) => {
+    const cached = logs.find(l => l.id === workLogId)
+    if (cached) {
+      setEditScope(scope)
+      setEditingLog(cached)
+      return
+    }
+    try {
+      const res = await fetch(`/api/work-logs/${workLogId}`)
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        alert('해당 보고를 불러오지 못했습니다: ' + (err.error ?? res.statusText))
+        return
+      }
+      const fresh = (await res.json()) as WorkLog
+      setEditScope(scope)
+      setEditingLog(fresh)
+    } catch {
+      alert('해당 보고를 불러오는 중 오류가 발생했습니다.')
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* 수정 모달 (관리자) — WorkLogModal 풀 폼 */}
@@ -320,13 +350,7 @@ export default function HistoryPage() {
             ...(filterName ? { name: filterName } : {}),
           }}
           allowOrgFilter
-          onEditWorkLog={isAdmin ? (workLogId, scope) => {
-            const log = logs.find(l => l.id === workLogId)
-            if (log) {
-              setEditScope(scope)
-              setEditingLog(log)
-            } else fetchLogs()
-          } : undefined}
+          onEditWorkLog={isAdmin ? openEditByWorkLogId : undefined}
         />
       )}
 
@@ -341,13 +365,7 @@ export default function HistoryPage() {
             ...(filterName ? { name: filterName } : {}),
           }}
           allowOrgFilter
-          onEditWorkLog={isAdmin ? (workLogId, scope) => {
-            const log = logs.find(l => l.id === workLogId)
-            if (log) {
-              setEditScope(scope)
-              setEditingLog(log)
-            } else fetchLogs()
-          } : undefined}
+          onEditWorkLog={isAdmin ? openEditByWorkLogId : undefined}
         />
       )}
 

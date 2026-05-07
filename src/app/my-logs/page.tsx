@@ -185,6 +185,36 @@ export default function MyLogsPage() {
     fetchLogs()  // 수정 후 목록 갱신
   }
 
+  /**
+   * 수정 모달 열기 — SubmissionsRawTable의 ✏ 버튼이 호출.
+   * 로컬 logs 캐시에 있으면 바로 사용, 없으면 GET /api/work-logs/{id}로 단건 조회.
+   * (logs는 limit=100이라 오래된 보고는 캐시에 없을 수 있음 — silent 실패 방지)
+   */
+  const openEditByWorkLogId = async (
+    workLogId: string,
+    scope: 'check_in' | 'check_out',
+  ) => {
+    const cached = logs.find(l => l.id === workLogId)
+    if (cached) {
+      setEditScope(scope)
+      setEditingLog(cached)
+      return
+    }
+    try {
+      const res = await fetch(`/api/work-logs/${workLogId}`)
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        alert('해당 보고를 불러오지 못했습니다: ' + (err.error ?? res.statusText))
+        return
+      }
+      const fresh = (await res.json()) as WorkLog
+      setEditScope(scope)
+      setEditingLog(fresh)
+    } catch {
+      alert('해당 보고를 불러오는 중 오류가 발생했습니다.')
+    }
+  }
+
   return (
     <div className="space-y-6">
       {editingLog && (
@@ -261,13 +291,7 @@ export default function MyLogsPage() {
       {tab === 'raw' && (
         <SubmissionsRawTable
           mine mode="raw"
-          onEditWorkLog={(workLogId, scope) => {
-            const log = logs.find(l => l.id === workLogId)
-            if (log) {
-              setEditScope(scope)
-              setEditingLog(log)
-            } else fetchLogs()
-          }}
+          onEditWorkLog={openEditByWorkLogId}
         />
       )}
 
@@ -275,13 +299,7 @@ export default function MyLogsPage() {
       {tab === 'final' && (
         <SubmissionsRawTable
           mine mode="final"
-          onEditWorkLog={(workLogId, scope) => {
-            const log = logs.find(l => l.id === workLogId)
-            if (log) {
-              setEditScope(scope)
-              setEditingLog(log)
-            } else fetchLogs()
-          }}
+          onEditWorkLog={openEditByWorkLogId}
         />
       )}
 

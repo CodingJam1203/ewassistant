@@ -29,6 +29,46 @@ import {
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
+// ─── GET /api/work-logs/[id] ─────────────────────────────────────────────────
+// 단일 work_log 상세 조회 — 수정 모달이 일정 list 캐시에 없는 ID를 prefill할 때 사용
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+    const user = await requireActiveUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const adminClient = createAdminClient()
+    const { data: log, error } = await adminClient
+      .from('work_logs')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (error || !log) {
+      return NextResponse.json({ error: '기록을 찾을 수 없습니다.' }, { status: 404 })
+    }
+    if (log.is_deleted) {
+      return NextResponse.json({ error: '삭제된 기록입니다.' }, { status: 410 })
+    }
+
+    // 권한: 본인이거나 admin/leader만 — RLS 우회 admin client 쓰니 여기서 가드
+    const isOwner = log.user_id === user.id
+    const adminUser = await requireAdmin()
+    if (!isOwner && !adminUser) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    return NextResponse.json(log)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[GET /api/work-logs/[id]]', message)
+    return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
+  }
+}
+
 // ─── PATCH /api/work-logs/[id] ───────────────────────────────────────────────
 export async function PATCH(
   request: Request,

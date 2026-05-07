@@ -358,16 +358,19 @@ export default function SubmissionsRawTable({
                   const isCheckOut = r.report_type === 'check_out' || r.report_type === 'check_out_update'
                   const dash = <span className="text-gray-300">-</span>
 
-                  // 통합 컬럼 — 보고유형에 따라 시작/종료/장소를 동적 매핑
+                  // 통합 컬럼 — 보고유형에 따라 시작/종료/장소를 동적 매핑.
+                  // 출근보고 row에서 start_time/work_location이 채워져 있으면 (사전 보고 있는 상태에서
+                  // 실제 출근 누른 케이스) 그 값을 우선 표시 — actual 출근 시각.
+                  // 비어있으면 expected_*로 fallback (사전 보고 작성 케이스).
                   const startVal = isCheckOut
                     ? fmtTime(r.start_time)
-                    : fmtTime(r.expected_work_time)
+                    : fmtTime(r.start_time ?? r.expected_work_time)
                   const endVal = isCheckOut
                     ? fmtTime(r.end_time)
-                    : fmtTime(extractExpectedCheckoutTime(r.expected_work_location_timeline))
+                    : fmtTime(r.end_time ?? extractExpectedCheckoutTime(r.expected_work_location_timeline))
                   const locVal = isCheckOut
                     ? (r.work_location ?? '-')
-                    : (r.expected_work_location ?? '-')
+                    : (r.work_location ?? r.expected_work_location ?? '-')
 
                   return (
                     <tr key={r.id} className="hover:bg-gray-50">

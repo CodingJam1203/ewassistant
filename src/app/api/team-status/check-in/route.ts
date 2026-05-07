@@ -271,6 +271,41 @@ export async function POST(request: Request) {
         .from('user_profiles')
         .update({ last_submitted_at: submissionNow })
         .eq('email', user.email!)
+    } else if (existingPriorReport) {
+      // ─── 사전 보고가 있는 경우 — work_log expected_*는 보존했지만,
+      //     "출근(체크인)" 이벤트 자체는 제출 내역에 남겨야 사용자가 my-logs에서 확인 가능.
+      //     - expected_*는 비움 → 사전 보고 작성 row와 시각적으로 구분
+      //     - start_time / work_location 에 actual 값을 기록
+      //     - SubmissionsRawTable의 시작/장소 컬럼은 start_time/work_location 먼저 fallback expected_*
+      const firstForSub = timeline ? firstWorkLocation(timeline) : null
+      const actualStartTime = firstForSub?.startTime ?? body.start_time ?? null
+      const actualLocation = firstForSub
+        ? displayLocation(firstForSub)
+        : (body.work_location ?? null)
+
+      void recordSubmission({
+        user_id: user.id,
+        user_email: user.email!,
+        name: profile?.display_name ?? user.email!,
+        division: profile?.division ?? null,
+        team:     profile?.team ?? null,
+        report_type: 'check_in',
+        target_date: date,
+        submitted_at: submissionNow,
+        work_log_id: workLogId,
+        // 실제 출근 시각/장소 (체크인 이벤트)
+        start_time:      actualStartTime,
+        work_location:   actualLocation,
+        work_location_timeline: timeline ?? null,
+        leave_timeline:         leaveTimeline ?? null,
+        // expected_*는 보존되었으므로 submission에는 비움
+        attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
+      })
+
+      await adminClient
+        .from('user_profiles')
+        .update({ last_submitted_at: submissionNow })
+        .eq('email', user.email!)
     }
 
     // 카드 표시용 currentLocation: timeline 첫 항목 라벨 또는 기존 fallback
