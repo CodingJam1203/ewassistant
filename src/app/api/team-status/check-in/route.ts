@@ -227,6 +227,12 @@ export async function POST(request: Request) {
           //   → my-logs 배지는 '출근만 작성됨' (timeline.last가 expected_checkout이라)
           //   → "+ 사전 출근보고" 배지는 expected_start_date != leave_date 인 경우에만 뜸 (자연 분기).
           attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
+          // expected_* 필드 — 다음 모달 prefill, my-logs/history 출근보고 row 표시용
+          expected_start_date:    date,
+          expected_work_time:     startTime,
+          expected_work_location: workLocation,
+          expected_work_location_timeline: timeline,
+          expected_leave_timeline: leaveTimeline,
           deduction_time: `${calcResult.deductionMinutes} minutes`,
           actual_work_time: `${snapMinutes(calcResult.actualWorkMinutes, 'round')} minutes`,
           ew_start:  calcResult.ewStartText,
