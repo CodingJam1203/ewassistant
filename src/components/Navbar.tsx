@@ -34,9 +34,9 @@ export default async function Navbar() {
   const headerLabel = displayName || '게스트'
 
   const navLinks = [
-    { href: '/team',    label: '상태 둘러보기' },
-    { href: '/my-logs', label: 'My Page' },
-    { href: '/history', label: '전체 제출 내역' },
+    { href: '/home',    label: '홈' },
+    { href: '/team',    label: '둘러보기' },
+    { href: '/history', label: '제출 내역' },
     ...((isAdmin || isLeader) ? [{ href: '/work-hours', label: '근로시간 관리' }] : []),
     ...(isAdmin ? [{ href: '/admin', label: '관리자' }] : []),
   ]
@@ -47,7 +47,7 @@ export default async function Navbar() {
         <div className="flex justify-between h-16">
           <div className="flex">
             <div className="flex-shrink-0 flex items-center">
-              <Link href="/team" className="flex items-center">
+              <Link href="/home" className="flex items-center">
                 <NClickLogo className="h-8 w-auto" />
               </Link>
             </div>

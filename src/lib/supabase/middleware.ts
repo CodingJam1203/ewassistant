@@ -43,10 +43,10 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // 이미 로그인된 상태에서 /login 접근 → /team으로
+  // 이미 로그인된 상태에서 /login 접근 → /home으로
   if (user && pathname === '/login') {
     const url = request.nextUrl.clone()
-    url.pathname = '/team'
+    url.pathname = '/home'
     return NextResponse.redirect(url)
   }
 
@@ -104,11 +104,11 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    // 3. /work-hours 페이지는 admin/leader만 접근 — user는 /team으로 보냄
+    // 3. /work-hours 페이지는 admin/leader만 접근 — user는 /home으로 보냄
     if (pathname.startsWith('/work-hours')) {
       if (role !== 'admin' && role !== 'leader') {
         const url = request.nextUrl.clone()
-        url.pathname = '/team'
+        url.pathname = '/home'
         return NextResponse.redirect(url)
       }
     }
@@ -117,7 +117,7 @@ export async function updateSession(request: NextRequest) {
     if (pathname.startsWith('/admin')) {
       if (role !== 'admin') {
         const url = request.nextUrl.clone()
-        url.pathname = '/team'
+        url.pathname = '/home'
         return NextResponse.redirect(url)
       }
     }
@@ -136,7 +136,7 @@ export async function updateSession(request: NextRequest) {
           profile.terms_version === CURRENT_TERMS_VERSION &&
           profile.privacy_version === CURRENT_PRIVACY_VERSION) {
         const url = request.nextUrl.clone()
-        url.pathname = profile.is_active === false ? '/blocked' : '/team'
+        url.pathname = profile.is_active === false ? '/blocked' : '/home'
         return NextResponse.redirect(url)
       }
     } catch (err) {

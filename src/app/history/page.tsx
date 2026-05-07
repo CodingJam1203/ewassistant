@@ -91,7 +91,8 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
   const [org, setOrg] = useState<OrgDivision[]>([])
-  const [filterMine, setFilterMine] = useState(false)
+  // 기본 진입은 "내 기록만 보기" — 사용자가 체크 해제하면 전체/팀 조회로 전환
+  const [filterMine, setFilterMine] = useState(true)
   const [filterDivision, setFilterDivision] = useState('')
   const [filterTeam, setFilterTeam] = useState('')
   const [filterName, setFilterName] = useState('')
@@ -235,7 +236,7 @@ export default function HistoryPage() {
       )}
 
       <div className="sm:flex sm:items-center sm:justify-between">
-        <h2 className="text-2xl font-bold leading-7 text-gray-900">전체 제출 내역</h2>
+        <h2 className="text-2xl font-bold leading-7 text-gray-900">제출 내역</h2>
       </div>
 
       {/* ─── 공통 필터 바 (두 탭 모두 적용) ─── */}

@@ -407,21 +407,15 @@ export default function TeamPage() {
 
   return (
     <div className="space-y-5">
-      {/* 제목 */}
+      {/* 제목 — 출근보고 작성은 홈에서. 둘러보기는 새로고침만. */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-gray-900">상태 둘러보기</h2>
+        <h2 className="text-xl font-bold text-gray-900">둘러보기</h2>
         <div className="flex items-center gap-2">
           <button
             onClick={fetchCards}
             className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
           >
             <RefreshCw className="h-4 w-4" /> 새로고침
-          </button>
-          <button
-            onClick={() => setShowHeaderCheckIn(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
-          >
-            <LogIn className="h-4 w-4" /> 출근보고 작성
           </button>
         </div>
       </div>
