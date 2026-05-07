@@ -40,3 +40,19 @@ body {
     color: var(--text-secondary) !important;
   }
 }
+
+/* 커스텀 chevron — native 화살표가 너무 오른쪽으로 멀어 보이는 문제 해결.
+   `select-tight` 적용 시 native arrow 제거 + 텍스트 바로 옆 8px 위치에 chevron 표시. */
+.select-tight {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 0.75rem 0.75rem;
+  padding-right: 1.75rem !important;
+}
+.select-tight::-ms-expand {
+  display: none;
+}

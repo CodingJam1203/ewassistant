@@ -214,7 +214,7 @@ export default function HistoryPage() {
         <div>
           <label className="block text-xs font-medium text-gray-700">본부</label>
           <select
-            className="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border px-3 py-2 bg-white"
+            className="select-tight mt-1 block rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border px-3 py-2 bg-white"
             value={filterDivision}
             onChange={e => handleDivisionChange(e.target.value)}
             disabled={filterMine}
@@ -230,7 +230,7 @@ export default function HistoryPage() {
         <div>
           <label className="block text-xs font-medium text-gray-700">팀</label>
           <select
-            className="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border px-3 py-2 bg-white disabled:bg-gray-50 disabled:text-gray-400"
+            className="select-tight mt-1 block rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border px-3 py-2 bg-white disabled:bg-gray-50 disabled:text-gray-400"
             value={filterTeam}
             onChange={e => setFilterTeam(e.target.value)}
             disabled={filterMine || !filterDivision || availableTeams.length === 0}
@@ -359,7 +359,7 @@ export default function HistoryPage() {
         <div>
           <label className="block text-xs font-medium text-gray-700">본부</label>
           <select
-            className="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border px-3 py-2 bg-white"
+            className="select-tight mt-1 block rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border px-3 py-2 bg-white"
             value={filterDivision}
             onChange={e => handleDivisionChange(e.target.value)}
             disabled={filterMine}
@@ -374,7 +374,7 @@ export default function HistoryPage() {
         <div>
           <label className="block text-xs font-medium text-gray-700">팀</label>
           <select
-            className="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border px-3 py-2 bg-white disabled:bg-gray-50 disabled:text-gray-400"
+            className="select-tight mt-1 block rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm border px-3 py-2 bg-white disabled:bg-gray-50 disabled:text-gray-400"
             value={filterTeam}
             onChange={e => setFilterTeam(e.target.value)}
             disabled={filterMine || !filterDivision || availableTeams.length === 0}

@@ -267,7 +267,7 @@ export default function SubmissionsRawTable({
           <select
             value={reportType}
             onChange={e => { setReportType(e.target.value as typeof reportType); setUpdatedOnly(false) }}
-            className="border border-gray-300 rounded px-2 py-1 text-xs bg-white"
+            className="select-tight border border-gray-300 rounded px-2 py-1 text-xs bg-white"
           >
             {REPORT_TYPE_OPTIONS.map(o => (
               <option key={o.value} value={o.value}>{o.label}</option>

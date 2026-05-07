@@ -174,7 +174,7 @@ export default function WorkHoursPage() {
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">연도</label>
           <select value={year} onChange={e => setYear(Number(e.target.value))}
-            className="border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
+            className="select-tight border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
             {[today.getFullYear() - 1, today.getFullYear(), today.getFullYear() + 1].map(y =>
               <option key={y} value={y}>{y}</option>)}
           </select>
@@ -182,7 +182,7 @@ export default function WorkHoursPage() {
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">월</label>
           <select value={month} onChange={e => setMonth(Number(e.target.value))}
-            className="border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
+            className="select-tight border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
             {Array.from({ length: 12 }, (_, i) => i + 1).map(m =>
               <option key={m} value={m}>{m}월</option>)}
           </select>
@@ -193,7 +193,7 @@ export default function WorkHoursPage() {
               <label className="block text-xs font-medium text-gray-600 mb-1">본부</label>
               <select value={filterDiv}
                 onChange={e => { setFilterDiv(e.target.value); setFilterTeam('') }}
-                className="border border-gray-300 rounded px-2 py-1.5 text-sm bg-white min-w-[140px]">
+                className="select-tight border border-gray-300 rounded px-2 py-1.5 text-sm bg-white min-w-[140px]">
                 <option value="">전체</option>
                 {orgDivisions.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
               </select>
@@ -203,7 +203,7 @@ export default function WorkHoursPage() {
               <select value={filterTeam}
                 onChange={e => setFilterTeam(e.target.value)}
                 disabled={!filterDiv}
-                className="border border-gray-300 rounded px-2 py-1.5 text-sm bg-white disabled:bg-gray-50 min-w-[140px]">
+                className="select-tight border border-gray-300 rounded px-2 py-1.5 text-sm bg-white disabled:bg-gray-50 min-w-[140px]">
                 <option value="">전체</option>
                 {availableTeams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
               </select>
@@ -220,7 +220,7 @@ export default function WorkHoursPage() {
           <label className="block text-xs font-medium text-gray-600 mb-1">위험 상태</label>
           <select value={filterRisk}
             onChange={e => setFilterRisk(e.target.value as '' | RiskLevel)}
-            className="border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
+            className="select-tight border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
             {RISK_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
@@ -295,7 +295,7 @@ export default function WorkHoursPage() {
             <div className="flex items-center gap-2">
               <label className="text-xs text-gray-600">정렬</label>
               <select value={sortKey} onChange={e => setSortKey(e.target.value as SortKey)}
-                className="border border-gray-300 rounded px-2 py-1 text-xs bg-white">
+                className="select-tight border border-gray-300 rounded px-2 py-1 text-xs bg-white">
                 <option value="recognized_desc">인정 근로시간 높은 순</option>
                 <option value="over_rate_desc">초과율 높은 순</option>
                 <option value="remaining_asc">잔여 가능 시간 낮은 순</option>
