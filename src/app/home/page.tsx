@@ -14,7 +14,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
-import { LogIn, LogOut, RefreshCw, Clock, MapPin } from 'lucide-react'
+import { LogIn, LogOut, RefreshCw, Clock, MapPin, Coffee, X, Check } from 'lucide-react'
 import WorkLogModal from '@/components/WorkLogModal'
 import CheckInModal from '@/components/CheckInModal'
 import WorkHoursCard from '@/components/WorkHoursCard'
@@ -42,6 +42,113 @@ function statusBadgeClass(color: 'green' | 'yellow' | 'red'): string {
   if (color === 'green') return 'bg-green-100 text-green-700'
   if (color === 'yellow') return 'bg-yellow-100 text-yellow-700'
   return 'bg-red-100 text-red-600'
+}
+
+/** 카드 색상 → 좌측 강조선 색 */
+function accentBarClass(color: 'green' | 'yellow' | 'red'): string {
+  if (color === 'green') return 'bg-green-500'
+  if (color === 'yellow') return 'bg-yellow-500'
+  return 'bg-red-500'
+}
+
+/** 작은 통계 칩 — 라벨 + 값 + 아이콘 */
+function StatChip({
+  icon, label, value, accentClass,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  accentClass?: string
+}) {
+  return (
+    <div className="flex items-center gap-2.5 bg-gray-50 rounded-lg px-3 py-2 min-w-0 flex-1">
+      <div className={`shrink-0 w-7 h-7 rounded-md flex items-center justify-center ${accentClass ?? 'bg-gray-200 text-gray-600'}`}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <div className="text-[11px] text-gray-500 leading-tight">{label}</div>
+        <div className="text-sm font-semibold text-gray-900 leading-tight truncate">{value}</div>
+      </div>
+    </div>
+  )
+}
+
+/** 근무지 변경 select — 홈 헤더용 (간소화 버전) */
+const LOCATION_OPTIONS = ['사무실', '재택', '외근', '기타'] as const
+
+function LocationSelectInline({
+  current, date, onChange,
+}: {
+  current: string | null
+  date: string
+  onChange: () => void
+}) {
+  const [custom, setCustom] = useState('')
+  const [showCustom, setShowCustom] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const save = async (loc: string) => {
+    setSaving(true)
+    try {
+      await fetch('/api/team-status/location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, location: loc }),
+      })
+      onChange()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSelect = async (val: string) => {
+    if (val === '기타') { setShowCustom(true); return }
+    setShowCustom(false)
+    await save(val)
+  }
+  const handleCustomConfirm = async () => {
+    const v = custom.trim()
+    if (!v) return
+    await save(v)
+    setShowCustom(false)
+    setCustom('')
+  }
+
+  const isStandard = LOCATION_OPTIONS.includes(current as typeof LOCATION_OPTIONS[number])
+  return (
+    <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+      <MapPin className="h-4 w-4 text-gray-500 shrink-0" />
+      <span className="text-xs text-gray-500">근무지</span>
+      {showCustom ? (
+        <>
+          <input
+            value={custom}
+            onChange={e => setCustom(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleCustomConfirm() }}
+            placeholder="장소 입력"
+            className="border border-gray-300 rounded px-2 py-0.5 text-xs w-24 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            autoFocus
+          />
+          <button onClick={handleCustomConfirm} disabled={saving} className="text-blue-600 hover:text-blue-800">
+            <Check className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={() => setShowCustom(false)} className="text-gray-400 hover:text-gray-600">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </>
+      ) : (
+        <select
+          value={isStandard ? current ?? '사무실' : '기타'}
+          onChange={e => handleSelect(e.target.value)}
+          disabled={saving}
+          className="select-tight text-xs font-medium text-gray-900 bg-white border border-gray-200 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
+        >
+          {LOCATION_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
+          {current && !isStandard && <option value={current}>{current}</option>}
+        </select>
+      )}
+    </div>
+  )
 }
 
 export default function HomePage() {
@@ -152,9 +259,29 @@ export default function HomePage() {
     if (myCard) setCheckOutTarget(myCard)
   }
 
+  /** 휴게 시작/종료 — endpoint 호출 후 카드 다시 fetch */
+  const [breakBusy, setBreakBusy] = useState(false)
+  const triggerBreak = async (endpoint: 'break-start' | 'break-end') => {
+    if (breakBusy) return
+    setBreakBusy(true)
+    try {
+      await fetch(`/api/team-status/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: today }),
+      })
+      await fetchMyCard()
+    } finally {
+      setBreakBusy(false)
+    }
+  }
+
   // ── 렌더 ─────────────────────────────────────────────────────────
   const userName = myCard?.display_name ?? null
-  const showCheckOutBtn = !!(myCard?.daily_status_id && !myCard?.checked_out_at)
+  const isCheckedIn = !!(myCard?.daily_status_id && !myCard?.checked_out_at)
+  const showCheckOutBtn = isCheckedIn
+  const showBreakBtn = isCheckedIn
+  const showLocationSelect = isCheckedIn
 
   return (
     <div className="space-y-6">
@@ -201,52 +328,75 @@ export default function HomePage() {
       )}
 
       {/* ─── 본인 오늘 상태 헤더 ────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-xl font-bold text-gray-900 leading-tight">
-                {userName ? `${userName}님 — 오늘 ${todayLabel}` : `오늘 ${todayLabel}`}
-              </h2>
+      <div className="relative bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        {/* 좌측 강조선 (상태 색) */}
+        {myCard && (
+          <div className={`absolute left-0 top-0 bottom-0 w-1 ${accentBarClass(myCard.color)}`} />
+        )}
+
+        <div className="p-5 sm:p-6">
+          {/* 1행: 이름 + 상태 배지 / 날짜 + 새로고침 */}
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div>
+                <div className="text-xs text-gray-500 font-medium tracking-wide uppercase">MY PAGE</div>
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight truncate">
+                  {userName ? `${userName}님` : '내 업무'}
+                </h2>
+              </div>
               {myCard && (
                 <span
-                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${statusBadgeClass(myCard.color)}`}
+                  className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${statusBadgeClass(myCard.color)}`}
                 >
                   {myCard.status_text}
                 </span>
               )}
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
-              <div className="flex items-center gap-1">
-                <Clock className="h-3.5 w-3.5 text-gray-400" />
-                <span>출근예정 {trimToHHmm(myCard?.start_time) || '-'}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Clock className="h-3.5 w-3.5 text-gray-400" />
-                <span>퇴근예정 {trimToHHmm(myCard?.end_time) || '-'}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <LogIn className="h-3.5 w-3.5 text-gray-400" />
-                <span>출근 {fmtHHmm(myCard?.checked_in_at)}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <LogOut className="h-3.5 w-3.5 text-gray-400" />
-                <span>퇴근 {fmtHHmm(myCard?.checked_out_at)}</span>
-              </div>
-              {myCard?.current_location && (
-                <div className="flex items-center gap-1">
-                  <MapPin className="h-3.5 w-3.5 text-gray-400" />
-                  <span>{myCard.current_location}</span>
-                </div>
-              )}
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-500">{todayLabel}</span>
+              <button
+                onClick={() => { fetchMyCard(); fetchLogs() }}
+                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-md hover:bg-gray-50"
+                title="새로고침"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </button>
             </div>
           </div>
 
-          {/* 액션 버튼 */}
-          <div className="flex items-center gap-2 shrink-0">
+          {/* 2행: 시각 정보 4개 칩 */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+            <StatChip
+              icon={<Clock className="h-4 w-4" />}
+              label="출근예정"
+              value={trimToHHmm(myCard?.start_time) || '-'}
+              accentClass="bg-blue-50 text-blue-600"
+            />
+            <StatChip
+              icon={<Clock className="h-4 w-4" />}
+              label="퇴근예정"
+              value={trimToHHmm(myCard?.end_time) || '-'}
+              accentClass="bg-blue-50 text-blue-600"
+            />
+            <StatChip
+              icon={<LogIn className="h-4 w-4" />}
+              label="실제 출근"
+              value={fmtHHmm(myCard?.checked_in_at)}
+              accentClass="bg-green-50 text-green-600"
+            />
+            <StatChip
+              icon={<LogOut className="h-4 w-4" />}
+              label="실제 퇴근"
+              value={fmtHHmm(myCard?.checked_out_at)}
+              accentClass="bg-purple-50 text-purple-600"
+            />
+          </div>
+
+          {/* 3행: 액션 버튼 + 근무지 */}
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={openCheckInFlow}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm"
             >
               <LogIn className="h-4 w-4" />
               출근보고 작성
@@ -254,20 +404,51 @@ export default function HomePage() {
             {showCheckOutBtn && (
               <button
                 onClick={openCheckOutFlow}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 shadow-sm"
               >
                 <LogOut className="h-4 w-4" />
                 퇴근보고 작성
               </button>
             )}
-            <button
-              onClick={() => { fetchMyCard(); fetchLogs() }}
-              className="inline-flex items-center gap-1 px-2 py-2 text-sm text-gray-500 hover:text-gray-700"
-              title="새로고침"
-            >
-              <RefreshCw className="h-4 w-4" />
-            </button>
+            {showBreakBtn && (
+              myCard?.is_on_break ? (
+                <button
+                  onClick={() => triggerBreak('break-end')}
+                  disabled={breakBusy}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 disabled:opacity-50"
+                >
+                  <Coffee className="h-4 w-4" />
+                  휴게 종료
+                </button>
+              ) : (
+                <button
+                  onClick={() => triggerBreak('break-start')}
+                  disabled={breakBusy}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <Coffee className="h-4 w-4" />
+                  휴게 시작
+                </button>
+              )
+            )}
+            {showLocationSelect && (
+              <div className="ml-auto">
+                <LocationSelectInline
+                  current={myCard?.current_location ?? null}
+                  date={today}
+                  onChange={fetchMyCard}
+                />
+              </div>
+            )}
           </div>
+
+          {/* 휴게 중일 때 안내 라인 */}
+          {myCard?.is_on_break && (
+            <div className="mt-3 flex items-center gap-2 text-xs text-amber-700">
+              <Coffee className="h-3.5 w-3.5" />
+              <span>휴게 시작 {fmtHHmm(myCard.break_started_at)} — 종료 시 [휴게 종료] 버튼 클릭</span>
+            </div>
+          )}
         </div>
       </div>
 

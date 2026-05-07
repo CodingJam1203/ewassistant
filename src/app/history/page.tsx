@@ -91,8 +91,7 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
   const [org, setOrg] = useState<OrgDivision[]>([])
-  // 기본 진입은 "내 기록만 보기" — 사용자가 체크 해제하면 전체/팀 조회로 전환
-  const [filterMine, setFilterMine] = useState(true)
+  const [filterMine, setFilterMine] = useState(false)
   const [filterDivision, setFilterDivision] = useState('')
   const [filterTeam, setFilterTeam] = useState('')
   const [filterName, setFilterName] = useState('')

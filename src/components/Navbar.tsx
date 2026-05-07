@@ -34,7 +34,7 @@ export default async function Navbar() {
   const headerLabel = displayName || '게스트'
 
   const navLinks = [
-    { href: '/home',    label: '홈' },
+    { href: '/home',    label: 'MY PAGE' },
     { href: '/team',    label: '둘러보기' },
     { href: '/history', label: '제출 내역' },
     ...((isAdmin || isLeader) ? [{ href: '/work-hours', label: '근로시간 관리' }] : []),
