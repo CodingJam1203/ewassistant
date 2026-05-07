@@ -350,6 +350,8 @@ export default function TeamPage() {
   const [checkOutTarget,    setCheckOutTarget]    = useState<TeamMemberCard | null>(null)
   const [showHeaderCheckIn, setShowHeaderCheckIn] = useState(false)  // 우상단 출근보고 작성
   const [myProfile, setMyProfile] = useState<{ display_name: string | null; division: string | null; team: string | null } | null>(null)
+  // 프로필 로드 전엔 카드 fetch를 보류 — 빈 filter로 전체 카드가 잠깐 보이는 flash 방지
+  const [profileReady, setProfileReady] = useState(false)
 
   // 초기 hydration — org + profile을 병렬로 로드 (각각 직렬 useEffect보다 빠름)
   useEffect(() => {
@@ -370,6 +372,8 @@ export default function TeamPage() {
         setFilterDiv(prev => prev || profileData.division || '')
         setFilterTeam(prev => prev || profileData.team || '')
       }
+      // 성공/실패 무관 — fetch 보류 해제 (실패해도 빈 filter라도 다음 단계 진행)
+      setProfileReady(true)
     })
     return () => { cancelled = true }
   }, [])
@@ -390,7 +394,11 @@ export default function TeamPage() {
     }
   }, [date, filterDiv, filterTeam])
 
-  useEffect(() => { fetchCards() }, [fetchCards])
+  // profileReady가 true가 된 이후에만 fetch — 초기 빈 filter fetch 차단
+  useEffect(() => {
+    if (!profileReady) return
+    fetchCards()
+  }, [fetchCards, profileReady])
 
   const availableTeams = orgDivisions.find(d => d.name === filterDiv)?.teams ?? []
 
