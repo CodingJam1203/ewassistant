@@ -194,8 +194,15 @@ function buildInitialTimeline(
   initialEndTime?: string,
 ): WorkLocationTimeline {
   if (Array.isArray(initialTimeline) && initialTimeline.length > 0) {
-    // 마지막 항목이 expected_checkout이면 checkout으로 변환
     const arr = [...initialTimeline]
+    // 첫 항목 시각을 initialStartTime로 override — 사전 보고의 expected_work_time(09:00)이 아닌
+    // 실제 출근 시각(checked_in_at HH:MM = 09:30)을 퇴근보고 시작으로 사용.
+    // initialStartTime이 timeline 첫 항목과 다를 때만 (= 사전 보고 + 실제 출근 시각이 다른 케이스)
+    const overrideStart = trimToHHmm(initialStartTime)
+    if (overrideStart && arr[0] && arr[0].kind === 'work_location' && arr[0].startTime !== overrideStart) {
+      arr[0] = { ...arr[0], startTime: overrideStart }
+    }
+    // 마지막 항목이 expected_checkout이면 checkout으로 변환
     const last = arr[arr.length - 1]
     if (last.kind === 'expected_checkout') {
       arr[arr.length - 1] = { kind: 'checkout', startTime: last.startTime }
