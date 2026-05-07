@@ -221,6 +221,8 @@ export async function POST(request: Request) {
       workContent: body.workContent,
       breakReason: body.breakReason,
       leaveMinutes,
+      // 종일 휴가면 actual_work_time을 0으로 (default 09-18 - 480 = 60 잔여 버그 방지)
+      isFullDayLeave: leaveAllDay,
       // leaveIncludesLunch 자동 처리 안 함 — 사용자가 차감시간 직접 조정
     })
 

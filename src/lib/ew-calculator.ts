@@ -22,6 +22,12 @@ export interface EwInput {
    * 미지정 시 false.
    */
   leaveIncludesLunch?: boolean;
+  /**
+   * 종일 휴가 여부 — true이면 actual_work_time을 0으로 강제.
+   * 종일 휴가 default span(09:00~18:00) 540분 − leave 480분 = 60분 잔여 버그 방지.
+   * 미지정 시 false.
+   */
+  isFullDayLeave?: boolean;
 }
 
 export interface EwCalculationResult {
@@ -245,14 +251,17 @@ export function calculateEw(input: EwInput): EwCalculationResult {
   // 정책 변경(2026.05): 점심 자동 차감 제거.
   // - 실근무: (퇴근 - 출근) - 휴게 - 휴가
   // - EW 종료/간주근로 종료: ewStart + 실근무 + 휴게 (= 사용자 입력 출퇴근 시각 그대로)
-  const actualWorkMinutes = getActualWorkMinutes(
-    startMinutes,
-    endMinutes,
-    breakMinutes,
-    deductionMinutes,
-    leaveMinutes,
-    leaveIncludesLunch,
-  );
+  // - 종일 휴가: actual_work_time을 0으로 강제 (default span 09:00~18:00 - 휴가 480분 = 60분 잔여 버그 방지)
+  const actualWorkMinutes = input.isFullDayLeave
+    ? 0
+    : getActualWorkMinutes(
+        startMinutes,
+        endMinutes,
+        breakMinutes,
+        deductionMinutes,
+        leaveMinutes,
+        leaveIncludesLunch,
+      );
   const actualWorkText = formatDurationHHMM(actualWorkMinutes);
 
   const ewStartMinutes = getEwStartMinutes(startMinutes);

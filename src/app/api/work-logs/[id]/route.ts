@@ -275,6 +275,8 @@ export async function PATCH(
       workContent: body.workContent,
       breakReason: body.breakReason,
       leaveMinutes: leaveMinutesEff,
+      // 종일 휴가면 actual_work_time을 0으로
+      isFullDayLeave: leaveAllDay,
       // leaveIncludesLunch 자동 처리 안 함 — 사용자가 차감시간 직접 조정
     })
 

@@ -443,6 +443,7 @@ export default function WorkLogForm({
           workContent: formValues.workContent,
           breakReason: showBreakReason ? formValues.breakReason : undefined,
           leaveMinutes: leaveMinutesTotal,
+          isFullDayLeave: isAllDay,
           // leaveIncludesLunch는 사용자가 차감시간을 직접 조정하므로 항상 false (점심 자동 차감 그대로)
         })
         onCalculate(result, null)
@@ -501,6 +502,7 @@ export default function WorkLogForm({
         workContent: data.workContent,
         breakReason: showBreakReason ? data.breakReason : undefined,
         leaveMinutes: submittedLeaveMinutes,
+        isFullDayLeave: submittedIsAllDay,
         // leaveIncludesLunch 자동 처리 안 함 — 사용자가 차감시간 직접 조정
       })
 

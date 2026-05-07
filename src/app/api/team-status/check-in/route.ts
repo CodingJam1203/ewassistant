@@ -187,6 +187,8 @@ export async function POST(request: Request) {
         workLocation: locationSummary,
         workContent,
         leaveMinutes,
+        // 종일 휴가면 actual_work_time을 0으로 (default span 09-18 - leave 480 = 60분 잔여 버그 방지)
+        isFullDayLeave: isAllDayLeave,
         // leaveIncludesLunch 자동 처리 안 함 — 사용자가 차감시간 직접 조정
       })
 
