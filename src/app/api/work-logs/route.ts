@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateEw } from '@/lib/ew-calculator'
 import { requireActiveUser } from '@/lib/admin-check'
@@ -456,7 +455,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized or Inactive account' }, { status: 403 })
     }
 
-    const supabase = await createClient()
+    // 조회 정책: 모든 active user가 조직 전체 work_logs 조회 가능.
+    // RLS 우회를 위해 adminClient 사용 (편집/삭제는 별도 엔드포인트에서 본인/admin 검증).
+    const adminClient = createAdminClient()
 
     const { searchParams } = new URL(request.url)
     const mine = searchParams.get('mine') === 'true'
@@ -467,7 +468,7 @@ export async function GET(request: Request) {
     const limitParam = searchParams.get('limit')
     const limit = limitParam ? Math.min(Math.max(Number(limitParam) || 0, 1), 500) : 200
 
-    let query = supabase
+    let query = adminClient
       .from('work_logs')
       .select('*')
       .eq('is_deleted', false)

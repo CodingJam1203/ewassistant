@@ -2,25 +2,27 @@
  * GET /api/work-log-submissions
  *
  * 쿼리:
- *   mine=true               — 본인만 (default: 권한 따라)
- *   division                — 본부 필터 (admin/leader)
- *   team                    — 팀 필터 (admin/leader)
- *   name                    — 이름 부분일치 (admin/leader)
+ *   mine=true               — 본인만 (My Page용)
+ *   division                — 본부 필터
+ *   team                    — 팀 필터
+ *   name                    — 이름 부분일치
  *   from, to                — target_date 범위 (YYYY-MM-DD)
  *   report_type             — check_in / check_out / check_in_update / check_out_update
  *   updated_only=true       — _update 만 (수정 이력만)
  *   limit                   — 최대 1000, default 200
  *
- * 권한:
- *   admin   — 전체. 필터 자유.
- *   leader  — 본인 팀(또는 본부장이면 본인 본부)으로 자동 제한.
- *   user    — 본인만.
+ * 권한 (조회):
+ *   모든 active user — 전체 조직 조회 가능 (필터 자유). 회사 내부 자유 열람 정책.
+ *   mine=true 명시 시에만 본인 row로 좁힘 (My Page용 의도).
+ *
+ * 권한 (수정/삭제):
+ *   별도 엔드포인트(/api/work-logs/[id])에서 본인 또는 admin만.
  *
  * 응답: { rows: SubmissionRow[] }
  */
 
 import { NextResponse } from 'next/server'
-import { requireActiveUser, requireLeaderOrAdmin } from '@/lib/admin-check'
+import { requireActiveUser } from '@/lib/admin-check'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function GET(request: Request) {
@@ -43,8 +45,6 @@ export async function GET(request: Request) {
     const limit = Math.min(1000, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 200))
 
     const adminClient = createAdminClient()
-    const leaderScope = await requireLeaderOrAdmin()
-    const isLeaderOrAdmin = !!leaderScope
 
     let query = adminClient
       .from('work_log_submissions')
@@ -65,21 +65,12 @@ export async function GET(request: Request) {
       .order('submitted_at', { ascending: false })
       .limit(limit)
 
-    // ─── 권한 분기 ────────────────────────────────────────────────
-    if (mine || !isLeaderOrAdmin) {
-      // 본인만
+    // ─── 권한 분기 (조회는 전체 공개 — 회사 내부 자유 열람) ──────
+    if (mine) {
+      // My Page에서 본인만 조회용
       query = query.eq('user_email', user.email!)
-    } else if (leaderScope!.scope.kind === 'team') {
-      // leader (팀)
-      query = query.eq('team', leaderScope!.scope.team!)
-      if (leaderScope!.scope.division) {
-        query = query.eq('division', leaderScope!.scope.division)
-      }
-    } else if (leaderScope!.scope.kind === 'division') {
-      // leader (본부장)
-      query = query.eq('division', leaderScope!.scope.division!)
     } else {
-      // admin
+      // 누구든 조직 전체 조회 가능. 필터 자유.
       if (filterDivision) query = query.eq('division', filterDivision)
       if (filterTeam)     query = query.eq('team',     filterTeam)
     }
