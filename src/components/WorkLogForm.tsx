@@ -404,12 +404,12 @@ export default function WorkLogForm({
       }
     }
     if (prevWorkTypeRef.current !== wt) {
-      // 공휴일근로로 전환되면 break 0:00으로
+      // 공통 룰: 자동 누적값이 있으면 그 값 우선
+      // - 공휴일근로 진입: 자동값 없으면 0:00 (점심 가정 제거)
+      // - 공휴일근로 이탈: 자동값 없으면 1:00 (점심 가정)
       if (wt === '공휴일근로 등록') {
-        setValue('breakTime', '00:00')
-      }
-      // 공휴일근로 → 다른 유형 전환 시엔 default 1:00 (자동값이 있으면 그것 우선)
-      else if (prevWorkTypeRef.current === '공휴일근로 등록') {
+        setValue('breakTime', breakAutoRoundedMinutes > 0 ? breakAutoHHmm : '00:00')
+      } else if (prevWorkTypeRef.current === '공휴일근로 등록') {
         setValue('breakTime', breakAutoRoundedMinutes > 0 ? breakAutoHHmm : '01:00')
       }
       prevWorkTypeRef.current = wt
