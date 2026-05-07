@@ -390,6 +390,32 @@ export default function WorkLogForm({
     }
   }, [userName, setValue, isEditing])
 
+  // ── 공휴일근로 선택 시 휴게시간 default 0:00으로 — 점심 자동 가정 안 함 ───────
+  // (수정 모드는 editingLog의 break_time을 그대로 보존, 사용자가 명시적으로 변경할 때만)
+  const prevWorkTypeRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const wt = formValues.workTypeLabel
+    if (isEditing) {
+      // 수정 모드는 첫 진입 시 editingLog 값으로 prefill되어 있고,
+      // 사용자가 직접 work type을 바꾸기 전엔 break도 건드리지 않음.
+      if (prevWorkTypeRef.current === undefined) {
+        prevWorkTypeRef.current = wt
+        return
+      }
+    }
+    if (prevWorkTypeRef.current !== wt) {
+      // 공휴일근로로 전환되면 break 0:00으로
+      if (wt === '공휴일근로 등록') {
+        setValue('breakTime', '00:00')
+      }
+      // 공휴일근로 → 다른 유형 전환 시엔 default 1:00 (자동값이 있으면 그것 우선)
+      else if (prevWorkTypeRef.current === '공휴일근로 등록') {
+        setValue('breakTime', breakAutoRoundedMinutes > 0 ? breakAutoHHmm : '01:00')
+      }
+      prevWorkTypeRef.current = wt
+    }
+  }, [formValues.workTypeLabel, setValue, breakAutoRoundedMinutes, breakAutoHHmm, isEditing])
+
   // ── 이름 필드 변경 시 debounce로 display_name 자동 업데이트 (800ms) ────────
   // 수정 모드에서는 historical record 이름을 바꾼다고 사용자 프로필을 갱신하면 안 되므로 스킵
   useEffect(() => {
