@@ -144,23 +144,27 @@ export function getEwStartMinutes(startMinutes: number): number {
 }
 
 // 7.7 EW 종료시간 AH
-// 정책 변경(2026.05): 점심 자동 차감 제거 → EW 종료 = ewStart + 실근무 + 휴게
-//   (휴게에 점심이 포함되어 있어 이전과 동일한 결과를 사용자가 명시적으로 만듦)
+// 공식: EW 종료 = 실제 퇴근 - 휴게
+//   - 사용자 입력 그대로 빼는 단순 룰. 자동 점심 차감 없음.
+//   - 휴게는 사용자가 입력한 만큼만 빠짐.
 export function getEwEndMinutes(
-  ewStartMinutes: number,
-  actualWorkMinutes: number,
-  breakMinutes: number
+  _ewStartMinutes: number,
+  _actualWorkMinutes: number,
+  breakMinutes: number,
+  endMinutes: number,
 ): number {
-  return ewStartMinutes + actualWorkMinutes + breakMinutes;
+  return endMinutes - breakMinutes
 }
 
 // 7.8 간주근로용 AC
+// 동일하게 endMinutes - breakMinutes 사용 (간주근로도 사용자 입력 그대로 반영)
 export function getAcMinutes(
-  startMinutes: number,
-  actualWorkMinutes: number,
-  breakMinutes: number
+  _startMinutes: number,
+  _actualWorkMinutes: number,
+  breakMinutes: number,
+  endMinutes: number,
 ): number {
-  return startMinutes + actualWorkMinutes + breakMinutes;
+  return endMinutes - breakMinutes
 }
 
 // 7.9 간주근로 EW 값 AB
@@ -265,11 +269,11 @@ export function calculateEw(input: EwInput): EwCalculationResult {
   const actualWorkText = formatDurationHHMM(actualWorkMinutes);
 
   const ewStartMinutes = getEwStartMinutes(startMinutes);
-  const ewEndMinutes = getEwEndMinutes(ewStartMinutes, actualWorkMinutes, breakMinutes);
+  const ewEndMinutes = getEwEndMinutes(ewStartMinutes, actualWorkMinutes, breakMinutes, endMinutes);
 
   let deemedWorkEwValue: string | null = null;
   if (workTypeCode === 2) {
-    const acMinutes = getAcMinutes(startMinutes, actualWorkMinutes, breakMinutes);
+    const acMinutes = getAcMinutes(startMinutes, actualWorkMinutes, breakMinutes, endMinutes);
     deemedWorkEwValue = getDeemedWorkEwValue(actualWorkMinutes, acMinutes, ewEndMinutes);
   }
 
