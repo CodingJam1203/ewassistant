@@ -50,18 +50,43 @@ export async function GET(
     if (error || !log) {
       return NextResponse.json({ error: '기록을 찾을 수 없습니다.' }, { status: 404 })
     }
+
+    // soft-delete된 log 자동 대체:
+    //   퇴근보고 재제출 시 옛 work_log는 is_deleted=true로 soft-delete되고 새 row가 생성됨.
+    //   submission_log의 옛 row들이 deleted log_id를 가리키는 경우, 같은 사용자·날짜의
+    //   최신 활성 log로 silently 대체해서 사용자가 매끄럽게 수정 가능하게 함.
+    let activeLog = log
     if (log.is_deleted) {
-      return NextResponse.json({ error: '삭제된 기록입니다.' }, { status: 410 })
+      const targetDate = (log.leave_date as string | null)
+        ?? (log.expected_start_date as string | null)
+      if (targetDate && log.user_email) {
+        const { data: replacement } = await adminClient
+          .from('work_logs')
+          .select('*')
+          .eq('user_email', log.user_email)
+          .eq('is_deleted', false)
+          .or(`leave_date.eq.${targetDate},expected_start_date.eq.${targetDate}`)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (replacement) {
+          activeLog = replacement
+        } else {
+          return NextResponse.json({ error: '삭제된 기록입니다.' }, { status: 410 })
+        }
+      } else {
+        return NextResponse.json({ error: '삭제된 기록입니다.' }, { status: 410 })
+      }
     }
 
     // 권한: 본인이거나 admin/leader만 — RLS 우회 admin client 쓰니 여기서 가드
-    const isOwner = log.user_id === user.id
+    const isOwner = activeLog.user_id === user.id
     const adminUser = await requireAdmin()
     if (!isOwner && !adminUser) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    return NextResponse.json(log)
+    return NextResponse.json(activeLog)
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[GET /api/work-logs/[id]]', message)
