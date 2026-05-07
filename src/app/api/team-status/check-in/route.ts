@@ -91,10 +91,43 @@ export async function POST(request: Request) {
       )
     }
 
-    let workLogId: string | null = body.work_log_id ?? null
+    // ── 사전 출근보고 탐지 ─────────────────────────────────────────────────
+    // 룰:
+    //   - work_logs 중 expected_start_date = today 인 row가 이미 있으면 = 사전 보고
+    //   - 사전 보고가 있으면 expected_*는 절대 손대지 않음 (사용자가 모달에서 만져도 무시)
+    //   - 사전 보고가 없으면 body값으로 새 work_log 생성 (지금 로직)
+    //   - 사용자 명시적 expected 변경은 카드 [수정] 버튼 → PATCH /api/work-logs/{id} 에서만
+    type PriorReport = {
+      id: string
+      expected_work_time: string | null
+      expected_work_location: string | null
+      expected_work_location_timeline: WorkLocationTimeline | null
+      expected_leave_timeline: LeaveTimeline | null
+    }
+    let existingPriorReport: PriorReport | null = null
+    if (!body.work_log_id) {
+      const { data: prior } = await adminClient
+        .from('work_logs')
+        .select('id, expected_work_time, expected_work_location, expected_work_location_timeline, expected_leave_timeline')
+        .eq('user_email', user.email!)
+        .eq('expected_start_date', date)
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      existingPriorReport = (prior as unknown as PriorReport | null) ?? null
+    }
+
+    let workLogId: string | null =
+      body.work_log_id ?? existingPriorReport?.id ?? null
+
+    // event_type 분기를 위해 "이번 호출에서 새 보고를 만들 예정인지" 미리 캡처
+    const willCreateNewLog = !workLogId
 
     // timeline 기준 출근 시각 ISO 계산 (KST → UTC 변환).
-    // 1) body.checked_in_at이 명시적으로 들어왔으면 그대로 사용 (출근 버튼 흐름)
+    //   "실제 출근 제출값" — 사용자가 모달에서 입력한 시각이 곧 actual.
+    //   사전 보고 있는 경우에도 이 값은 user input 그대로 사용 (실제 출근에만 반영, expected는 보존).
+    // 1) body.checked_in_at이 명시적으로 들어왔으면 그대로 사용
     // 2) 그렇지 않고 timeline 첫 항목이 있으면 그 시각을 KST 기준 ISO로 변환
     // 3) 둘 다 없으면 제출 시각으로 fallback
     const firstForTime = timeline ? firstWorkLocation(timeline) : null
@@ -104,6 +137,7 @@ export async function POST(request: Request) {
             ? new Date(`${date}T${firstForTime.startTime}:00+09:00`).toISOString()
             : submissionNow)
 
+    // 사전 보고가 있거나 body.work_log_id가 명시되면 INSERT 건너뜀 (expected_* 보존)
     if (!workLogId) {
       const breakTime    = body.break_time    ?? '00:00'
       const workContent  = body.work_content  ?? ''
@@ -269,7 +303,7 @@ export async function POST(request: Request) {
       user_email:      user.email!,
       user_profile_id: profile?.id ?? null,
       work_log_id:     workLogId,
-      event_type:      workLogId !== body.work_log_id ? 'report_created_from_check_in' : 'check_in',
+      event_type:      willCreateNewLog ? 'report_created_from_check_in' : 'check_in',
       event_value:     { location: currentLocation, declared_check_in_at: checkedInAt },
       event_at:        submissionNow,
       created_by:      user.email!,
