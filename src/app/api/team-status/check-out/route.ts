@@ -13,7 +13,6 @@ export async function POST(request: Request) {
 
     const body = await request.json()
     const date: string = body.date ?? getKstTodayDateString()
-    const now = body.checked_out_at ?? new Date().toISOString()
     const adminClient = createAdminClient()
 
     const { data: profile } = await adminClient
@@ -29,6 +28,37 @@ export async function POST(request: Request) {
       .eq('work_date', date)
       .eq('user_email', user.email!)
       .maybeSingle()
+
+    // 퇴근 시각 결정 — 30분 단위 보장:
+    //   1) body.checked_out_at 명시 → 그대로 사용
+    //   2) 퇴근보고가 직전에 작성됐으면 (work_logs.end_time) → 그 시각을 KST 기준 ISO로 변환
+    //   3) 둘 다 없으면 현재 시각 (legacy fallback)
+    let now: string = body.checked_out_at ?? ''
+    if (!now) {
+      // 가장 최근 퇴근보고 work_log 조회 (오늘 leave_date)
+      const { data: log } = await adminClient
+        .from('work_logs')
+        .select('end_time')
+        .eq('user_email', user.email!)
+        .eq('leave_date', date)
+        .eq('is_deleted', false)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const endHHmm = (log?.end_time as string | null)?.slice(0, 5)
+      if (endHHmm) {
+        // "HH:mm" → ISO (KST 기준). 24시 이상(예: "26:00")이면 다음 날로 환산.
+        const [hStr, mStr] = endHHmm.split(':')
+        const h = parseInt(hStr, 10)
+        const m = parseInt(mStr, 10) || 0
+        const baseDate = new Date(`${date}T00:00:00+09:00`)
+        baseDate.setUTCHours(baseDate.getUTCHours() + h)
+        baseDate.setUTCMinutes(baseDate.getUTCMinutes() + m)
+        now = baseDate.toISOString()
+      } else {
+        now = new Date().toISOString()
+      }
+    }
 
     // daily_work_status upsert — 출근 기록이 없어도 퇴근 처리
     const { data: daily, error } = await adminClient
