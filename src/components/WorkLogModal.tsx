@@ -187,9 +187,10 @@ export default function WorkLogModal({
                     onSubmitStateChange={handleFormStateChange}
                   />
                 </div>
-                <div className="lg:col-span-1 space-y-4">
+                <div className="lg:col-span-1 space-y-4 lg:sticky lg:top-4 lg:self-start">
                   <CalculationPreview result={calculationResult} error={calculationError} />
-                  {/* PC: 계산 결과 패널 바로 아래에 제출 버튼. 모바일은 폼 내부 fixed 바. */}
+                  {/* PC: 계산 결과 패널 바로 아래에 제출 버튼. 모바일은 폼 내부 fixed 바.
+                      sticky로 우측 컬럼 전체를 viewport top에 고정 → 폼 스크롤해도 항상 보임 */}
                   <div className="hidden lg:block">{DesktopSubmitButton}</div>
                 </div>
               </div>
