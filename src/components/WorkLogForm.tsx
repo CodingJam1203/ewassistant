@@ -179,6 +179,11 @@ interface WorkLogFormProps {
   editScope?: 'check_in' | 'check_out'
   onCalculate: (result: EwCalculationResult | null, error: string | null) => void
   onSubmitSuccess: () => void
+  /**
+   * 폼 제출 진행/에러 상태를 부모에 전달 — 외부 제출 버튼(모달 우측·하단 플로팅)에서 spinner/에러 표시용.
+   * 미설정 시에도 폼은 정상 동작.
+   */
+  onSubmitStateChange?: (state: { isSubmitting: boolean; submitError: string | null }) => void
 }
 
 /** 'HH:mm[:ss]' → 'HH:mm' (5자) */
@@ -256,6 +261,7 @@ export default function WorkLogForm({
   editScope,
   onCalculate,
   onSubmitSuccess,
+  onSubmitStateChange,
 }: WorkLogFormProps) {
   const isEditing = !!editingLog
   // 영역별 표시 분기 — undefined면 전부 표시
@@ -290,6 +296,11 @@ export default function WorkLogForm({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [showEwPopup, setShowEwPopup] = useState(false)
+
+  // 외부(모달 우측 컬럼·하단 플로팅) 제출 버튼이 spinner/에러를 표시할 수 있도록 부모에 통지
+  useEffect(() => {
+    onSubmitStateChange?.({ isSubmitting, submitError })
+  }, [isSubmitting, submitError, onSubmitStateChange])
   const nameDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 최초 자동완성 여부 추적 (userName prop이 로드되면 한 번만 setValue)
   const nameInitialized = useRef(false)
@@ -624,7 +635,7 @@ export default function WorkLogForm({
           </div>
         </div>
       )}
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-8 bg-white p-6 sm:p-8 rounded-lg border border-gray-200 shadow-sm">
+      <form id="work-log-form" onSubmit={handleSubmit(onSubmit)} className="space-y-8 bg-white p-6 sm:p-8 rounded-lg border border-gray-200 shadow-sm pb-24 lg:pb-8">
 
       {/* 1. 기본 정보 섹션 */}
       <div>
@@ -905,11 +916,13 @@ export default function WorkLogForm({
         </div>
       )}
 
-      <div className="pt-5">
+      {/* PC에서는 모달이 우측 컬럼에 [수정하기/제출하고 복사하기] 버튼을 별도로 렌더링.
+          모바일에서는 화면 하단 플로팅 바로 표시 (lg 이상에서는 숨김). */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 px-4 py-3 bg-white border-t border-gray-200 shadow-[0_-4px_8px_-2px_rgba(0,0,0,0.05)]">
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full flex justify-center items-center py-4 px-4 border border-transparent rounded-md shadow-sm text-base font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+          className="w-full flex justify-center items-center py-3.5 px-4 border border-transparent rounded-md shadow-sm text-base font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
         >
           {isSubmitting ? (
             <Loader2 className="animate-spin h-5 w-5 mr-2" />

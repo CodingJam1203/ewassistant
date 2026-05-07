@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { X } from 'lucide-react'
+import { X, Copy, Loader2 } from 'lucide-react'
 import WorkLogForm from '@/components/WorkLogForm'
 import CalculationPreview from '@/components/CalculationPreview'
 import { EwCalculationResult } from '@/lib/ew-calculator'
@@ -56,6 +56,8 @@ export default function WorkLogModal({
   const [calculationResult, setCalculationResult] = useState<EwCalculationResult | null>(null)
   const [calculationError, setCalculationError]   = useState<string | null>(null)
   const [checkingOut, setCheckingOut]             = useState(false)
+  // 폼 제출 진행 상태 — PC 외부 버튼(우측 컬럼) 표시용
+  const [formSubmitting, setFormSubmitting]       = useState(false)
 
   const handleCalculate = useCallback(
     (result: EwCalculationResult | null, error: string | null) => {
@@ -63,6 +65,30 @@ export default function WorkLogModal({
       setCalculationError(prev => prev === error ? prev : error)
     },
     []
+  )
+
+  const handleFormStateChange = useCallback(
+    (s: { isSubmitting: boolean; submitError: string | null }) => {
+      setFormSubmitting(s.isSubmitting)
+    },
+    []
+  )
+
+  const submitButtonLabel = isEditing
+    ? (formSubmitting ? '수정 중...' : '수정하기')
+    : (formSubmitting ? '제출 중...' : '제출하고 복사하기')
+
+  /** PC 외부 제출 버튼 (form="work-log-form" attribute로 폼 submit 트리거) */
+  const DesktopSubmitButton = (
+    <button
+      type="submit"
+      form="work-log-form"
+      disabled={formSubmitting}
+      className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-sm text-base font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+    >
+      {formSubmitting ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <Copy className="h-5 w-5 mr-2" />}
+      {submitButtonLabel}
+    </button>
   )
 
   // WorkLogForm 제출 성공 → (신규 모드면) check-out API 호출 → 모달 닫기
@@ -138,7 +164,10 @@ export default function WorkLogModal({
                   editScope={editScope}
                   onCalculate={handleCalculate}
                   onSubmitSuccess={handleSubmitSuccess}
+                  onSubmitStateChange={handleFormStateChange}
                 />
+                {/* PC: 폼 아래에 제출 버튼 (우측 컬럼이 없는 케이스). 모바일은 폼 내부 fixed 바. */}
+                <div className="hidden lg:block mt-4">{DesktopSubmitButton}</div>
               </div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -155,10 +184,13 @@ export default function WorkLogModal({
                     editScope={editScope}
                     onCalculate={handleCalculate}
                     onSubmitSuccess={handleSubmitSuccess}
+                    onSubmitStateChange={handleFormStateChange}
                   />
                 </div>
-                <div className="lg:col-span-1">
+                <div className="lg:col-span-1 space-y-4">
                   <CalculationPreview result={calculationResult} error={calculationError} />
+                  {/* PC: 계산 결과 패널 바로 아래에 제출 버튼. 모바일은 폼 내부 fixed 바. */}
+                  <div className="hidden lg:block">{DesktopSubmitButton}</div>
                 </div>
               </div>
             )

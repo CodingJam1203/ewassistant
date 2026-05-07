@@ -279,7 +279,10 @@ export default function HomePage() {
   // ── 렌더 ─────────────────────────────────────────────────────────
   const userName = myCard?.display_name ?? null
   const isCheckedIn = !!(myCard?.daily_status_id && !myCard?.checked_out_at)
-  const showCheckOutBtn = isCheckedIn
+  // 퇴근보고는 출근 여부 무관하게 항상 가능 (사후 퇴근 / 출근 누락 케이스 지원).
+  // 단 이미 퇴근 처리된 상태면 숨김.
+  const showCheckOutBtn = !myCard?.checked_out_at
+  // 휴게 / 근무지 변경은 출근한 상태에서만 의미가 있어 isCheckedIn 유지
   const showBreakBtn = isCheckedIn
   const showLocationSelect = isCheckedIn
 
