@@ -590,7 +590,7 @@ export default function HomePage() {
                 aria-pressed={finalView === 'list'}
               >
                 <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
-                일자별
+                리스트
               </button>
               <button
                 type="button"
