@@ -133,9 +133,10 @@ export default function MyHistoryCalendar({ onEditWorkLog }: MyHistoryCalendarPr
   /**
    * 데이터 fetch — submissions와 calendar를 독립적으로 처리.
    *
-   * - submissions(필수): 실패 시 에러 배너 표시. 그래도 calendar는 계속 시도.
-   * - calendar(선택): 실패 시 조용히 무시. 시트 연동 비활성/장애 시에도 본 캘린더는 동작해야 함.
-   * - 한쪽 실패가 다른 쪽 fetch를 막지 않도록 Promise.all 안 씀.
+   * - submissions(필수): 실패 시 에러 배너. 단, **이미 데이터가 있으면 silent**
+   *   (이전 성공 fetch의 결과 + 새 시도 실패 → 배너 띄우면 사용자 혼란).
+   * - calendar(선택): 실패 시 조용히 무시.
+   * - Promise.all 안 씀 — 한쪽 실패가 다른 쪽 fetch를 막지 않게.
    */
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -158,10 +159,18 @@ export default function MyHistoryCalendar({ onEditWorkLog }: MyHistoryCalendarPr
     } catch (err: unknown) {
       const m = err instanceof Error ? err.message : String(err)
       console.warn('[calendar] submissions fetch failed:', m)
-      setError(`제출 이력 조회 실패 — 네트워크/세션 상태를 확인해주세요. (${m})`)
+      // 이미 데이터를 한 번 가져왔다면 새 fetch 실패는 silent — 기존 화면 그대로 유지.
+      // (Vercel cold start, 일시적 세션 갱신 등에서 transient하게 실패할 수 있어 사용자한테
+      //  굳이 알리지 않음. 진짜로 데이터 0건이면 배너 노출.)
+      setRows(prev => {
+        if (prev.length === 0) {
+          setError(`제출 이력 조회 실패 — 네트워크/세션 상태를 확인해주세요. (${m})`)
+        }
+        return prev
+      })
     }
 
-    // 2) Google 캘린더 일정 (best-effort) — 실패해도 N-Click 데이터는 그대로 보여줌
+    // 2) Google 캘린더 일정 (best-effort)
     try {
       const res = await fetch(
         `/api/calendar/range?from=${fmtDate(gridStart)}&to=${fmtDate(gridEnd)}`,
@@ -441,7 +450,7 @@ function DayListItem({ data, onClick }: { data: DayData; onClick: () => void }) 
 
 // ─── 셀 표시 항목 빌드 ────────────────────────────────────────────────────────
 
-type ItemTone = 'primary' | 'success' | 'warning' | 'info' | 'neutral'
+type ItemTone = 'primary' | 'planned' | 'success' | 'warning' | 'info' | 'neutral'
 
 interface DisplayItem {
   tone: ItemTone
@@ -450,8 +459,20 @@ interface DisplayItem {
   title?: string
 }
 
+/**
+ * tone별 chip 스타일.
+ *
+ * 시각적 위계 (사용자가 한 눈에 구분되도록 채움/외곽선/배경 톤 차별화):
+ *   - primary  : 솔리드 채움 + 진한 텍스트  → "확정된 실제 데이터" (실제 출퇴근)
+ *   - planned  : 점선 외곽선 + 옅은 텍스트  → "아직 예정만" (출근예정)
+ *   - warning  : 솔리드 노랑              → N-Click 휴가
+ *   - info     : 솔리드 옅은 파랑          → Google 캘린더 일정
+ *   - success  : 솔리드 초록              → 향후 확장용
+ *   - neutral  : 회색                    → 정보 없음
+ */
 const ITEM_STYLE: Record<ItemTone, string> = {
   primary: 'bg-primary-50 text-primary-700 border border-primary-200',
+  planned: 'bg-transparent text-text-secondary border border-dashed border-border-strong',
   success: 'bg-success-bg text-success-text border border-success-border',
   warning: 'bg-warning-bg text-warning-text border border-warning-border',
   info:    'bg-info-bg text-info-text border border-info-border',
@@ -506,6 +527,7 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
     })
   } else if (ci) {
     // 3) 출근예정만 (사전 출근보고) — 시작/종료 모두 표시
+    //    아직 실제 출퇴근이 없는 상태라 점선 외곽선(planned tone)으로 시각 구분.
     const eStart = trimToHHmm(ci.expected_work_time ?? '')
     const eEnd   = trimToHHmm(extractCheckoutTime(ci.expected_work_location_timeline) ?? '')
     const eLoc   = ci.expected_work_location ?? null
@@ -514,7 +536,7 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
         ? `${eStart}~${eEnd}`
         : (eStart || eEnd || '-')
       out.push({
-        tone: 'info',
+        tone: 'planned',
         icon: <Clock className="h-3 w-3" aria-hidden />,
         text: `예정 ${range}${eLoc ? ' ' + eLoc : ''}`,
         title: '출근예정',

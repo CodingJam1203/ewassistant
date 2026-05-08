@@ -323,7 +323,7 @@ export default function HomePage() {
           date={today}
           userName={userName}
           onClose={() => setShowCheckIn(false)}
-          onSuccess={() => { setShowCheckIn(false); fetchMyCard(); fetchLogs() }}
+          onSuccess={() => { setShowCheckIn(false); fetchMyCard() }}
         />
       )}
 
@@ -343,7 +343,7 @@ export default function HomePage() {
           initialEndTime={trimToHHmm(checkOutTarget.end_time) || undefined}
           resubmitWorkLogId={checkOutTarget.work_log_id ?? null}
           onClose={() => setCheckOutTarget(null)}
-          onSuccess={() => { setCheckOutTarget(null); fetchMyCard(); fetchLogs() }}
+          onSuccess={() => { setCheckOutTarget(null); fetchMyCard() }}
         />
       )}
 
@@ -372,7 +372,7 @@ export default function HomePage() {
               variant="ghost"
               size="sm"
               iconOnly
-              onClick={() => { fetchMyCard(); fetchLogs() }}
+              onClick={() => { fetchMyCard() }}
               title="새로고침"
               aria-label="새로고침"
             >
