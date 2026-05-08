@@ -263,8 +263,23 @@ export async function GET(request: Request) {
             ? (workLog.expected_work_time as string | null) ?? null
             : (workLog.start_time as string | null))
         : null
-      const endTime = workLog && !isExpectedOnly
-        ? (workLog.end_time as string | null)
+      // 퇴근예정: isExpectedOnly면 expected_work_location_timeline의 마지막 checkout 항목 시각,
+      //          아니면 work_log.end_time
+      const expectedTimelineEndItem = (() => {
+        const tl = workLog?.expected_work_location_timeline as
+          | Array<{ kind?: string; startTime?: string }>
+          | null | undefined
+        if (!Array.isArray(tl) || tl.length === 0) return null
+        const last = tl[tl.length - 1]
+        if (last?.kind === 'expected_checkout' || last?.kind === 'checkout') {
+          return last.startTime ?? null
+        }
+        return null
+      })()
+      const endTime = workLog
+        ? (isExpectedOnly
+            ? (expectedTimelineEndItem ?? null)
+            : (workLog.end_time as string | null))
         : null
       const workLocation = workLog
         ? (isExpectedOnly
