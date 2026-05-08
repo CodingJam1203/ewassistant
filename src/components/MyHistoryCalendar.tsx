@@ -112,8 +112,10 @@ export default function MyHistoryCalendar({ onEditWorkLog }: MyHistoryCalendarPr
   const [vacationOpen, setVacationOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
 
-  const monthStart = startOfMonth(cursor)
-  const monthEnd   = endOfMonth(cursor)
+  // useMemo로 안정화 — 매 렌더마다 새 Date 객체가 만들어지면
+  // fetchAll의 useCallback이 재생성되어 useEffect가 무한 재실행됨.
+  const monthStart = useMemo(() => startOfMonth(cursor), [cursor])
+  const monthEnd   = useMemo(() => endOfMonth(cursor),   [cursor])
   const monthLabel = format(cursor, 'yyyy년 M월', { locale: ko })
 
   // 그리드: 월 시작 일요일부터 월 종료 토요일까지 (보통 35~42칸)
