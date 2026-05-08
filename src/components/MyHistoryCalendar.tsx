@@ -255,7 +255,12 @@ export default function MyHistoryCalendar({ onEditWorkLog }: MyHistoryCalendarPr
         ))}
       </div>
 
-      {/* 휴가 등록 모달 */}
+      {/* 모달은 상호 배타 — vacationOpen이면 상세 모달 숨김 (둘 겹쳐 보이는 문제 방지).
+          상세 → "이 날 휴가 등록" 클릭 시 selectedDate는 그대로 둬서 prefill에 사용,
+          휴가 취소 시 상세 모달이 자연스럽게 다시 나타나고,
+          휴가 등록 성공 시 selectedDate도 함께 초기화해서 모두 닫는다. */}
+
+      {/* 휴가 등록 모달 (우선) */}
       {vacationOpen && (
         <VacationRegisterModal
           initialStartDate={selectedDate ?? undefined}
@@ -263,13 +268,14 @@ export default function MyHistoryCalendar({ onEditWorkLog }: MyHistoryCalendarPr
           onClose={() => setVacationOpen(false)}
           onSuccess={() => {
             setVacationOpen(false)
+            setSelectedDate(null)
             fetchAll()
           }}
         />
       )}
 
-      {/* 날짜 상세 모달 */}
-      {selectedDate && (
+      {/* 날짜 상세 모달 — 휴가 모달이 떠 있을 때는 가린다 */}
+      {selectedDate && !vacationOpen && (
         <CalendarDayDetailModal
           date={selectedDate}
           checkIn={finalsByDate.get(selectedDate)?.checkIn ?? null}
@@ -278,7 +284,8 @@ export default function MyHistoryCalendar({ onEditWorkLog }: MyHistoryCalendarPr
           onClose={() => setSelectedDate(null)}
           onEditWorkLog={onEditWorkLog}
           onRegisterVacation={() => {
-            // 상세 모달에서 "이 날 휴가 등록" 클릭 시 휴가 모달 띄움
+            // 상세 모달에서 "이 날 휴가 등록" 클릭 시 휴가 모달로 전환
+            // (selectedDate는 유지 — 휴가 모달의 시작/종료일 prefill에 쓰임)
             setVacationOpen(true)
           }}
         />
