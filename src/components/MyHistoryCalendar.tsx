@@ -282,7 +282,12 @@ export default function MyHistoryCalendar({ onEditWorkLog }: MyHistoryCalendarPr
           checkOut={finalsByDate.get(selectedDate)?.checkOut ?? null}
           calendar={calendar[selectedDate] ?? null}
           onClose={() => setSelectedDate(null)}
-          onEditWorkLog={onEditWorkLog}
+          // ✏ 수정 누르면 상세 모달 먼저 닫고 부모(home)의 WorkLogModal로 전환.
+          // 그렇지 않으면 두 모달이 겹쳐 보임.
+          onEditWorkLog={(workLogId, scope) => {
+            setSelectedDate(null)
+            onEditWorkLog?.(workLogId, scope)
+          }}
           onRegisterVacation={() => {
             // 상세 모달에서 "이 날 휴가 등록" 클릭 시 휴가 모달로 전환
             // (selectedDate는 유지 — 휴가 모달의 시작/종료일 prefill에 쓰임)
