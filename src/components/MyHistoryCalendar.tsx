@@ -86,6 +86,21 @@ function extractLeaveLabel(row: SubmissionRow | null): string | null {
   return item?.label ?? null
 }
 
+/**
+ * expected_work_location_timeline 또는 work_location_timeline의 마지막 항목에서
+ * 퇴근(예정) 시각을 추출한다. 마지막 kind가 'expected_checkout' 또는 'checkout'일 때만 인정.
+ */
+function extractCheckoutTime(
+  tl: Array<{ kind?: string; startTime?: string }> | null | undefined,
+): string | null {
+  if (!Array.isArray(tl) || tl.length === 0) return null
+  const last = tl[tl.length - 1]
+  if (last?.kind === 'expected_checkout' || last?.kind === 'checkout') {
+    return last.startTime ?? null
+  }
+  return null
+}
+
 export default function MyHistoryCalendar({ onEditWorkLog }: MyHistoryCalendarProps) {
   // 현재 보고 있는 월 (그 월의 1일 기준 Date 객체)
   const [cursor, setCursor] = useState<Date>(() => startOfMonth(new Date()))
@@ -472,14 +487,18 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
       title: '출근만 작성됨',
     })
   } else if (ci) {
-    // 3) 출근예정만 (사전 출근보고)
+    // 3) 출근예정만 (사전 출근보고) — 시작/종료 모두 표시
     const eStart = trimToHHmm(ci.expected_work_time ?? '')
+    const eEnd   = trimToHHmm(extractCheckoutTime(ci.expected_work_location_timeline) ?? '')
     const eLoc   = ci.expected_work_location ?? null
-    if (eStart || eLoc) {
+    if (eStart || eEnd || eLoc) {
+      const range = eStart && eEnd
+        ? `${eStart}~${eEnd}`
+        : (eStart || eEnd || '-')
       out.push({
         tone: 'info',
         icon: <Clock className="h-3 w-3" aria-hidden />,
-        text: `예정 ${eStart || '-'}${eLoc ? ' ' + eLoc : ''}`,
+        text: `예정 ${range}${eLoc ? ' ' + eLoc : ''}`,
         title: '출근예정',
       })
     }
