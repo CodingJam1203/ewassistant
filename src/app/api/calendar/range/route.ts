@@ -74,23 +74,33 @@ export async function GET(request: Request) {
       dates.push(d.toISOString().slice(0, 10))
     }
 
-    // 병렬 호출 (캐시 적용은 lib 내부)
-    const results = await Promise.all(
-      dates.map(date =>
-        getUserCalendarLookup({
-          date,
-          department: profile.division!,
-          userName: profile.display_name!,
-        }).catch((): UserCalendarLookup => ({
-          enabled: true,
-          fetchFailed: true,
-          leaveType: null,
-          leaveLabel: null,
-          events: [],
-          raw: null,
-        })),
+    // 동시 호출 수 제한 (CONCURRENCY=3) — Apps Script가 동시 요청에 약해서
+    // Promise.all로 41개 한 번에 쏘면 대부분 throttle/timeout. 작은 배치로 묶어서
+    // sequentially 처리하면 Apps Script 1개당 응답 시간이 안정적이라 모두 성공함.
+    // 최악의 경우 ceil(41/3) * 6s ≈ 84s까지 갈 수 있지만, 실제론 cache hit 비율이
+    // 점점 올라가서 두 번째 페이지 로드부터는 1~2초 안에 끝남.
+    const CONCURRENCY = 3
+    const results: UserCalendarLookup[] = new Array(dates.length)
+    for (let i = 0; i < dates.length; i += CONCURRENCY) {
+      const batch = dates.slice(i, i + CONCURRENCY)
+      const batchResults = await Promise.all(
+        batch.map(date =>
+          getUserCalendarLookup({
+            date,
+            department: profile.division!,
+            userName: profile.display_name!,
+          }).catch((): UserCalendarLookup => ({
+            enabled: true,
+            fetchFailed: true,
+            leaveType: null,
+            leaveLabel: null,
+            events: [],
+            raw: null,
+          })),
+        )
       )
-    )
+      batchResults.forEach((r, j) => { results[i + j] = r })
+    }
 
     const byDate: Record<string, UserCalendarLookup> = {}
     dates.forEach((d, i) => { byDate[d] = results[i] })

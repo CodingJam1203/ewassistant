@@ -28,7 +28,7 @@ const TTL_MS = 30 * 60 * 1000  // 30분
 // 사용자 요청 핫패스(getCalendarForDate)에서 사용. 평소엔 캐시 hit이라 영향 없고,
 // cache miss(첫 진입/TTL 만료)에서만 fetch. 너무 길면 페이지 로드가 같이 막혀서 짧게 둠.
 // cron 강제 갱신은 별도 timeout 사용.
-const APPS_SCRIPT_TIMEOUT_MS = 4_000
+const APPS_SCRIPT_TIMEOUT_MS = 7_000
 const APPS_SCRIPT_TIMEOUT_MS_CRON = 15_000
 
 function cacheKey(date: string): string {
