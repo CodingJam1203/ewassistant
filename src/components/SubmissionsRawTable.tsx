@@ -228,7 +228,9 @@ export default function SubmissionsRawTable({
           if (v) params.set(k, v)
         }
       }
-      params.set('limit', '1000')
+      // mine 모드는 본인만이라 200건이면 충분 (페이지네이션은 25씩).
+      // 조직 전체 조회는 더 많아질 수 있어 500.
+      params.set('limit', mine ? '200' : '500')
 
       const res = await fetch(`${endpoint}?${params}`)
       const json = await res.json()

@@ -198,6 +198,12 @@ export async function GET(request: Request) {
       teamSummaries,
       overall,
       scope: leaderScope?.scope ?? { kind: null, division: null, team: null },
+    }, {
+      headers: {
+        // 월 단위 집계라 자주 바뀌지 않음. 30초 캐시 + 5분 stale-while-revalidate.
+        // 새 보고가 들어와도 최대 30초 후 화면 반영.
+        'Cache-Control': 'private, max-age=30, stale-while-revalidate=300',
+      },
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)

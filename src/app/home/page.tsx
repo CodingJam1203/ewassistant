@@ -12,20 +12,35 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import dynamic from 'next/dynamic'
 import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { LogIn, LogOut, RefreshCw, Clock, MapPin, Coffee, X, Check } from 'lucide-react'
-import WorkLogModal from '@/components/WorkLogModal'
-import CheckInModal from '@/components/CheckInModal'
 import WorkHoursCard from '@/components/WorkHoursCard'
 import SubmissionsRawTable from '@/components/SubmissionsRawTable'
-import MyHistoryCalendar from '@/components/MyHistoryCalendar'
 import { Button, Badge, StatusCard, Select } from '@/components/ui'
 import type { StatusCardTone, BadgeVariant } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
 import type { WorkLog } from '@/types/work-log'
 import type { MonthBaselines, UserMonthSummary } from '@/lib/utils/work-hours'
 import type { TeamMemberCard } from '@/app/api/team-status/route'
+
+// 무거운 컴포넌트는 dynamic import — 초기 번들에서 빠지고 사용 시점에만 로드.
+//   - WorkLogModal: 퇴근보고/수정 클릭 시
+//   - CheckInModal: 출근보고 작성 클릭 시
+//   - MyHistoryCalendar: 캘린더뷰 탭 클릭 시
+// 각각 react-hook-form, zod, 다수 sub-component를 끌어들이므로 번들 절감 효과 큼.
+const WorkLogModal = dynamic(() => import('@/components/WorkLogModal'), {
+  loading: () => null,
+})
+const CheckInModal = dynamic(() => import('@/components/CheckInModal'), {
+  loading: () => null,
+})
+const MyHistoryCalendar = dynamic(() => import('@/components/MyHistoryCalendar'), {
+  loading: () => (
+    <div className="py-16 text-center text-sm text-text-muted">캘린더 불러오는 중…</div>
+  ),
+})
 
 type TabKey = 'final' | 'calendar' | 'raw'
 
@@ -219,17 +234,9 @@ export default function HomePage() {
 
   useEffect(() => { fetchMyCard() }, [fetchMyCard])
 
-  // ─── 내 work_logs (수정/삭제용 캐시) ──────────────────────────────
-  const fetchLogs = async () => {
-    try {
-      const res = await fetch('/api/work-logs?mine=true&limit=100')
-      const data = await res.json()
-      if (res.ok) setLogs(data)
-    } catch (err) {
-      console.error(err)
-    }
-  }
-  useEffect(() => { fetchLogs() }, [])
+  // 내 work_logs 캐시는 첫 로드에 굳이 필요 없음 — edit 클릭 시점에 단건 fetch만 해도
+  // 충분하다 (openEditByWorkLogId 안의 /api/work-logs/{id} fallback). 첫 페이지 로드에서
+  // 무거운 list fetch 1개를 제거해서 LCP 빠르게.
 
   // ─── 수정 모달 진입 ─────────────────────────────────────────────
   const openEditByWorkLogId = async (
@@ -250,6 +257,7 @@ export default function HomePage() {
         return
       }
       const fresh = (await res.json()) as WorkLog
+      setLogs(prev => [fresh, ...prev.filter(l => l.id !== fresh.id)])  // 메모리에 캐시
       setEditScope(scope)
       setEditingLog(fresh)
     } catch {
@@ -259,7 +267,6 @@ export default function HomePage() {
 
   const handleEditSuccess = () => {
     setEditingLog(null)
-    fetchLogs()
     fetchMyCard()
   }
 
@@ -468,13 +475,28 @@ export default function HomePage() {
         )}
       </StatusCard>
 
-      {/* ─── 본인 이번 달 근로현황 ────────────────────────────────── */}
-      {hoursSummary?.me && (
+      {/* ─── 본인 이번 달 근로현황 ──────────────────────────────────
+          데이터 도착 전엔 같은 높이 skeleton — layout shift 방지 + 체감 로딩 빠르게.
+      */}
+      {hoursSummary?.me ? (
         <WorkHoursCard
           baselines={hoursSummary.baselines}
           summary={hoursSummary.me}
           compact
         />
+      ) : (
+        <div
+          className="rounded-2xl bg-surface border border-border shadow-[var(--shadow-card)] p-4 space-y-3 animate-pulse"
+          aria-hidden
+        >
+          <div className="h-4 w-40 bg-surface-muted rounded" />
+          <div className="h-2 w-full bg-surface-muted rounded-full" />
+          <div className="flex gap-4">
+            <div className="h-3 w-20 bg-surface-muted rounded" />
+            <div className="h-3 w-20 bg-surface-muted rounded" />
+            <div className="h-3 w-20 bg-surface-muted rounded" />
+          </div>
+        </div>
       )}
 
       {/* ─── 내 제출 내역 ─────────────────────────────────────────── */}

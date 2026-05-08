@@ -352,7 +352,16 @@ export async function GET(request: Request) {
       return (a.display_name ?? a.email).localeCompare(b.display_name ?? b.email)
     })
 
-    return NextResponse.json(cards)
+    return NextResponse.json(cards, {
+      headers: {
+        // mine=true (홈 헤더 카드)는 자주 바뀌지만 새로 빌렸을 때 짧은 캐시로
+        // 같은 페이지 안에서 여러 번 호출되어도 한 번만 실제 fetch가 되도록.
+        // 사용자가 출근/퇴근/휴게 클릭하면 명시적으로 fetchMyCard()로 재호출되니 OK.
+        'Cache-Control': mineOnly
+          ? 'private, max-age=10, stale-while-revalidate=60'
+          : 'private, max-age=5, stale-while-revalidate=30',
+      },
+    })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[/api/team-status]', message)
