@@ -6,7 +6,7 @@
  * 구성:
  *   1) 본인 오늘 상태 헤더 — 출근보고/퇴근보고 작성 버튼
  *   2) 본인 이번 달 근로현황 (compact)
- *   3) 내 제출 내역 (탭: 일자별 최종 / RAW)
+ *   3) 내 제출 내역 (탭: 일자별 최종 / 캘린더뷰 / RAW)
  *
  * 디자인 시스템 — DESIGN.md 참고. ui/ 컴포넌트만 사용.
  */
@@ -19,6 +19,7 @@ import WorkLogModal from '@/components/WorkLogModal'
 import CheckInModal from '@/components/CheckInModal'
 import WorkHoursCard from '@/components/WorkHoursCard'
 import SubmissionsRawTable from '@/components/SubmissionsRawTable'
+import MyHistoryCalendar from '@/components/MyHistoryCalendar'
 import { Button, Badge, StatusCard, Select } from '@/components/ui'
 import type { StatusCardTone, BadgeVariant } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
@@ -26,7 +27,7 @@ import type { WorkLog } from '@/types/work-log'
 import type { MonthBaselines, UserMonthSummary } from '@/lib/utils/work-hours'
 import type { TeamMemberCard } from '@/app/api/team-status/route'
 
-type TabKey = 'final' | 'raw'
+type TabKey = 'final' | 'calendar' | 'raw'
 
 /** ISO timestamp → 'HH:mm' (KST 사용자 브라우저 기준) */
 function fmtHHmm(iso: string | null | undefined): string {
@@ -496,12 +497,13 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* 탭 */}
+      {/* 탭 — 같은 최종 데이터를 다른 형태로 보는 개념. 캘린더가 가운데. */}
       <div className="border-b border-border">
         <nav className="-mb-px flex gap-6" aria-label="탭">
           {[
-            { key: 'final' as TabKey, label: '일자별 최종 보고' },
-            { key: 'raw'   as TabKey, label: 'RAW 제출 내역' },
+            { key: 'final'    as TabKey, label: '일자별 최종 보고' },
+            { key: 'calendar' as TabKey, label: '캘린더뷰' },
+            { key: 'raw'      as TabKey, label: 'RAW 제출 내역' },
           ].map(t => (
             <button
               key={t.key}
@@ -519,18 +521,23 @@ export default function HomePage() {
         </nav>
       </div>
 
-      {/* RAW */}
-      {tab === 'raw' && (
-        <SubmissionsRawTable
-          mine mode="raw"
-          onEditWorkLog={openEditByWorkLogId}
-        />
-      )}
-
       {/* 일자별 최종 */}
       {tab === 'final' && (
         <SubmissionsRawTable
           mine mode="final"
+          onEditWorkLog={openEditByWorkLogId}
+        />
+      )}
+
+      {/* 캘린더뷰 */}
+      {tab === 'calendar' && (
+        <MyHistoryCalendar onEditWorkLog={openEditByWorkLogId} />
+      )}
+
+      {/* RAW */}
+      {tab === 'raw' && (
+        <SubmissionsRawTable
+          mine mode="raw"
           onEditWorkLog={openEditByWorkLogId}
         />
       )}

@@ -31,6 +31,7 @@ import {
 } from '@/components/ui'
 import type { BadgeVariant } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
+import { pickLatestPerDay } from '@/lib/submissions/finalize-by-day'
 
 function CopyButton({ text }: { text: string | null }) {
   const [copied, setCopied] = useState(false)
@@ -162,25 +163,8 @@ function fmtInterval(s: string | null): string {
   return s
 }
 
-/** 일자별 최종 추출 — (user_email, target_date, family) 별 가장 최신 row 1건 */
-function pickLatestPerDay(rows: SubmissionRow[]): SubmissionRow[] {
-  const map = new Map<string, SubmissionRow>()
-  for (const r of rows) {
-    const family = r.report_type.startsWith('check_in') ? 'in' : 'out'
-    const key = `${r.user_email}__${r.target_date}__${family}`
-    const existing = map.get(key)
-    if (!existing || existing.submitted_at < r.submitted_at) {
-      map.set(key, r)
-    }
-  }
-  // 정렬: target_date desc, family — 한 날 안에서는 퇴근(out)이 위, 출근(in)이 아래
-  return Array.from(map.values()).sort((a, b) => {
-    if (a.target_date !== b.target_date) return a.target_date < b.target_date ? 1 : -1
-    const fa = a.report_type.startsWith('check_out') ? 0 : 1
-    const fb = b.report_type.startsWith('check_out') ? 0 : 1
-    return fa - fb
-  })
-}
+// 일자별 최종 추출은 `@/lib/submissions/finalize-by-day`에서 제공.
+// 같은 함수를 캘린더뷰(MyHistoryCalendar)에서도 재사용한다.
 
 export interface SubmissionsRawTableProps {
   endpoint?: string
