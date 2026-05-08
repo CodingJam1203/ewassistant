@@ -427,15 +427,32 @@ export default function SubmissionsRawTable({
                     <Td numeric>{isCheckOut ? fmtInterval(r.break_time) : dash}</Td>
                     <Td numeric>{isCheckOut ? fmtInterval(r.actual_work_time) : dash}</Td>
                     <Td className="font-bold text-primary-600 tabular-nums">{isCheckOut ? (r.ew_value ?? '-') : dash}</Td>
-                    <Td
-                      className="max-w-[220px] truncate text-text-secondary"
-                      title={r.work_content ?? ''}
-                    >
-                      {isCheckOut ? (r.work_content ?? '-') : dash}
+                    <Td className="max-w-[220px] text-text-secondary relative group/wc">
+                      <span className="block truncate">
+                        {isCheckOut ? (r.work_content ?? '-') : dash}
+                      </span>
+                      {isCheckOut && r.work_content && (
+                        <span
+                          role="tooltip"
+                          className={cn(
+                            'pointer-events-none invisible opacity-0',
+                            'group-hover/wc:visible group-hover/wc:opacity-100',
+                            'transition-opacity duration-100',
+                            'absolute z-30 top-full left-3 mt-1',
+                            'w-[360px] max-w-[80vw]',
+                            'rounded-[10px] border border-border bg-surface',
+                            'text-[13px] leading-relaxed text-text-primary',
+                            'p-3 shadow-[var(--shadow-popover)]',
+                            'whitespace-pre-wrap break-words text-left',
+                          )}
+                        >
+                          {r.work_content}
+                        </span>
+                      )}
                     </Td>
                     {/* 변경 필드는 여러 줄 ul이라 wrap 허용 */}
                     <Td wrap className="max-w-[280px]">
-                      {isUpdate && r.changed_fields && r.changed_fields.length > 0 ? (
+                           {isUpdate && r.changed_fields && r.changed_fields.length > 0 ? (
                         <ul className="space-y-0.5 list-none">
                           {r.changed_fields.map((cf, i) => (
                             <li key={i} className="text-[10px] text-text-secondary truncate">
