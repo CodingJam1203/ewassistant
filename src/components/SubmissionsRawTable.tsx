@@ -13,7 +13,13 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { format } from 'date-fns'
+import { format, parseISO } from 'date-fns'
+import { ko } from 'date-fns/locale'
+
+/** 'YYYY-MM-DD' → 한글 요일 1글자 ('월'~'일') */
+function dowKo(dateStr: string): string {
+  try { return format(parseISO(dateStr), 'eee', { locale: ko }) } catch { return '' }
+}
 import { Pencil, Copy, Check } from 'lucide-react'
 import Pagination from '@/components/Pagination'
 import {
@@ -404,7 +410,10 @@ export default function SubmissionsRawTable({
                         {reportTypeLabel(r.report_type)}
                       </Badge>
                     </Td>
-                    <Td className="font-medium text-text-primary tabular-nums">{r.target_date}</Td>
+                    <Td className="font-medium text-text-primary tabular-nums">
+                      {r.target_date}
+                      <span className="ml-1 text-[11px] text-text-muted">({dowKo(r.target_date)})</span>
+                    </Td>
                     <Td className="text-text-muted tabular-nums">{format(new Date(r.submitted_at), 'MM/dd HH:mm')}</Td>
                     <Td>
                       <div className="text-text-primary">{r.name ?? '-'}</div>
