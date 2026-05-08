@@ -39,10 +39,15 @@ export async function GET() {
       if (!profileByEmail) {
         return NextResponse.json({ error: '프로필을 찾을 수 없습니다.' }, { status: 404 })
       }
-      return NextResponse.json(profileByEmail)
+      return NextResponse.json(profileByEmail, {
+        headers: { 'Cache-Control': 'private, max-age=30, stale-while-revalidate=300' },
+      })
     }
 
-    return NextResponse.json(profile)
+    // 본인 프로필은 변경이 잦지 않음 — 30초 캐시 + 5분 stale-while-revalidate
+    return NextResponse.json(profile, {
+      headers: { 'Cache-Control': 'private, max-age=30, stale-while-revalidate=300' },
+    })
   } catch (err: unknown) {
     console.error('Profile GET Error:', err)
     return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })

@@ -191,16 +191,15 @@ export default function HomePage() {
   }, [])
 
   // ─── 본인 오늘 카드 ─────────────────────────────────────────────
-  // /api/team-status는 전체 조회 가능하므로, 응답 중 is_self=true인 카드 1건 사용.
-  // mine 옵션은 없지만, 본부/팀 필터로 좁혀도 본인은 항상 포함됨.
-  // 가장 단순하게 — 필터 없이 전체 받고 is_self만 선택.
+  // mine=true → 본인 1건만 조회 (응답 크기/쿼리 시간 최소화)
   const fetchMyCard = useCallback(async () => {
     try {
-      const res = await fetch(`/api/team-status?date=${today}`)
+      const res = await fetch(`/api/team-status?date=${today}&mine=true`)
       const data = await res.json()
-      if (Array.isArray(data)) {
-        const me = data.find((c: TeamMemberCard) => c.is_self) ?? null
-        setMyCard(me)
+      if (Array.isArray(data) && data.length > 0) {
+        setMyCard(data[0])
+      } else {
+        setMyCard(null)
       }
     } catch {
       setMyCard(null)

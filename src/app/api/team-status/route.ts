@@ -127,20 +127,26 @@ export async function GET(request: Request) {
     const dateParam = searchParams.get('date') ?? getKstTodayDateString()
     const filterDivision = searchParams.get('division') ?? ''
     const filterTeam = searchParams.get('team') ?? ''
+    // mine=true → 본인 카드 1건만 (홈 페이지용 — 응답 크기/쿼리 시간 최소화)
+    const mineOnly = searchParams.get('mine') === 'true'
 
     const adminClient = createAdminClient()
 
     // ── 대상 팀원 목록 조회 ────────────────────────────────────────────────────
     // 빈 division/team = 전체 (본인 본부/팀으로 fallback하지 않음)
     // 일반 사용자도 전체 조직 카드 조회 가능 — 권한 제약 없음
-    // 본인 카드 표식(is_self)은 user.email 직접 비교(297행) — 별도 myProfile 조회 불필요
+    // mineOnly=true → 본인 1명만
     let profileQuery = adminClient
       .from('user_profiles')
       .select('id, email, display_name, division, team, display_order, is_active')
       .eq('is_active', true)
 
-    if (filterDivision) profileQuery = profileQuery.eq('division', filterDivision)
-    if (filterTeam)     profileQuery = profileQuery.eq('team',     filterTeam)
+    if (mineOnly) {
+      profileQuery = profileQuery.eq('email', user.email!)
+    } else {
+      if (filterDivision) profileQuery = profileQuery.eq('division', filterDivision)
+      if (filterTeam)     profileQuery = profileQuery.eq('team',     filterTeam)
+    }
 
     const { data: profiles, error: profileErr } = await profileQuery
     if (profileErr) throw profileErr
@@ -151,28 +157,56 @@ export async function GET(request: Request) {
 
     const emails = profiles.map((p: { email: string }) => p.email)
 
-    // ── 해당 날짜 work_logs 일괄 조회 ─────────────────────────────────────────
-    // 두 가지 매칭:
-    //   (A) leave_date = dateParam       → 그 날 실제 근무 / 퇴근보고 (1순위)
-    //   (B) expected_start_date = dateParam → 다른 날 작성된 출근보고 (2순위)
-    // 같은 사용자에게 둘 다 있으면 (A) 우선.
+    // ── 모든 부수 데이터를 병렬로 조회 (profiles 이후 emails만 의존) ─────────
+    //   work_logs(leave/expected), daily_work_status, work_status_events, calendarBatch
+    //   직렬 5번 → Promise.all 1번 ≈ 단일 가장 느린 쿼리 시간 ≈ 80%↓
     const SELECT_COLS = 'id, user_email, start_time, end_time, work_location, work_content, location_history, work_location_timeline, leave_timeline, expected_work_location_timeline, expected_leave_timeline, break_auto_actual_minutes, break_auto_rounded_minutes, leave_date, expected_start_date, expected_work_time, expected_work_location'
 
-    const { data: workLogsLeave } = await adminClient
-      .from('work_logs')
-      .select(SELECT_COLS)
-      .in('user_email', emails)
-      .eq('leave_date', dateParam)
-      .eq('is_deleted', false)
-      .order('created_at', { ascending: false })
+    const [
+      workLogsLeaveRes,
+      workLogsExpectedRes,
+      dailyStatusesRes,
+      lastEventsRes,
+      calendarBatchRes,
+    ] = await Promise.all([
+      adminClient
+        .from('work_logs')
+        .select(SELECT_COLS)
+        .in('user_email', emails)
+        .eq('leave_date', dateParam)
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: false }),
+      adminClient
+        .from('work_logs')
+        .select(SELECT_COLS)
+        .in('user_email', emails)
+        .eq('expected_start_date', dateParam)
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: false }),
+      adminClient
+        .from('daily_work_status')
+        .select('*')
+        .in('user_email', emails)
+        .eq('work_date', dateParam),
+      adminClient
+        .from('work_status_events')
+        .select('user_email, event_at')
+        .in('user_email', emails)
+        .eq('work_date', dateParam)
+        .order('event_at', { ascending: false }),
+      isCalendarEnabled()
+        ? getCalendarForDate(dateParam).catch(err => {
+            console.warn('[team-status] calendar fetch failed:', err)
+            return null as CalendarBatchResponse | null
+          })
+        : Promise.resolve(null as CalendarBatchResponse | null),
+    ])
 
-    const { data: workLogsExpected } = await adminClient
-      .from('work_logs')
-      .select(SELECT_COLS)
-      .in('user_email', emails)
-      .eq('expected_start_date', dateParam)
-      .eq('is_deleted', false)
-      .order('created_at', { ascending: false })
+    const workLogsLeave    = workLogsLeaveRes.data
+    const workLogsExpected = workLogsExpectedRes.data
+    const dailyStatuses    = dailyStatusesRes.data
+    const lastEvents       = lastEventsRes.data
+    const calendarBatch    = calendarBatchRes
 
     // email → work_log 매핑. (A) 우선. (B)인 경우 _expectedOnly=true 표식.
     const workLogByEmail = new Map<string, Record<string, unknown> & { _expectedOnly?: boolean }>()
@@ -187,40 +221,15 @@ export async function GET(request: Request) {
       }
     }
 
-    // ── 해당 날짜 daily_work_status 일괄 조회 ─────────────────────────────────
-    const { data: dailyStatuses } = await adminClient
-      .from('daily_work_status')
-      .select('*')
-      .in('user_email', emails)
-      .eq('work_date', dateParam)
-
     const dailyByEmail = new Map<string, Record<string, unknown>>()
     for (const ds of (dailyStatuses ?? [])) {
       dailyByEmail.set(ds.user_email, ds as Record<string, unknown>)
     }
 
-    // ── 마지막 이벤트 시각 조회 ────────────────────────────────────────────────
-    const { data: lastEvents } = await adminClient
-      .from('work_status_events')
-      .select('user_email, event_at')
-      .in('user_email', emails)
-      .eq('work_date', dateParam)
-      .order('event_at', { ascending: false })
-
     const lastEventByEmail = new Map<string, string>()
     for (const ev of (lastEvents ?? [])) {
       if (!lastEventByEmail.has(ev.user_email)) {
         lastEventByEmail.set(ev.user_email, ev.event_at)
-      }
-    }
-
-    // ── 외부 캘린더 batch 조회 (DB 캐시 30분 TTL — 한 번 호출) ───────────────
-    let calendarBatch: CalendarBatchResponse | null = null
-    if (isCalendarEnabled()) {
-      try {
-        calendarBatch = await getCalendarForDate(dateParam)
-      } catch (err) {
-        console.warn('[team-status] calendar fetch failed:', err)
       }
     }
 

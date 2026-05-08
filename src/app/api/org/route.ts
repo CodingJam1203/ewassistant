@@ -34,7 +34,12 @@ export async function GET() {
       teams: (teams ?? []).filter(t => t.division_id === div.id),
     }))
 
-    return NextResponse.json(result)
+    // 조직 구조는 거의 변경 없음 — 60초 캐시 + 24h stale-while-revalidate
+    return NextResponse.json(result, {
+      headers: {
+        'Cache-Control': 'private, max-age=60, stale-while-revalidate=86400',
+      },
+    })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[/api/org GET]', message)
