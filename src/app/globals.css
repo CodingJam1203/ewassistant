@@ -1,58 +1,136 @@
 @import "tailwindcss";
 
-:root {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f9fafb;
-  --bg-card: #ffffff;
-  --text-primary: #111827;
-  --text-secondary: #6b7280;
-  --border-color: #e5e7eb;
-  --input-bg: #ffffff;
+/* Pretendard — CDN font (사내 도구라 CDN 충분) */
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css");
+
+/* ---------------------------------------------------------------------------
+ * N-Click Design Tokens (Tailwind v4 @theme)
+ *
+ * 본 파일이 디자인 시스템 단일 진실. 새 색/토큰을 페이지에서 직접 발명 금지.
+ * 자세한 규칙은 프로젝트 루트 DESIGN.md 참고.
+ * --------------------------------------------------------------------------- */
+@theme {
+  /* Color — Primary (Blue) */
+  --color-primary-50:  #EFF6FF;
+  --color-primary-100: #DBEAFE;
+  --color-primary-200: #BFDBFE;
+  --color-primary-500: #2563EB;
+  --color-primary-600: #1D4ED8;
+  --color-primary-700: #1E40AF;
+
+  /* Color — Neutral (slate 기반) */
+  --color-background:     #F8FAFC;
+  --color-surface:        #FFFFFF;
+  --color-surface-muted:  #F1F5F9;
+  --color-border:         #E2E8F0;
+  --color-border-strong:  #CBD5E1;
+  --color-text-primary:   #0F172A;
+  --color-text-secondary: #475569;
+  --color-text-muted:     #94A3B8;
+  --color-text-disabled:  #CBD5E1;
+
+  /* Color — Semantic */
+  --color-success-bg:     #ECFDF5;
+  --color-success-text:   #047857;
+  --color-success-border: #A7F3D0;
+
+  --color-warning-bg:     #FFFBEB;
+  --color-warning-text:   #B45309;
+  --color-warning-border: #FDE68A;
+
+  --color-danger-bg:      #FEF2F2;
+  --color-danger-text:    #DC2626;
+  --color-danger-border:  #FECACA;
+
+  --color-info-bg:        #EFF6FF;
+  --color-info-text:      #2563EB;
+  --color-info-border:    #BFDBFE;
+
+  /* Radius */
+  --radius-xs:   6px;
+  --radius-sm:   8px;
+  --radius-md:   10px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-2xl:  20px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-card:    0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.08);
+  --shadow-popover: 0 8px 24px rgba(15, 23, 42, 0.12);
+
+  /* Font */
+  --font-sans: "Pretendard Variable", Pretendard, system-ui, -apple-system,
+               BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+               Arial, "Noto Sans KR", sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-primary: #111827;
-    --bg-secondary: #1f2937;
-    --bg-card: #1f2937;
-    --text-primary: #f9fafb;
-    --text-secondary: #9ca3af;
-    --border-color: #374151;
-    --input-bg: #374151;
-  }
+/* ---------------------------------------------------------------------------
+ * Global base
+ * --------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+}
+
+html {
+  font-family: var(--font-sans);
+  letter-spacing: -0.02em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body {
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  letter-spacing: -0.02em;
 }
 
-/* 다크모드에서 기본 input/select/textarea 스타일 강제 적용 */
-@media (prefers-color-scheme: dark) {
-  input, select, textarea {
-    background-color: var(--input-bg) !important;
-    color: var(--text-primary) !important;
-    border-color: var(--border-color) !important;
-    color-scheme: dark;
-  }
-  input::placeholder, textarea::placeholder {
-    color: var(--text-secondary) !important;
-  }
+/* tabular numerals for time/numeric heavy contexts */
+.tabular-nums,
+.font-tabular {
+  font-variant-numeric: tabular-nums;
 }
 
-/* 커스텀 chevron — native 화살표가 너무 오른쪽으로 멀어 보이는 문제 해결.
-   `select-tight` 적용 시 native arrow 제거 + 텍스트 바로 옆 8px 위치에 chevron 표시. */
+/* 다크모드는 의도적으로 비활성 (사내 도구 통일) — prefers-color-scheme 무시 */
+
+/* ---------------------------------------------------------------------------
+ * Form controls — 공통 fallback
+ *
+ * 기본 input/select/textarea가 디자인 토큰을 따르도록 shim.
+ * 컴포넌트(<Input>, <Select>)를 쓰는 게 우선이지만, 폼 자식 요소에 직접 input을
+ * 사용하는 케이스도 자연스럽게 토큰을 따르게 해서 일관성 유지.
+ * --------------------------------------------------------------------------- */
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+ * Custom select chevron
+ * Native arrow가 너무 멀거나 OS마다 다르게 렌더되는 문제를 막기 위한 utility.
+ * <Select> 컴포넌트가 자동 적용. 다른 곳에서 select에 직접 className 주려면 사용.
+ * --------------------------------------------------------------------------- */
 .select-tight {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 0.5rem center;
+  background-position: right 0.625rem center;
   background-size: 0.75rem 0.75rem;
-  padding-right: 1.75rem !important;
+  padding-right: 2rem !important;
 }
 .select-tight::-ms-expand {
   display: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * Focus ring — 모든 interactive 요소가 동일 ring 색상
+ * --------------------------------------------------------------------------- */
+:where(button, a, input, select, textarea, [role="button"]):focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 2px;
+  border-radius: var(--radius-md);
 }

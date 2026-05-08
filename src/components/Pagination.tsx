@@ -71,13 +71,13 @@ export default function Pagination({
 
   return (
     <div
-      className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-gray-100 text-xs ${className ?? ''}`}
+      className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-border text-[12px] tabular-nums ${className ?? ''}`}
     >
       {/* 좌측: 총 건수 + 현재 표시 범위 */}
-      <div className="text-gray-500">
-        {totalLabelPrefix} <span className="font-semibold text-gray-700">{totalCount.toLocaleString()}</span>{unit}
+      <div className="text-text-secondary">
+        {totalLabelPrefix} <span className="font-semibold text-text-primary">{totalCount.toLocaleString()}</span>{unit}
         {totalCount > 0 && (
-          <span className="ml-2 text-gray-400">
+          <span className="ml-2 text-text-muted">
             ({start.toLocaleString()}-{end.toLocaleString()})
           </span>
         )}
@@ -86,17 +86,16 @@ export default function Pagination({
       {/* 우측: 페이지 컨트롤 + page size */}
       <div className="flex items-center gap-3 flex-wrap">
         {onPageSizeChange && (
-          <div className="flex items-center gap-1">
-            <span className="text-gray-500">페이지당</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-text-secondary">페이지당</span>
             <select
               value={pageSize}
               onChange={(e) => {
                 const next = Number(e.target.value)
                 onPageSizeChange(next)
-                // 페이지 크기 변경 시 1페이지로
                 onPageChange(1)
               }}
-              className="border border-gray-300 rounded px-1.5 py-0.5 text-xs bg-white"
+              className="select-tight h-7 rounded-[8px] border border-border-strong bg-surface px-2 text-[12px] focus:outline-none focus:border-primary-500"
             >
               {pageSizeOptions.map(n => (
                 <option key={n} value={n}>{n}</option>
@@ -110,25 +109,25 @@ export default function Pagination({
             type="button"
             onClick={goPrev}
             disabled={safePage <= 1}
-            className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent"
+            className="inline-flex items-center justify-center h-7 w-7 rounded-[8px] text-text-secondary hover:bg-surface-muted hover:text-text-primary disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
             title="이전 페이지"
             aria-label="이전 페이지"
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-4 w-4" aria-hidden />
           </button>
 
           {pages.map((p, i) =>
             p === '...' ? (
-              <span key={`dots-${i}`} className="px-1 text-gray-400 select-none">…</span>
+              <span key={`dots-${i}`} className="px-1 text-text-muted select-none">…</span>
             ) : (
               <button
                 key={p}
                 type="button"
                 onClick={() => goTo(p)}
-                className={`min-w-[28px] h-7 px-2 rounded text-xs font-medium transition-colors ${
+                className={`min-w-[28px] h-7 px-2 rounded-[8px] text-[12px] font-medium transition-colors ${
                   p === safePage
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-600 hover:bg-gray-100'
+                    ? 'bg-primary-600 text-white'
+                    : 'text-text-secondary hover:bg-surface-muted hover:text-text-primary'
                 }`}
                 aria-current={p === safePage ? 'page' : undefined}
               >
@@ -141,11 +140,11 @@ export default function Pagination({
             type="button"
             onClick={goNext}
             disabled={safePage >= totalPages}
-            className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent"
+            className="inline-flex items-center justify-center h-7 w-7 rounded-[8px] text-text-secondary hover:bg-surface-muted hover:text-text-primary disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
             title="다음 페이지"
             aria-label="다음 페이지"
           >
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-4 w-4" aria-hidden />
           </button>
         </div>
       </div>

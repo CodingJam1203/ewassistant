@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
+import { Badge } from '@/components/ui'
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
 
@@ -721,13 +722,26 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center flex-wrap gap-2">
-        <h2 className="text-2xl font-bold text-gray-900">관리자 — 계정 관리</h2>
-        <div className="flex items-center gap-2">
-          <Link href="/admin/teams-routing" className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors border border-purple-200">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
+        <div>
+          <h1 className="text-2xl sm:text-[28px] font-bold leading-tight tracking-tight text-text-primary">
+            관리자 · 계정 관리
+          </h1>
+          <p className="mt-1.5 text-sm text-text-secondary">
+            계정 권한, 조직 구조, 알림 라우팅을 관리합니다.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+          <Link
+            href="/admin/teams-routing"
+            className="inline-flex items-center gap-1.5 h-10 px-4 text-sm font-medium rounded-[10px] bg-surface text-text-primary border border-border-strong hover:bg-surface-muted transition-colors"
+          >
             Teams 라우팅 관리
           </Link>
-          <Link href="/admin/notifications" className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200">
+          <Link
+            href="/admin/notifications"
+            className="inline-flex items-center gap-1.5 h-10 px-4 text-sm font-medium rounded-[10px] bg-surface text-text-primary border border-border-strong hover:bg-surface-muted transition-colors"
+          >
             알림 발송 내역 보기
           </Link>
         </div>
@@ -756,17 +770,21 @@ export default function AdminPage() {
 
       {/* 툴바 */}
       <div className="flex justify-between items-center">
-        <p className="text-sm text-gray-500">총 {users.length}명</p>
-        <div className="flex items-center gap-3">
-          <button onClick={fetchUsers}
-            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800">
-            <RefreshCw className="h-4 w-4" /> 새로고침
+        <p className="text-sm text-text-secondary">총 <span className="font-semibold text-text-primary tabular-nums">{users.length}</span>명</p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={fetchUsers}
+            className="inline-flex items-center gap-1.5 h-9 px-3 text-sm font-medium rounded-[10px] text-text-secondary hover:bg-surface-muted hover:text-text-primary transition-colors"
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden /> 새로고침
           </button>
           <button
+            type="button"
             onClick={() => setShowRegister(v => !v)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+            className="inline-flex items-center gap-1.5 h-10 px-4 text-sm font-medium rounded-[10px] text-white bg-primary-600 hover:bg-primary-700 transition-colors"
           >
-            <UserPlus className="h-4 w-4" />
+            <UserPlus className="h-4 w-4" aria-hidden />
             새 계정 등록
           </button>
         </div>
@@ -775,126 +793,119 @@ export default function AdminPage() {
       {/* 계정 테이블 */}
       {loading ? (
         <div className="py-16 text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-200 border-t-blue-600" />
-          <p className="mt-2 text-sm text-gray-500">불러오는 중...</p>
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-border border-t-primary-600" />
+          <p className="mt-2 text-sm text-text-muted">불러오는 중...</p>
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-surface rounded-2xl border border-border shadow-[var(--shadow-card)] overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">이메일</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">이름</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">본부</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">팀</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">권한</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">상태</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">순서</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">최근 로그인</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">최근 제출</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">편집</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">잠금</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">삭제</th>
+                  {['이메일','이름','본부','팀','권한','상태','순서','최근 로그인','최근 제출'].map(h => (
+                    <th key={h} className="bg-background border-b border-border px-4 py-3 text-left text-[12px] font-semibold text-text-secondary whitespace-nowrap">{h}</th>
+                  ))}
+                  {['편집','잠금','삭제'].map(h => (
+                    <th key={h} className="bg-background border-b border-border px-4 py-3 text-center text-[12px] font-semibold text-text-secondary whitespace-nowrap">{h}</th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-100">
+              <tbody>
                 {users.map(user => {
                   const isHighlighted = highlightActive && user.email.toLowerCase() === highlightEmail
+                  const roleBadge: { variant: 'primary' | 'info' | 'neutral'; label: string } =
+                    user.role === 'admin'  ? { variant: 'primary', label: '관리자' }
+                    : user.role === 'leader' ? { variant: 'info', label: '리더' }
+                    : { variant: 'neutral', label: '일반' }
                   return (
                   <tr key={user.email}
                     ref={isHighlighted ? highlightRowRef : null}
-                    className={`hover:bg-gray-50 transition-colors ${!user.is_active ? 'opacity-50' : ''} ${isHighlighted ? 'bg-yellow-100 ring-2 ring-yellow-400' : ''}`}>
+                    className={`border-b border-border hover:bg-surface-muted transition-colors ${!user.is_active ? 'opacity-50' : ''} ${isHighlighted ? 'bg-warning-bg ring-2 ring-warning-border' : ''}`}>
                     {/* 이메일 */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-xs text-gray-700">{user.email}</span>
+                    <td className="px-4 py-3 align-middle whitespace-nowrap">
+                      <span className="text-[12px] text-text-secondary">{user.email}</span>
                       {!user.id && (
-                        <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700">
+                        <span className="ml-1.5 inline-flex items-center h-5 px-2 rounded-full text-[11px] font-semibold bg-warning-bg text-warning-text border border-warning-border">
                           미접속
                         </span>
                       )}
                     </td>
                     {/* 이름 */}
-                    <td className="px-4 py-3 whitespace-nowrap text-gray-900 font-medium">
-                      {user.display_name ?? <span className="text-gray-400 font-normal">-</span>}
+                    <td className="px-4 py-3 align-middle whitespace-nowrap text-text-primary font-medium">
+                      {user.display_name ?? <span className="text-text-muted font-normal">-</span>}
                     </td>
                     {/* 본부 */}
-                    <td className="px-4 py-3 whitespace-nowrap text-gray-600 text-xs">
-                      {user.division ?? <span className="text-gray-300">-</span>}
+                    <td className="px-4 py-3 align-middle whitespace-nowrap text-text-secondary text-[12px]">
+                      {user.division ?? <span className="text-text-disabled">-</span>}
                     </td>
                     {/* 팀 */}
-                    <td className="px-4 py-3 whitespace-nowrap text-gray-600 text-xs">
-                      {user.team ?? <span className="text-gray-300">-</span>}
+                    <td className="px-4 py-3 align-middle whitespace-nowrap text-text-secondary text-[12px]">
+                      {user.team ?? <span className="text-text-disabled">-</span>}
                     </td>
                     {/* 권한 */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
-                        ${user.role === 'admin'
-                          ? 'bg-purple-100 text-purple-700'
-                          : user.role === 'leader'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-gray-100 text-gray-600'}`}>
-                        {user.role === 'admin' ? '관리자' : user.role === 'leader' ? '리더' : '일반'}
-                      </span>
+                    <td className="px-4 py-3 align-middle whitespace-nowrap">
+                      <Badge variant={roleBadge.variant}>{roleBadge.label}</Badge>
                     </td>
                     {/* 상태 */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
-                        ${user.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                    <td className="px-4 py-3 align-middle whitespace-nowrap">
+                      <Badge variant={user.is_active ? 'success' : 'neutral'} dot>
                         {user.is_active ? '활성' : '비활성'}
-                      </span>
+                      </Badge>
                     </td>
                     {/* 표시 순서 */}
-                    <td className="px-4 py-3 text-gray-400 whitespace-nowrap text-xs text-center">
+                    <td className="px-4 py-3 align-middle text-text-muted whitespace-nowrap text-[12px] text-center tabular-nums">
                       {user.display_order ?? 999}
                     </td>
                     {/* 최근 로그인 */}
-                    <td className="px-4 py-3 text-gray-400 whitespace-nowrap text-xs">{fmt(user.last_login_at)}</td>
+                    <td className="px-4 py-3 align-middle text-text-muted whitespace-nowrap text-[12px] tabular-nums">{fmt(user.last_login_at)}</td>
                     {/* 최근 제출 */}
-                    <td className="px-4 py-3 text-gray-400 whitespace-nowrap text-xs">{fmt(user.last_submitted_at)}</td>
+                    <td className="px-4 py-3 align-middle text-text-muted whitespace-nowrap text-[12px] tabular-nums">{fmt(user.last_submitted_at)}</td>
                     {/* 편집 */}
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-3 align-middle text-center">
                       <button
                         onClick={() => setEditingUser(user)}
-                        className="text-gray-400 hover:text-blue-600 transition-colors"
+                        className="text-text-muted hover:text-primary-600 transition-colors"
                         title="편집"
+                        aria-label="편집"
                       >
-                        <Pencil className="h-4 w-4" />
+                        <Pencil className="h-4 w-4" aria-hidden />
                       </button>
                     </td>
                     {/* 잠금/해제 */}
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-3 align-middle text-center">
                       {user.role !== 'admin' ? (
                         <button
                           onClick={() => toggleActive(user)}
                           disabled={togglingEmail === user.email}
                           className={`transition-colors disabled:opacity-40
-                            ${user.is_active ? 'text-gray-400 hover:text-red-600' : 'text-red-400 hover:text-green-600'}`}
+                            ${user.is_active ? 'text-text-muted hover:text-danger-text' : 'text-danger-text hover:text-success-text'}`}
                           title={user.is_active ? '비활성화' : '활성화'}
+                          aria-label={user.is_active ? '비활성화' : '활성화'}
                         >
                           {togglingEmail === user.email
-                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                             : user.is_active
-                              ? <Unlock className="h-4 w-4" />
-                              : <Lock className="h-4 w-4" />}
+                              ? <Unlock className="h-4 w-4" aria-hidden />
+                              : <Lock className="h-4 w-4" aria-hidden />}
                         </button>
                       ) : (
-                        <span className="text-xs text-gray-200">—</span>
+                        <span className="text-[12px] text-text-disabled">—</span>
                       )}
                     </td>
                     {/* 삭제 */}
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-3 align-middle text-center">
                       {user.role !== 'admin' ? (
                         <button
                           onClick={() => deleteUser(user)}
                           disabled={togglingEmail === user.email}
-                          className="text-gray-400 hover:text-red-600 transition-colors disabled:opacity-40"
+                          className="text-text-muted hover:text-danger-text transition-colors disabled:opacity-40"
                           title="삭제"
+                          aria-label="삭제"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4" aria-hidden />
                         </button>
                       ) : (
-                        <span className="text-xs text-gray-200">—</span>
+                        <span className="text-[12px] text-text-disabled">—</span>
                       )}
                     </td>
                   </tr>

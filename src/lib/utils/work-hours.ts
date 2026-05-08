@@ -103,13 +103,28 @@ export function riskLabel(level: RiskLevel): string {
   }
 }
 
-/** 위험 색상 클래스 (Tailwind) */
+/**
+ * @deprecated 디자인 시스템 정비 후 직접 클래스 발급은 비권장.
+ *   새 코드에서는 `riskBadgeVariant(level)` + `<Badge variant=...>` 사용.
+ *   호환을 위해 semantic 토큰 기반 클래스로 매핑 갱신.
+ */
 export function riskBadgeClass(level: RiskLevel): string {
   switch (level) {
-    case 'over':    return 'bg-red-100 text-red-700'
-    case 'danger':  return 'bg-orange-100 text-orange-700'
-    case 'caution': return 'bg-yellow-100 text-yellow-700'
-    default:        return 'bg-green-100 text-green-700'
+    case 'over':    return 'bg-danger-bg text-danger-text border border-danger-border'
+    case 'danger':  return 'bg-danger-bg text-danger-text border border-danger-border'
+    case 'caution': return 'bg-warning-bg text-warning-text border border-warning-border'
+    default:        return 'bg-success-bg text-success-text border border-success-border'
+  }
+}
+
+/** RiskLevel → 디자인 시스템 BadgeVariant 매핑 */
+export type RiskBadgeVariant = 'success' | 'warning' | 'danger'
+export function riskBadgeVariant(level: RiskLevel): RiskBadgeVariant {
+  switch (level) {
+    case 'over':    return 'danger'
+    case 'danger':  return 'danger'
+    case 'caution': return 'warning'
+    default:        return 'success'
   }
 }
 

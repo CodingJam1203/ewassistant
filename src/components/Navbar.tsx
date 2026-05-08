@@ -1,12 +1,10 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { LogOut, ExternalLink } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 import { isBootstrapAdmin } from '@/lib/admin-check'
 import NClickLogo from '@/components/NClickLogo'
-
-const EW_URL = 'https://working.univ.me/Home'
-const NPM_URL = 'https://intra.univ.me/Approval/AprCreateDoc'
+import NavbarLinks from '@/components/NavbarLinks'
 
 export default async function Navbar() {
   const supabase = await createClient()
@@ -43,47 +41,21 @@ export default async function Navbar() {
   ]
 
   return (
-    <nav className="bg-white dark:bg-gray-900 shadow-sm border-b border-gray-200 dark:border-gray-700">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          <div className="flex">
-            <div className="flex-shrink-0 flex items-center">
-              <Link href="/home" className="flex items-center">
-                <NClickLogo className="h-8 w-auto" />
-              </Link>
-            </div>
-            <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-              {navLinks.map(({ href, label }) => (
-                <Link
-                  key={href}
-                  href={href}
-                  className="border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 hover:text-gray-700 dark:hover:text-gray-200 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors"
-                >
-                  {label}
-                </Link>
-              ))}
-              <a
-                href={EW_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="border-transparent text-blue-500 hover:text-blue-700 inline-flex items-center gap-1 px-1 pt-1 border-b-2 text-sm font-medium transition-colors"
-              >
-                EW 바로가기
-                <ExternalLink className="h-3 w-3" />
-              </a>
-              <a
-                href={NPM_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="border-transparent text-purple-500 hover:text-purple-700 inline-flex items-center gap-1 px-1 pt-1 border-b-2 text-sm font-medium transition-colors"
-              >
-                NPM 바로가기
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            </div>
+    <nav className="bg-surface border-b border-border">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16">
+          <div className="flex items-center min-w-0">
+            <Link href="/home" className="flex items-center shrink-0" aria-label="N-Click 홈">
+              <NClickLogo className="h-8 w-auto" />
+            </Link>
+            {/* desktop links 일부만 client 분리 — 모바일 chip nav도 같은 컴포넌트가 처리 */}
+            <NavbarLinks links={navLinks} />
           </div>
-          <div className="flex items-center space-x-4">
-            <span className="text-sm text-gray-700 hidden sm:block" title={displayName ? '' : '이름 미등록'}>
+          <div className="flex items-center gap-3 shrink-0">
+            <span
+              className="hidden sm:block text-sm text-text-secondary"
+              title={displayName ? '' : '이름 미등록'}
+            >
               {headerLabel}
             </span>
             <form action={async () => {
@@ -92,38 +64,17 @@ export default async function Navbar() {
               await supabaseServer.auth.signOut()
               redirect('/login')
             }}>
-              <button type="submit" className="text-gray-500 hover:text-gray-700 p-2" title="로그아웃">
-                <LogOut className="h-5 w-5" />
+              <button
+                type="submit"
+                className="inline-flex items-center justify-center h-9 w-9 rounded-[10px] text-text-muted hover:text-text-primary hover:bg-surface-muted transition-colors"
+                title="로그아웃"
+                aria-label="로그아웃"
+              >
+                <LogOut className="h-4 w-4" aria-hidden />
               </button>
             </form>
           </div>
         </div>
-      </div>
-      {/* Mobile nav */}
-      <div className="sm:hidden flex overflow-x-auto border-t border-gray-100 dark:border-gray-700 py-2 px-4 space-x-4">
-        {navLinks.map(({ href, label }) => (
-          <Link key={href} href={href} className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">
-            {label}
-          </Link>
-        ))}
-        <a
-          href={EW_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm font-medium text-blue-600 whitespace-nowrap flex items-center gap-1"
-        >
-          EW 바로가기
-          <ExternalLink className="h-3 w-3" />
-        </a>
-        <a
-          href={NPM_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm font-medium text-purple-600 whitespace-nowrap flex items-center gap-1"
-        >
-          NPM 바로가기
-          <ExternalLink className="h-3 w-3" />
-        </a>
       </div>
     </nav>
   )

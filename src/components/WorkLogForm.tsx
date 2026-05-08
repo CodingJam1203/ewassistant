@@ -588,8 +588,8 @@ export default function WorkLogForm({
       {showEwPopup && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">상신할 내용이 복사되었습니다!</h3>
-            <p className="text-sm text-gray-600 mb-5">
+            <h3 className="text-lg font-semibold text-text-primary mb-2">상신할 내용이 복사되었습니다!</h3>
+            <p className="text-sm text-text-secondary mb-5">
               복사한 내용을 EW(Enjoy Working) 또는 NPM(휴가 상신)에 붙여 넣어 등록할 수 있습니다.
             </p>
             <div className="flex flex-col gap-2">
@@ -599,7 +599,7 @@ export default function WorkLogForm({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => { setShowEwPopup(false); onSubmitSuccess() }}
-                className="w-full px-4 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-center"
+                className="w-full px-4 py-2.5 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors text-center"
               >
                 EW 상신하기 (EW)
               </a>
@@ -616,7 +616,7 @@ export default function WorkLogForm({
               {/* 3. 닫기 */}
               <button
                 onClick={() => { setShowEwPopup(false); onSubmitSuccess() }}
-                className="w-full px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="w-full px-4 py-2.5 text-sm font-medium text-text-primary bg-surface-muted hover:bg-gray-200 rounded-lg transition-colors"
               >
                 닫기
               </button>
@@ -624,27 +624,27 @@ export default function WorkLogForm({
           </div>
         </div>
       )}
-      <form id="work-log-form" onSubmit={handleSubmit(onSubmit)} className="space-y-8 bg-white p-6 sm:p-8 rounded-lg border border-gray-200 shadow-sm pb-24 lg:pb-8">
+      <form id="work-log-form" onSubmit={handleSubmit(onSubmit)} className="space-y-8 bg-white p-6 sm:p-8 rounded-lg border border-border shadow-sm pb-24 lg:pb-8">
 
       {/* 1. 기본 정보 섹션 */}
       <div>
-        <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 border-b pb-2">기본 정보</h3>
+        <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">기본 정보</h3>
         <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-2">
           <div>
-            <label className="block text-sm font-medium text-gray-700">이름 *</label>
+            <label className="block text-sm font-medium text-text-primary">이름 *</label>
             <input
               type="text"
               {...register('name')}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+              className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
             />
             {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name.message as string}</p>}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">근무유형 *</label>
+            <label className="block text-sm font-medium text-text-primary">근무유형 *</label>
             <select
               {...register('workTypeLabel')}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border bg-white"
+              className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border bg-white"
             >
               <option value="기본근무 등록">기본근무 등록</option>
               <option value="간주근로 등록">간주근로 등록</option>
@@ -653,11 +653,11 @@ export default function WorkLogForm({
           </div>
 
           <div className="sm:col-span-2">
-            <label className="block text-sm font-medium text-gray-700">퇴근일자 *</label>
+            <label className="block text-sm font-medium text-text-primary">퇴근일자 *</label>
             <input
               type="date"
               {...register('leaveDate')}
-              className="mt-1 block w-full sm:w-1/2 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+              className="mt-1 block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
             />
             {errors.leaveDate && <p className="mt-1 text-sm text-red-600">{errors.leaveDate.message as string}</p>}
           </div>
@@ -667,7 +667,7 @@ export default function WorkLogForm({
       {/* 2. 휴가/반차 (퇴근보고 영역) */}
       {showCheckOutSections && (
       <div>
-        <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 border-b pb-2">휴가/반차</h3>
+        <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">휴가/반차</h3>
         <LeaveTimelineInput
           value={(formValues.leaveTimeline ?? []) as LeaveTimeline}
           onChange={next => setValue('leaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
@@ -683,11 +683,11 @@ export default function WorkLogForm({
       {/* 3. 근무장소 타임라인 — 종일 휴가가 아닐 때만 노출 (퇴근보고 영역) */}
       {showCheckOutSections && !isAllDay && (
         <div>
-          <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 border-b pb-2">근무장소 타임라인</h3>
-          <p className="text-xs text-gray-500 mb-3">
+          <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">근무장소 타임라인</h3>
+          <p className="text-xs text-text-secondary mb-3">
             하루 안에 여러 장소에서 근무한 경우 <span className="font-medium">근무장소 추가</span>로 행을 늘리고, 마지막 항목에 <span className="font-medium">실제 퇴근 시간</span>을 입력하세요. 시간은 30분 단위입니다.
           </p>
-          <p className="text-xs text-gray-400 mb-3">
+          <p className="text-xs text-text-muted mb-3">
             ※ 첫 항목 시각이 출근시간, 마지막 <span className="font-medium">퇴근</span> 항목 시각이 퇴근시간으로 EW 계산에 사용됩니다.
           </p>
           <WorkLocationTimelineInput
@@ -706,25 +706,25 @@ export default function WorkLogForm({
       {/* 3. 휴게/근무내용 섹션 (퇴근보고 영역) */}
       {showCheckOutSections && (
       <div>
-        <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 border-b pb-2">휴게 및 근무내용</h3>
+        <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">휴게 및 근무내용</h3>
         <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-2">
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-medium text-text-primary">
               휴게시간 *
-              <span className="ml-1 text-xs font-normal text-gray-500">(점심 외 추가 휴게)</span>
+              <span className="ml-1 text-xs font-normal text-text-secondary">(점심 외 추가 휴게)</span>
             </label>
-            <p className="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+            <p className="mt-1 text-xs text-warning-text bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
               ☕ 점심 1시간은 근무유형에 따라 <strong>자동 처리</strong>됩니다 (기본/간주근로 = 1h, 공휴일근로 = 0). 여기에는 <strong>점심 외에 추가로 쉰 시간만</strong> 입력하세요. 없으면 0:00.
             </p>
             {breakAutoRoundedMinutes > 0 && (
-              <p className="mt-1 mb-1 text-xs text-gray-500">
+              <p className="mt-1 mb-1 text-xs text-text-secondary">
                 자동 계산 (휴게 시작/종료 로그): 실제 {breakAutoActualMinutes}분 / 30분 올림 {minutesToDisplay(breakAutoRoundedMinutes)}
-                {breakUserChanged && <span className="ml-1 text-amber-600 font-medium">— 수정됨</span>}
+                {breakUserChanged && <span className="ml-1 text-warning-text font-medium">— 수정됨</span>}
               </p>
             )}
             <select
               {...register('breakTime')}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border bg-white"
+              className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border bg-white"
             >
               <option value="00:00">00:00 (추가 휴게 없음)</option>
               <option value="00:30">00:30 (30분)</option>
@@ -740,23 +740,23 @@ export default function WorkLogForm({
           {/* 휴게사유: 휴게시간 30분 이상일 때만 표시 */}
           {showBreakReason && (
             <div>
-              <label className="block text-sm font-medium text-gray-700">휴게사유</label>
+              <label className="block text-sm font-medium text-text-primary">휴게사유</label>
               <input
                 type="text"
                 placeholder="예) 점심식사, 휴식"
                 {...register('breakReason')}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+                className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
               />
             </div>
           )}
 
           <div className="sm:col-span-2">
-            <label className="block text-sm font-medium text-gray-700">근무내용 *</label>
+            <label className="block text-sm font-medium text-text-primary">근무내용 *</label>
             <textarea
               rows={2}
               placeholder="오늘 수행한 업무 내용을 입력해주세요"
               {...register('workContent')}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+              className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
             />
             {errors.workContent && <p className="mt-1 text-sm text-red-600">{errors.workContent.message as string}</p>}
           </div>
@@ -766,19 +766,19 @@ export default function WorkLogForm({
 
       {/* 4. 추가 확인 섹션 (조건부) */}
       <div>
-        <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 border-b pb-2">출근보고</h3>
+        <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">출근보고</h3>
 
         <div className="space-y-6">
           {/* 지각 / 출근시간 수정 여부 (퇴근보고 영역) */}
           {showCheckOutSections && (
-          <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
-            <label className="block text-sm font-medium text-gray-700 mb-1">지각 or 출근 시간 입력 수정 여부</label>
-            <p className="mb-2 text-xs text-amber-600">
+          <div className="p-4 bg-surface-muted rounded-lg border border-border">
+            <label className="block text-sm font-medium text-text-primary mb-1">지각 or 출근 시간 입력 수정 여부</label>
+            <p className="mb-2 text-xs text-warning-text">
               ※ 당일 수정 기준은 <span className="font-medium">당일 07시 이후</span>이며, 초기출근으로 인한 수정은 제외
             </p>
             <select
               {...register('lateOrAttendanceStatus')}
-              className="block w-full sm:w-1/2 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border bg-white"
+              className="block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border bg-white"
             >
               <option value="아니오">아니오</option>
               <option value="예">예</option>
@@ -787,7 +787,7 @@ export default function WorkLogForm({
             {formValues.lateOrAttendanceStatus === '예' && (
               <div className="mt-4 grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500">전일 출근보고 시간 *</label>
+                  <label className="block text-xs font-medium text-text-secondary">전일 출근보고 시간 *</label>
                   <TimeSelect
                     className="mt-1"
                     value={formValues.previousReportTime ?? ''}
@@ -798,7 +798,7 @@ export default function WorkLogForm({
                   {errors.previousReportTime && <p className="mt-1 text-xs text-red-600">{errors.previousReportTime.message as string}</p>}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500">당일 실제 출퇴근 시간 *</label>
+                  <label className="block text-xs font-medium text-text-secondary">당일 실제 출퇴근 시간 *</label>
                   <TimeSelect
                     className="mt-1"
                     value={formValues.currentReportTime ?? ''}
@@ -809,8 +809,8 @@ export default function WorkLogForm({
                   {errors.currentReportTime && <p className="mt-1 text-xs text-red-600">{errors.currentReportTime.message as string}</p>}
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-gray-500">지각/출근수정 사유 *</label>
-                  <input type="text" {...register('lateReason')} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border" />
+                  <label className="block text-xs font-medium text-text-secondary">지각/출근수정 사유 *</label>
+                  <input type="text" {...register('lateReason')} className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border" />
                   {errors.lateReason && <p className="mt-1 text-xs text-red-600">{errors.lateReason.message as string}</p>}
                 </div>
               </div>
@@ -820,14 +820,14 @@ export default function WorkLogForm({
 
           {/* 출근기록 선택 (출근보고 영역) */}
           {showCheckInSections && (
-          <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
-            <label className="block text-sm font-medium text-gray-700 mb-1">출근보고 진행 여부</label>
-            <p className="mb-2 text-xs text-amber-600">
+          <div className="p-4 bg-surface-muted rounded-lg border border-border">
+            <label className="block text-sm font-medium text-text-primary mb-1">출근보고 진행 여부</label>
+            <p className="mb-2 text-xs text-warning-text">
               ※ 휴가자는 아래 출근보고에 <span className="font-medium">휴가 복귀날</span>을 선택 후 출근 보고 진행
             </p>
             <select
               {...register('attendanceRecordType')}
-              className="block w-full sm:w-1/2 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border bg-white"
+              className="block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border bg-white"
             >
               <option value="출근보고 진행 (주말출근, 휴가 포함)">출근보고 진행 (주말출근, 휴가 포함)</option>
               <option value="스킵(누락퇴근보고, 퇴근보고 수정)">스킵(누락퇴근보고, 퇴근보고 수정)</option>
@@ -836,14 +836,14 @@ export default function WorkLogForm({
             {formValues.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' && (
               <div className="mt-4 space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500">출근 예정 날짜 *</label>
-                  <p className="text-xs text-gray-400 mt-0.5">내일 출근 날짜를 입력해주세요</p>
-                  <input type="date" {...register('expectedStartDate')} className="mt-1 block w-full sm:w-1/2 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border" />
+                  <label className="block text-xs font-medium text-text-secondary">출근 예정 날짜 *</label>
+                  <p className="text-xs text-text-muted mt-0.5">내일 출근 날짜를 입력해주세요</p>
+                  <input type="date" {...register('expectedStartDate')} className="mt-1 block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border" />
                   {errors.expectedStartDate && <p className="mt-1 text-xs text-red-600">{errors.expectedStartDate.message as string}</p>}
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">다음 출근일 휴가/반차</label>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">다음 출근일 휴가/반차</label>
                   <LeaveTimelineInput
                     value={(formValues.expectedLeaveTimeline ?? []) as LeaveTimeline}
                     onChange={next => setValue('expectedLeaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
@@ -851,8 +851,8 @@ export default function WorkLogForm({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">근무장소 타임라인 *</label>
-                  <p className="text-xs text-gray-400 mb-2">
+                  <label className="block text-xs font-medium text-text-secondary mb-1">근무장소 타임라인 *</label>
+                  <p className="text-xs text-text-muted mb-2">
                     하루 안에 여러 장소에서 근무하는 경우 <span className="font-medium">근무장소 추가</span>로 행을 늘리고, 마지막에 <span className="font-medium">퇴근예정</span> 시간을 입력하세요.
                   </p>
                   <WorkLocationTimelineInput
@@ -873,32 +873,32 @@ export default function WorkLogForm({
           )}
 
           <div className="sm:col-span-2">
-            <label className="block text-sm font-medium text-gray-700">감사 마카롱 메시지 (선택)</label>
+            <label className="block text-sm font-medium text-text-primary">감사 마카롱 메시지 (선택)</label>
             <textarea
               rows={2}
               placeholder="동료에게 전하고 싶은 감사 메시지를 적어주세요!"
               {...register('thanksMacaron')}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
+              className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
             />
           </div>
         </div>
       </div>
 
       {/* 4. 제출 옵션 — TODO: Teams 연동 권한 확보 후 주석 해제 */}
-      {/* <div className="relative flex items-start pt-4 border-t border-gray-200">
+      {/* <div className="relative flex items-start pt-4 border-t border-border">
         <div className="flex h-5 items-center">
           <input
             id="sendTeams"
             type="checkbox"
             {...register('sendTeams')}
-            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            className="h-4 w-4 rounded border-border-strong text-primary-600 focus:ring-blue-500"
           />
         </div>
         <div className="ml-3 text-sm">
-          <label htmlFor="sendTeams" className="font-medium text-gray-700">
+          <label htmlFor="sendTeams" className="font-medium text-text-primary">
             제출 후 Teams 발송
           </label>
-          <p className="text-gray-500">기록 제출과 함께 Teams 채널로 메시지를 발송합니다.</p>
+          <p className="text-text-secondary">기록 제출과 함께 Teams 채널로 메시지를 발송합니다.</p>
         </div>
       </div> */}
 
@@ -910,11 +910,11 @@ export default function WorkLogForm({
 
       {/* PC에서는 모달이 우측 컬럼에 [수정하기/제출하고 복사하기] 버튼을 별도로 렌더링.
           모바일에서는 화면 하단 플로팅 바로 표시 (lg 이상에서는 숨김). */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 px-4 py-3 bg-white border-t border-gray-200 shadow-[0_-4px_8px_-2px_rgba(0,0,0,0.05)]">
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 px-4 py-3 bg-white border-t border-border shadow-[0_-4px_8px_-2px_rgba(0,0,0,0.05)]">
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full flex justify-center items-center py-3.5 px-4 border border-transparent rounded-md shadow-sm text-base font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+          className="w-full flex justify-center items-center py-3.5 px-4 border border-transparent rounded-md shadow-sm text-base font-bold text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
         >
           {isSubmitting ? (
             <Loader2 className="animate-spin h-5 w-5 mr-2" />

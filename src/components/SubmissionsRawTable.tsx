@@ -8,16 +8,32 @@
  *   - mode='final' : 일자/사용자별 출근/퇴근 각각 최신 1건 (일자별 최종)
  *
  * 컬럼은 모든 셀을 RAW 그대로 펼침 — 가로 스크롤 허용.
+ *
+ * 스타일은 DESIGN.md 기준 — 색상은 디자인 토큰만, 컴포넌트는 ui/* 사용.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { Pencil, Copy, Check } from 'lucide-react'
 import Pagination from '@/components/Pagination'
+import {
+  Badge,
+  Button,
+  FilterBar,
+  Input,
+  Select,
+  TableContainer,
+  Table,
+  Th,
+  Td,
+  TR_HOVER,
+} from '@/components/ui'
+import type { BadgeVariant } from '@/components/ui'
+import { cn } from '@/lib/utils/cn'
 
 function CopyButton({ text }: { text: string | null }) {
   const [copied, setCopied] = useState(false)
-  if (!text) return <span className="text-gray-300">-</span>
+  if (!text) return <span className="text-text-disabled">-</span>
   const handle = async () => {
     try {
       await navigator.clipboard.writeText(text)
@@ -28,15 +44,16 @@ function CopyButton({ text }: { text: string | null }) {
     }
   }
   return (
-    <button
+    <Button
+      variant={copied ? 'secondary' : 'ghost'}
+      size="sm"
       onClick={handle}
+      className={cn('!h-7 !px-2 !text-[11px]', copied && '!text-success-text !bg-success-bg !border-success-border')}
       title="EW 복사 문구 복사"
-      className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors whitespace-nowrap
-        ${copied ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
     >
-      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+      {copied ? <Check className="h-3 w-3" aria-hidden /> : <Copy className="h-3 w-3" aria-hidden />}
       {copied ? '완료' : '복사'}
-    </button>
+    </Button>
   )
 }
 
@@ -120,12 +137,12 @@ function reportTypeLabel(t: SubmissionRow['report_type']): string {
   }
 }
 
-function reportTypeBadgeClass(t: SubmissionRow['report_type']): string {
+function reportTypeBadge(t: SubmissionRow['report_type']): BadgeVariant {
   switch (t) {
-    case 'check_in':         return 'bg-green-100 text-green-700'
-    case 'check_out':        return 'bg-blue-100 text-blue-700'
-    case 'check_in_update':  return 'bg-amber-100 text-amber-700'
-    case 'check_out_update': return 'bg-orange-100 text-orange-700'
+    case 'check_in':         return 'success'
+    case 'check_out':        return 'info'
+    case 'check_in_update':  return 'warning'
+    case 'check_out_update': return 'warning'
   }
 }
 
@@ -210,8 +227,6 @@ export default function SubmissionsRawTable({
     try {
       const params = new URLSearchParams()
       if (mine) params.set('mine', 'true')
-      // 보고유형 family 필터(reportType)는 클라이언트 측에서 처리 — 수정 row 포함
-      // updated_only(수정만 보기)는 raw 모드에서만 서버 필터
       if (mode === 'raw' && updatedOnly) {
         params.set('updated_only', 'true')
       }
@@ -242,13 +257,10 @@ export default function SubmissionsRawTable({
 
   const processedRows = useMemo(() => {
     let r = rows
-    // 일자별 최종 추출 (family 단위로 가장 최신 1건)
     if (mode === 'final') r = pickLatestPerDay(r)
-    // 보고유형 family 필터 — 'check_in' → check_in + check_in_update, 'check_out' → check_out + check_out_update
     if (reportType) {
       r = r.filter(x => x.report_type.startsWith(reportType))
     }
-    // 이름 필터
     if (nameQuery) {
       const q = nameQuery.toLowerCase()
       r = r.filter(x => (x.name ?? '').toLowerCase().includes(q))
@@ -263,177 +275,174 @@ export default function SubmissionsRawTable({
   return (
     <div className="space-y-3">
       {/* 필터 바 */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex flex-wrap gap-2 items-end">
-        <div>
-          <label className="block text-[11px] font-medium text-gray-600 mb-0.5">보고유형</label>
-          <select
+      <FilterBar>
+        <FilterBar.Field label="보고유형">
+          <Select
+            selectSize="sm"
             value={reportType}
             onChange={e => { setReportType(e.target.value as typeof reportType); setUpdatedOnly(false) }}
-            className="select-tight border border-gray-300 rounded px-2 py-1 text-xs bg-white"
+            className="min-w-[140px]"
           >
             {REPORT_TYPE_OPTIONS.map(o => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
-          </select>
-        </div>
+          </Select>
+        </FilterBar.Field>
 
         {mode === 'raw' && (
-          <div>
-            <label className="block text-[11px] font-medium text-gray-600 mb-0.5">수정 이력만</label>
-            <label className="flex items-center gap-1 h-[26px]">
+          <FilterBar.Field label="수정 이력만">
+            <label className="inline-flex items-center gap-2 h-9 px-3 rounded-[10px] border border-border-strong bg-surface cursor-pointer">
               <input
                 type="checkbox"
                 checked={updatedOnly}
                 onChange={e => { setUpdatedOnly(e.target.checked); if (e.target.checked) setReportType('') }}
-                className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                className="h-4 w-4 rounded border-border-strong text-primary-600 focus:ring-primary-500"
               />
-              <span className="text-xs text-gray-700">수정만 보기</span>
+              <span className="text-[13px] text-text-primary">수정만 보기</span>
             </label>
-          </div>
+          </FilterBar.Field>
         )}
 
-        <div>
-          <label className="block text-[11px] font-medium text-gray-600 mb-0.5">대상일 시작</label>
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 text-xs" />
-        </div>
-        <div>
-          <label className="block text-[11px] font-medium text-gray-600 mb-0.5">대상일 종료</label>
-          <input type="date" value={to} onChange={e => setTo(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 text-xs" />
-        </div>
+        <FilterBar.Field label="대상일 시작">
+          <Input type="date" inputSize="sm" value={from} onChange={e => setFrom(e.target.value)} className="min-w-[140px]" />
+        </FilterBar.Field>
+        <FilterBar.Field label="대상일 종료">
+          <Input type="date" inputSize="sm" value={to} onChange={e => setTo(e.target.value)} className="min-w-[140px]" />
+        </FilterBar.Field>
 
         {allowOrgFilter && (
-          <div>
-            <label className="block text-[11px] font-medium text-gray-600 mb-0.5">이름 검색</label>
-            <input
-              type="text" value={nameQuery} onChange={e => setNameQuery(e.target.value)}
+          <FilterBar.Field label="이름 검색">
+            <Input
+              type="text"
+              inputSize="sm"
+              value={nameQuery}
+              onChange={e => setNameQuery(e.target.value)}
               placeholder="이름 일부"
-              className="border border-gray-300 rounded px-2 py-1 text-xs w-32" />
-          </div>
+              className="w-36"
+            />
+          </FilterBar.Field>
         )}
 
-        <div className="ml-auto text-xs text-gray-500 flex items-end h-[26px]">
-          {processedRows.length}건 ({mode === 'final' ? '일자별 최종' : 'RAW 누적'})
+        <div className="ml-auto self-end text-[12px] text-text-secondary tabular-nums">
+          <span className="font-semibold text-text-primary">{processedRows.length}</span>
+          {' 건 ('}
+          {mode === 'final' ? '일자별 최종' : 'RAW 누적'}
+          {')'}
         </div>
-      </div>
+      </FilterBar>
 
       {error && (
-        <div className="rounded bg-red-50 border border-red-200 p-2 text-xs text-red-700">{error}</div>
+        <div className="rounded-[10px] bg-danger-bg border border-danger-border p-3 text-[13px] text-danger-text">
+          {error}
+        </div>
       )}
 
       {loading ? (
         <div className="space-y-1">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-9 bg-gray-100 rounded animate-pulse" />
+            <div key={i} className="h-10 bg-surface-muted rounded-[10px] animate-pulse" />
           ))}
         </div>
       ) : processedRows.length === 0 ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center text-sm text-gray-500">
+        <div className="bg-surface rounded-2xl border border-border p-12 text-center text-sm text-text-muted">
           제출 이력이 없습니다.
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-xs">
-              <thead className="bg-gray-50">
-                <tr>
-                  <Th className="text-center">복사</Th>
-                  <Th className="text-center">수정</Th>
-                  <Th>보고유형</Th>
-                  <Th>대상일</Th>
-                  <Th>제출일시</Th>
-                  <Th>이름</Th>
-                  <Th>시작</Th>
-                  <Th>종료</Th>
-                  <Th>장소</Th>
-                  <Th>휴게</Th>
-                  <Th>실근무</Th>
-                  <Th>EW</Th>
-                  <Th>근무내용</Th>
-                  <Th>변경 필드</Th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {pagedRows.map(r => {
-                  const isUpdate   = r.report_type.endsWith('_update')
-                  const isCheckOut = r.report_type === 'check_out' || r.report_type === 'check_out_update'
-                  const dash = <span className="text-gray-300">-</span>
+        <TableContainer>
+          <Table>
+            <thead>
+              <tr>
+                <Th className="text-center">복사</Th>
+                <Th className="text-center">수정</Th>
+                <Th>보고유형</Th>
+                <Th>대상일</Th>
+                <Th>제출일시</Th>
+                <Th>이름</Th>
+                <Th>시작</Th>
+                <Th>종료</Th>
+                <Th>장소</Th>
+                <Th>휴게</Th>
+                <Th>실근무</Th>
+                <Th>EW</Th>
+                <Th>근무내용</Th>
+                <Th>변경 필드</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedRows.map(r => {
+                const isUpdate   = r.report_type.endsWith('_update')
+                const isCheckOut = r.report_type === 'check_out' || r.report_type === 'check_out_update'
+                const dash = <span className="text-text-disabled">-</span>
 
-                  // 통합 컬럼 — 보고유형에 따라 시작/종료/장소를 동적 매핑.
-                  // 출근보고 row에서 start_time/work_location이 채워져 있으면 (사전 보고 있는 상태에서
-                  // 실제 출근 누른 케이스) 그 값을 우선 표시 — actual 출근 시각.
-                  // 비어있으면 expected_*로 fallback (사전 보고 작성 케이스).
-                  // 종료 시각: end_time → work_location_timeline 마지막 항목 → expected_work_location_timeline 마지막 항목
-                  const startVal = isCheckOut
-                    ? fmtTime(r.start_time)
-                    : fmtTime(r.start_time ?? r.expected_work_time)
-                  const endVal = isCheckOut
-                    ? fmtTime(r.end_time)
-                    : fmtTime(
-                        r.end_time
-                        ?? extractExpectedCheckoutTime(r.work_location_timeline)
-                        ?? extractExpectedCheckoutTime(r.expected_work_location_timeline)
-                      )
-                  const locVal = isCheckOut
-                    ? (r.work_location ?? '-')
-                    : (r.work_location ?? r.expected_work_location ?? '-')
+                const startVal = isCheckOut
+                  ? fmtTime(r.start_time)
+                  : fmtTime(r.start_time ?? r.expected_work_time)
+                const endVal = isCheckOut
+                  ? fmtTime(r.end_time)
+                  : fmtTime(
+                      r.end_time
+                      ?? extractExpectedCheckoutTime(r.work_location_timeline)
+                      ?? extractExpectedCheckoutTime(r.expected_work_location_timeline)
+                    )
+                const locVal = isCheckOut
+                  ? (r.work_location ?? '-')
+                  : (r.work_location ?? r.expected_work_location ?? '-')
 
-                  return (
-                    <tr key={r.id} className="hover:bg-gray-50">
-                      <Td className="text-center">
-                        {isCheckOut ? <CopyButton text={r.copy_text} /> : dash}
-                      </Td>
-                      <Td className="text-center">
-                        {r.work_log_id && onEditWorkLog ? (
-                          <button
-                            onClick={() => onEditWorkLog(r.work_log_id!, isCheckOut ? 'check_out' : 'check_in')}
-                            className="text-gray-400 hover:text-blue-600"
-                            title={isCheckOut ? '퇴근보고 수정' : '출근보고 수정'}
-                          >
-                            <Pencil className="h-3.5 w-3.5 inline" />
-                          </button>
-                        ) : dash}
-                      </Td>
-                      <Td>
-                        <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${reportTypeBadgeClass(r.report_type)}`}>
-                          {reportTypeLabel(r.report_type)}
-                        </span>
-                      </Td>
-                      <Td className="font-medium text-gray-900">{r.target_date}</Td>
-                      <Td className="text-gray-500">{format(new Date(r.submitted_at), 'MM/dd HH:mm')}</Td>
-                      <Td>
-                        <div>{r.name ?? '-'}</div>
-                        <div className="text-[10px] text-gray-400">
-                          {(r.division ?? '-') + ' / ' + (r.team ?? '-')}
-                        </div>
-                      </Td>
-                      <Td>{startVal}</Td>
-                      <Td>{endVal}</Td>
-                      <Td>{locVal}</Td>
-                      <Td>{isCheckOut ? fmtInterval(r.break_time) : dash}</Td>
-                      <Td>{isCheckOut ? fmtInterval(r.actual_work_time) : dash}</Td>
-                      <Td className="font-bold text-blue-600">{isCheckOut ? (r.ew_value ?? '-') : dash}</Td>
-                      <Td className="max-w-[200px] truncate text-gray-500" title={r.work_content ?? ''}>
-                        {isCheckOut ? (r.work_content ?? '-') : dash}
-                      </Td>
-                      <Td className="max-w-[260px]">
-                        {isUpdate && r.changed_fields && r.changed_fields.length > 0 ? (
-                          <ul className="space-y-0.5 list-none">
-                            {r.changed_fields.map((cf, i) => (
-                              <li key={i} className="text-[10px] text-gray-600 truncate">
-                                <span className="font-medium">{cf.label}:</span> {cf.before} → {cf.after}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : dash}
-                      </Td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                return (
+                  <tr key={r.id} className={TR_HOVER}>
+                    <Td className="text-center">
+                      {isCheckOut ? <CopyButton text={r.copy_text} /> : dash}
+                    </Td>
+                    <Td className="text-center">
+                      {r.work_log_id && onEditWorkLog ? (
+                        <button
+                          onClick={() => onEditWorkLog(r.work_log_id!, isCheckOut ? 'check_out' : 'check_in')}
+                          className="text-text-muted hover:text-primary-600 transition-colors"
+                          title={isCheckOut ? '퇴근보고 수정' : '출근보고 수정'}
+                          aria-label={isCheckOut ? '퇴근보고 수정' : '출근보고 수정'}
+                        >
+                          <Pencil className="h-3.5 w-3.5 inline" aria-hidden />
+                        </button>
+                      ) : dash}
+                    </Td>
+                    <Td>
+                      <Badge variant={reportTypeBadge(r.report_type)} className="!h-5 !px-2 !text-[10px]">
+                        {reportTypeLabel(r.report_type)}
+                      </Badge>
+                    </Td>
+                    <Td className="font-medium text-text-primary tabular-nums">{r.target_date}</Td>
+                    <Td className="text-text-muted tabular-nums">{format(new Date(r.submitted_at), 'MM/dd HH:mm')}</Td>
+                    <Td>
+                      <div className="text-text-primary">{r.name ?? '-'}</div>
+                      <div className="text-[10px] text-text-muted">
+                        {(r.division ?? '-') + ' / ' + (r.team ?? '-')}
+                      </div>
+                    </Td>
+                    <Td numeric>{startVal}</Td>
+                    <Td numeric>{endVal}</Td>
+                    <Td>{locVal}</Td>
+                    <Td numeric>{isCheckOut ? fmtInterval(r.break_time) : dash}</Td>
+                    <Td numeric>{isCheckOut ? fmtInterval(r.actual_work_time) : dash}</Td>
+                    <Td className="font-bold text-primary-600 tabular-nums">{isCheckOut ? (r.ew_value ?? '-') : dash}</Td>
+                    <Td className="max-w-[200px] truncate text-text-secondary" title={r.work_content ?? ''}>
+                      {isCheckOut ? (r.work_content ?? '-') : dash}
+                    </Td>
+                    <Td className="max-w-[260px]">
+                      {isUpdate && r.changed_fields && r.changed_fields.length > 0 ? (
+                        <ul className="space-y-0.5 list-none">
+                          {r.changed_fields.map((cf, i) => (
+                            <li key={i} className="text-[10px] text-text-secondary truncate">
+                              <span className="font-semibold">{cf.label}:</span> {cf.before} → {cf.after}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : dash}
+                    </Td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </Table>
           <Pagination
             totalCount={processedRows.length}
             page={page}
@@ -441,22 +450,8 @@ export default function SubmissionsRawTable({
             onPageChange={setPage}
             onPageSizeChange={setPageSize}
           />
-        </div>
+        </TableContainer>
       )}
     </div>
-  )
-}
-
-function Th({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <th className={`px-2 py-2 text-left text-[10px] font-medium text-gray-600 uppercase tracking-wider whitespace-nowrap ${className}`}>
-      {children}
-    </th>
-  )
-}
-
-function Td({ children, className = '' }: { children: React.ReactNode; className?: string; title?: string }) {
-  return (
-    <td className={`px-2 py-1.5 align-top text-gray-700 whitespace-nowrap ${className}`}>{children}</td>
   )
 }

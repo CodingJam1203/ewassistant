@@ -1,7 +1,6 @@
 'use client'
 
 import { EwCalculationResult } from '@/lib/ew-calculator'
-import CopyButton from './CopyButton'
 
 interface CalculationPreviewProps {
   result: EwCalculationResult | null
@@ -11,57 +10,57 @@ interface CalculationPreviewProps {
 export default function CalculationPreview({ result, error }: CalculationPreviewProps) {
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-        <h3 className="text-sm font-medium text-red-800">계산 오류</h3>
-        <p className="mt-2 text-sm text-red-700">{error}</p>
+      <div className="rounded-2xl border border-danger-border bg-danger-bg p-5">
+        <h3 className="text-sm font-semibold text-danger-text">계산 오류</h3>
+        <p className="mt-2 text-sm text-danger-text/90">{error}</p>
       </div>
     )
   }
 
   if (!result) {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 flex items-center justify-center h-full min-h-[200px]">
-        <p className="text-sm text-gray-500">필수 항목을 모두 입력하면 결과가 표시됩니다.</p>
+      <div className="rounded-2xl border border-border bg-surface-muted p-6 flex items-center justify-center h-full min-h-[200px]">
+        <p className="text-sm text-text-muted">필수 항목을 모두 입력하면 결과가 표시됩니다.</p>
       </div>
     )
   }
 
-  // 점심시간 자동 처리에 어색한 케이스 — 사용자에게 별도 계산 안내:
-  //   1) 실근무 4시간 이하 (= 240분 이하): 짧은 근무는 점심 안 먹었을 가능성이 큼
-  //   2) 공휴일근로 (workTypeCode=3): X=0이라 자동 점심 처리 안 되는데, 식사 했다면 별도로 빼야 함
+  // 점심시간 자동 처리에 어색한 케이스 — 별도 계산 안내:
+  //   1) 실근무 4시간 이하 (= 240분 이하)
+  //   2) 공휴일근로 (workTypeCode=3): X=0
   const showLunchAdvisory =
     result.actualWorkMinutes <= 4 * 60 || result.workTypeCode === 3
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden sticky top-6">
-      <div className="px-6 py-5 border-b border-gray-200 bg-gray-50">
-        <h3 className="text-lg leading-6 font-medium text-gray-900">계산 결과</h3>
+    <div className="bg-surface border border-border rounded-2xl shadow-[var(--shadow-card)] overflow-hidden sticky top-6">
+      <div className="px-5 py-4 border-b border-border bg-background">
+        <h3 className="text-base font-semibold text-text-primary">계산 결과</h3>
       </div>
-      <div className="px-6 py-5 space-y-4">
+      <div className="px-5 py-5 space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <p className="text-sm font-medium text-gray-500">실근무시간</p>
-            <p className="mt-1 text-lg font-semibold text-gray-900">{result.actualWorkText}</p>
+            <p className="text-[12px] font-semibold text-text-secondary">실근무시간</p>
+            <p className="mt-1 text-lg font-bold tabular-nums text-text-primary">{result.actualWorkText}</p>
           </div>
           <div>
-            <p className="text-sm font-medium text-gray-500">차감시간</p>
-            <p className="mt-1 text-lg font-semibold text-gray-900">{result.deductionMinutes / 60}시간</p>
+            <p className="text-[12px] font-semibold text-text-secondary">차감시간</p>
+            <p className="mt-1 text-lg font-bold tabular-nums text-text-primary">{result.deductionMinutes / 60}시간</p>
           </div>
-          <div>
-            <p className="text-sm font-medium text-gray-500">EW 시간/코드</p>
-            <p className="mt-1 text-lg font-semibold text-blue-600">{result.ewValue}</p>
+          <div className="col-span-2">
+            <p className="text-[12px] font-semibold text-text-secondary">EW 시간/코드</p>
+            <p className="mt-1 text-lg font-bold tabular-nums text-primary-600">{result.ewValue}</p>
           </div>
         </div>
 
         {showLunchAdvisory && (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <div className="rounded-[10px] border border-warning-border bg-warning-bg px-3 py-2 text-[12px] text-warning-text">
             * 점심시간 진행 여부에 따라 근무시간을 별도 계산하여 EW에 상신해주세요.
           </div>
         )}
 
-        <div className="pt-4 border-t border-gray-200">
-          <p className="text-xs font-medium text-gray-500 mb-2">복사용 문구 미리보기</p>
-          <div className="bg-gray-100 p-3 rounded text-sm font-mono text-gray-800 break-words whitespace-pre-wrap">
+        <div className="pt-4 border-t border-border">
+          <p className="text-[12px] font-semibold text-text-secondary mb-2">복사용 문구 미리보기</p>
+          <div className="bg-surface-muted border border-border p-3 rounded-[10px] text-[13px] font-mono text-text-primary break-words whitespace-pre-wrap">
             {result.copyText}
           </div>
         </div>

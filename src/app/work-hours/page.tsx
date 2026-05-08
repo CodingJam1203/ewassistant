@@ -16,13 +16,28 @@ import Pagination from '@/components/Pagination'
 import {
   fmtHours,
   riskLabel,
-  riskBadgeClass,
+  riskBadgeVariant,
   type MonthBaselines,
   type RiskLevel,
   type UserMonthSummary,
   type TeamSummary,
   type OverallSummary,
 } from '@/lib/utils/work-hours'
+import {
+  Badge,
+  Button,
+  FilterBar,
+  Input,
+  Select,
+  StatCard,
+  TableContainer,
+  Table,
+  Th,
+  Td,
+  TR_HOVER,
+  PageHeader,
+} from '@/components/ui'
+import { cn } from '@/lib/utils/cn'
 
 interface OrgTeam { id: string; division_id: string; name: string }
 interface OrgDivision { id: string; name: string; teams: OrgTeam[] }
@@ -69,11 +84,10 @@ export default function WorkHoursPage() {
   const [orgDivisions, setOrgDivisions] = useState<OrgDivision[]>([])
   const [selectedUser, setSelectedUser] = useState<UserMonthSummary | null>(null)
 
-  // ─── 페이지네이션 (개인별 테이블) ─────────────────────────────
+  // 페이지네이션
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
 
-  // ─── org 로드 ─────────────────────────────────────────────────────────────
   useEffect(() => {
     fetch('/api/org')
       .then(r => r.ok ? r.json() : [])
@@ -81,7 +95,6 @@ export default function WorkHoursPage() {
       .catch(() => {})
   }, [])
 
-  // ─── 데이터 fetch ─────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -110,10 +123,8 @@ export default function WorkHoursPage() {
       setLoading(false)
     }
   }, [year, month, filterDiv, filterTeam, filterName, filterRisk])
-
   useEffect(() => { fetchData() }, [fetchData])
 
-  // ─── 정렬된 사용자 목록 ──────────────────────────────────────────────────
   const sortedUsers = useMemo(() => {
     if (!data) return []
     const arr = [...data.users]
@@ -138,11 +149,9 @@ export default function WorkHoursPage() {
     [orgDivisions, filterDiv]
   )
 
-  // 필터/정렬 변경 시 1페이지로 리셋
   useEffect(() => { setPage(1) }, [
     year, month, filterDiv, filterTeam, filterName, filterRisk, sortKey, sortedUsers.length,
   ])
-
   const pageStart = (page - 1) * pageSize
   const pagedUsers = sortedUsers.slice(pageStart, pageStart + pageSize)
 
@@ -150,216 +159,216 @@ export default function WorkHoursPage() {
 
   return (
     <div className="space-y-5">
-      {/* 헤더 */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">근로시간 관리</h2>
-          {isLeaderScope && data && (
-            <p className="text-xs text-blue-600 mt-1">
-              리더 권한 — {data.scope.kind === 'team' ? `${data.scope.team} 팀` : `${data.scope.division} 본부`} 범위로 자동 제한됨
-            </p>
-          )}
-        </div>
-        <button
-          onClick={fetchData}
-          className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
-        >
-          <RefreshCw className="h-4 w-4" />
-          새로고침
-        </button>
-      </div>
+      <PageHeader
+        title="근로시간 관리"
+        description={
+          isLeaderScope && data
+            ? `리더 권한 — ${data.scope.kind === 'team' ? `${data.scope.team} 팀` : `${data.scope.division} 본부`} 범위로 자동 제한됨`
+            : '월별 인정근로 시간을 한 눈에 확인하고, 초과/위험 인원을 관리합니다.'
+        }
+        actions={
+          <Button variant="ghost" onClick={fetchData}>
+            <RefreshCw className="h-4 w-4" aria-hidden /> 새로고침
+          </Button>
+        }
+      />
 
       {/* 필터 바 */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 flex flex-wrap gap-3 items-end">
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">연도</label>
-          <select value={year} onChange={e => setYear(Number(e.target.value))}
-            className="select-tight border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
+      <FilterBar>
+        <FilterBar.Field label="연도">
+          <Select value={year} onChange={e => setYear(Number(e.target.value))} className="min-w-[100px]">
             {[today.getFullYear() - 1, today.getFullYear(), today.getFullYear() + 1].map(y =>
               <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">월</label>
-          <select value={month} onChange={e => setMonth(Number(e.target.value))}
-            className="select-tight border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
+          </Select>
+        </FilterBar.Field>
+        <FilterBar.Field label="월">
+          <Select value={month} onChange={e => setMonth(Number(e.target.value))} className="min-w-[80px]">
             {Array.from({ length: 12 }, (_, i) => i + 1).map(m =>
               <option key={m} value={m}>{m}월</option>)}
-          </select>
-        </div>
+          </Select>
+        </FilterBar.Field>
         {!isLeaderScope && (
           <>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">본부</label>
-              <select value={filterDiv}
+            <FilterBar.Field label="본부">
+              <Select
+                value={filterDiv}
                 onChange={e => { setFilterDiv(e.target.value); setFilterTeam('') }}
-                className="select-tight border border-gray-300 rounded px-2 py-1.5 text-sm bg-white min-w-[140px]">
+                className="min-w-[140px]"
+              >
                 <option value="">전체</option>
                 {orgDivisions.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">팀</label>
-              <select value={filterTeam}
+              </Select>
+            </FilterBar.Field>
+            <FilterBar.Field label="팀">
+              <Select
+                value={filterTeam}
                 onChange={e => setFilterTeam(e.target.value)}
                 disabled={!filterDiv}
-                className="select-tight border border-gray-300 rounded px-2 py-1.5 text-sm bg-white disabled:bg-gray-50 min-w-[140px]">
+                className="min-w-[140px]"
+              >
                 <option value="">전체</option>
                 {availableTeams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-              </select>
-            </div>
+              </Select>
+            </FilterBar.Field>
           </>
         )}
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">이름 검색</label>
-          <input value={filterName} onChange={e => setFilterName(e.target.value)}
-            placeholder="이름 일부"
-            className="border border-gray-300 rounded px-2 py-1.5 text-sm w-32" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">위험 상태</label>
-          <select value={filterRisk}
+        <FilterBar.Field label="이름 검색">
+          <Input value={filterName} onChange={e => setFilterName(e.target.value)} placeholder="이름 일부" className="w-32" />
+        </FilterBar.Field>
+        <FilterBar.Field label="위험 상태">
+          <Select
+            value={filterRisk}
             onChange={e => setFilterRisk(e.target.value as '' | RiskLevel)}
-            className="select-tight border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
+            className="min-w-[140px]"
+          >
             {RISK_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </div>
-      </div>
+          </Select>
+        </FilterBar.Field>
+      </FilterBar>
 
       {/* 에러 */}
       {error && (
-        <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-[10px] bg-danger-bg border border-danger-border p-3 text-sm text-danger-text">
+          {error}
+        </div>
       )}
 
       {/* 상단 요약 카드 */}
       {data && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <SummaryStat label="전체 인원"     value={data.overall.totalCount} />
-          <SummaryStat label="정상"          value={data.overall.normalCount}  color="text-green-700" bg="bg-green-50" />
-          <SummaryStat label="주의"          value={data.overall.cautionCount} color="text-yellow-700" bg="bg-yellow-50" />
-          <SummaryStat label="위험"          value={data.overall.dangerCount}  color="text-orange-700" bg="bg-orange-50" />
-          <SummaryStat label="초과"          value={data.overall.overCount}    color="text-red-700"   bg="bg-red-50" />
-          <SummaryStat label="평균 인정근로" value={`${fmtHours(data.overall.avgRecognizedHours)} h`} />
+          <StatCard label="전체 인원" value={data.overall.totalCount} />
+          <StatCard label="정상" value={data.overall.normalCount}  tone="success" />
+          <StatCard label="주의" value={data.overall.cautionCount} tone="warning" />
+          <StatCard label="위험" value={data.overall.dangerCount}  tone="danger" />
+          <StatCard label="초과" value={data.overall.overCount}    tone="danger" />
+          <StatCard label="평균 인정근로" value={`${fmtHours(data.overall.avgRecognizedHours)} h`} />
         </div>
       )}
 
       {/* 팀별 요약 테이블 */}
       {data && data.teamSummaries.length > 0 && (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 text-sm font-semibold text-gray-800">
+        <TableContainer>
+          <div className="px-4 py-3 border-b border-border text-sm font-semibold text-text-primary bg-background">
             팀별 요약
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <Th>본부</Th><Th>팀</Th>
-                  <Th className="text-center">총원</Th>
-                  <Th className="text-center text-green-700">정상</Th>
-                  <Th className="text-center text-yellow-700">주의</Th>
-                  <Th className="text-center text-orange-700">위험</Th>
-                  <Th className="text-center text-red-700">초과</Th>
-                  <Th className="text-right">평균 인정근로</Th>
-                  <Th className="text-right">평균 초과율</Th>
-                  <Th className="text-right">팀 인정근로 합</Th>
-                  <Th className="text-right">팀 계획시간 합</Th>
+          <Table>
+            <thead>
+              <tr>
+                <Th>본부</Th><Th>팀</Th>
+                <Th className="text-center">총원</Th>
+                <Th className="text-center text-success-text">정상</Th>
+                <Th className="text-center text-warning-text">주의</Th>
+                <Th className="text-center text-danger-text">위험</Th>
+                <Th className="text-center text-danger-text">초과</Th>
+                <Th className="text-right">평균 인정근로</Th>
+                <Th className="text-right">평균 초과율</Th>
+                <Th className="text-right">팀 인정근로 합</Th>
+                <Th className="text-right">팀 계획시간 합</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.teamSummaries.map((t, i) => (
+                <tr key={i} className={TR_HOVER}>
+                  <Td>{t.division ?? '-'}</Td>
+                  <Td>{t.team ?? '(본부장)'}</Td>
+                  <Td className="text-center" numeric>{t.totalCount}</Td>
+                  <Td className="text-center" numeric>{t.normalCount}</Td>
+                  <Td className="text-center" numeric>{t.cautionCount}</Td>
+                  <Td className="text-center" numeric>{t.dangerCount}</Td>
+                  <Td className="text-center" numeric>{t.overCount}</Td>
+                  <Td className="text-right" numeric>{fmtHours(t.avgRecognizedHours)} h</Td>
+                  <Td className="text-right" numeric>{Math.round(t.avgOverRate * 100)}%</Td>
+                  <Td className="text-right" numeric>{fmtHours(t.totalRecognizedHours)} h</Td>
+                  <Td className="text-right" numeric>{fmtHours(t.totalPlanHours)} h</Td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {data.teamSummaries.map((t, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <Td>{t.division ?? '-'}</Td>
-                    <Td>{t.team ?? '(본부장)'}</Td>
-                    <Td center>{t.totalCount}</Td>
-                    <Td center>{t.normalCount}</Td>
-                    <Td center>{t.cautionCount}</Td>
-                    <Td center>{t.dangerCount}</Td>
-                    <Td center>{t.overCount}</Td>
-                    <Td right>{fmtHours(t.avgRecognizedHours)} h</Td>
-                    <Td right>{Math.round(t.avgOverRate * 100)}%</Td>
-                    <Td right>{fmtHours(t.totalRecognizedHours)} h</Td>
-                    <Td right>{fmtHours(t.totalPlanHours)} h</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              ))}
+            </tbody>
+          </Table>
+        </TableContainer>
       )}
 
       {/* 개인별 테이블 */}
       {data && (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
-            <div className="text-sm font-semibold text-gray-800">개인별 근로시간</div>
+        <TableContainer>
+          <div className="px-4 py-3 border-b border-border bg-background flex items-center justify-between gap-3 flex-wrap">
+            <div className="text-sm font-semibold text-text-primary">개인별 근로시간</div>
             <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-600">정렬</label>
-              <select value={sortKey} onChange={e => setSortKey(e.target.value as SortKey)}
-                className="select-tight border border-gray-300 rounded px-2 py-1 text-xs bg-white">
+              <label className="text-[12px] text-text-secondary">정렬</label>
+              <Select
+                selectSize="sm"
+                value={sortKey}
+                onChange={e => setSortKey(e.target.value as SortKey)}
+                className="min-w-[180px]"
+              >
                 <option value="recognized_desc">인정 근로시간 높은 순</option>
                 <option value="over_rate_desc">초과율 높은 순</option>
                 <option value="remaining_asc">잔여 가능 시간 낮은 순</option>
                 <option value="name_asc">이름순</option>
                 <option value="team_asc">팀순</option>
-              </select>
+              </Select>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <Th>이름</Th><Th>본부</Th><Th>팀</Th>
-                  <Th className="text-right">소정기준</Th>
-                  <Th className="text-right">법정기본</Th>
-                  <Th className="text-right">최대한도</Th>
-                  <Th className="text-right">인정근로</Th>
-                  <Th className="text-right">실근로</Th>
-                  <Th className="text-right">휴가</Th>
-                  <Th className="text-right">잔여</Th>
-                  <Th className="text-right">초과율</Th>
-                  <Th className="text-center">위험</Th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {pagedUsers.map(u => (
-                  <tr
-                    key={u.email}
-                    onClick={() => setSelectedUser(u)}
-                    className={`cursor-pointer hover:bg-blue-50 transition-colors ${
-                      u.risk === 'over' ? 'bg-red-50/50'
-                        : u.risk === 'danger' ? 'bg-orange-50/50'
-                        : u.risk === 'caution' ? 'bg-yellow-50/30'
-                        : ''
-                    }`}
+          <Table>
+            <thead>
+              <tr>
+                <Th>이름</Th><Th>본부</Th><Th>팀</Th>
+                <Th className="text-right">소정기준</Th>
+                <Th className="text-right">법정기본</Th>
+                <Th className="text-right">최대한도</Th>
+                <Th className="text-right">인정근로</Th>
+                <Th className="text-right">실근로</Th>
+                <Th className="text-right">휴가</Th>
+                <Th className="text-right">잔여</Th>
+                <Th className="text-right">초과율</Th>
+                <Th className="text-center">위험</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedUsers.map(u => (
+                <tr
+                  key={u.email}
+                  onClick={() => setSelectedUser(u)}
+                  className={cn(
+                    'cursor-pointer transition-colors',
+                    'hover:bg-primary-50/40',
+                    u.risk === 'over' && 'bg-danger-bg/30',
+                    u.risk === 'danger' && 'bg-danger-bg/30',
+                    u.risk === 'caution' && 'bg-warning-bg/30',
+                  )}
+                >
+                  <Td>
+                    <span className="font-semibold text-text-primary">{u.display_name ?? u.email}</span>
+                  </Td>
+                  <Td muted>{u.division ?? '-'}</Td>
+                  <Td muted>{u.team ?? '-'}</Td>
+                  <Td className="text-right" muted numeric>{fmtHours(data.baselines.standardHours)} h</Td>
+                  <Td className="text-right" muted numeric>{fmtHours(data.baselines.legalBaseHours)} h</Td>
+                  <Td className="text-right" muted numeric>{fmtHours(data.baselines.maxLimitHours)} h</Td>
+                  <Td className="text-right" numeric>
+                    <span className="font-bold text-primary-600">{fmtHours(u.recognizedHours)} h</span>
+                  </Td>
+                  <Td className="text-right" numeric>{fmtHours(u.actualHours)} h</Td>
+                  <Td className="text-right" numeric>{fmtHours(u.leaveHours)} h</Td>
+                  <Td className="text-right" numeric>{fmtHours(u.remainingHours)} h</Td>
+                  <Td
+                    className={cn(
+                      'text-right',
+                      (u.risk === 'over' || u.risk === 'danger') && 'text-danger-text font-semibold',
+                    )}
+                    numeric
                   >
-                    <Td>
-                      <span className="font-medium text-gray-900">{u.display_name ?? u.email}</span>
-                    </Td>
-                    <Td>{u.division ?? '-'}</Td>
-                    <Td>{u.team ?? '-'}</Td>
-                    <Td right muted>{fmtHours(data.baselines.standardHours)} h</Td>
-                    <Td right muted>{fmtHours(data.baselines.legalBaseHours)} h</Td>
-                    <Td right muted>{fmtHours(data.baselines.maxLimitHours)} h</Td>
-                    <Td right>
-                      <span className="font-bold text-blue-600">{fmtHours(u.recognizedHours)} h</span>
-                    </Td>
-                    <Td right>{fmtHours(u.actualHours)} h</Td>
-                    <Td right>{fmtHours(u.leaveHours)} h</Td>
-                    <Td right>{fmtHours(u.remainingHours)} h</Td>
-                    <Td right>{Math.round(u.overRate * 100)}%</Td>
-                    <Td center>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${riskBadgeClass(u.risk)}`}>
-                        {riskLabel(u.risk)}
-                      </span>
-                    </Td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {sortedUsers.length === 0 && (
-              <div className="py-12 text-center text-sm text-gray-500">조건에 맞는 인원이 없습니다.</div>
-            )}
-          </div>
+                    {Math.round(u.overRate * 100)}%
+                  </Td>
+                  <Td className="text-center">
+                    <Badge variant={riskBadgeVariant(u.risk)}>{riskLabel(u.risk)}</Badge>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+          {sortedUsers.length === 0 && (
+            <div className="py-12 text-center text-sm text-text-muted">조건에 맞는 인원이 없습니다.</div>
+          )}
           {sortedUsers.length > 0 && (
             <Pagination
               totalCount={sortedUsers.length}
@@ -370,12 +379,12 @@ export default function WorkHoursPage() {
               unit="명"
             />
           )}
-        </div>
+        </TableContainer>
       )}
 
       {/* 로딩 */}
       {loading && (
-        <div className="text-center text-sm text-gray-500 py-4">불러오는 중...</div>
+        <div className="text-center text-sm text-text-muted py-4">불러오는 중...</div>
       )}
 
       {/* 개인 상세 모달 */}
@@ -384,17 +393,15 @@ export default function WorkHoursPage() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 overflow-y-auto py-6"
           onClick={() => setSelectedUser(null)}
         >
-          <div
-            className="w-full max-w-md"
-            onClick={e => e.stopPropagation()}
-          >
+          <div className="w-full max-w-md" onClick={e => e.stopPropagation()}>
             <div className="flex justify-end mb-2">
               <button
                 onClick={() => setSelectedUser(null)}
                 className="text-white/80 hover:text-white p-1"
                 title="닫기"
+                aria-label="닫기"
               >
-                <X className="h-5 w-5" />
+                <X className="h-5 w-5" aria-hidden />
               </button>
             </div>
             <WorkHoursCard
@@ -406,40 +413,5 @@ export default function WorkHoursPage() {
         </div>
       )}
     </div>
-  )
-}
-
-// ─── 작은 부품들 ────────────────────────────────────────────────────────────
-
-function SummaryStat({
-  label, value, color, bg,
-}: {
-  label: string; value: number | string; color?: string; bg?: string
-}) {
-  return (
-    <div className={`rounded-lg border border-gray-200 p-3 ${bg ?? 'bg-white'}`}>
-      <div className="text-xs text-gray-500 mb-1">{label}</div>
-      <div className={`text-xl font-bold ${color ?? 'text-gray-900'}`}>{value}</div>
-    </div>
-  )
-}
-
-function Th({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <th className={`px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider whitespace-nowrap ${className}`}>
-      {children}
-    </th>
-  )
-}
-
-function Td({
-  children, center, right, muted,
-}: {
-  children: React.ReactNode; center?: boolean; right?: boolean; muted?: boolean
-}) {
-  const align = center ? 'text-center' : right ? 'text-right' : 'text-left'
-  const color = muted ? 'text-gray-400' : 'text-gray-700'
-  return (
-    <td className={`px-3 py-2 whitespace-nowrap ${align} ${color}`}>{children}</td>
   )
 }
