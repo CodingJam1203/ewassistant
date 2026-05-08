@@ -79,6 +79,8 @@ export interface SubmissionRow {
   expected_work_location: string | null
   /** 출근 timeline 마지막 항목(expected_checkout)에서 퇴근예정시각 추출용 */
   expected_work_location_timeline?: Array<{ kind?: string; startTime?: string }> | null
+  /** 사전 보고 있는 상태에서 출근만 누른 경우 actual timeline (퇴근예정시각 fallback용) */
+  work_location_timeline?: Array<{ kind?: string; startTime?: string }> | null
 
   changed_fields: ChangedFieldRow[] | null
 
