@@ -15,7 +15,7 @@ import { useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
-import { LogIn, LogOut, RefreshCw, Clock, MapPin, Coffee, X, Check } from 'lucide-react'
+import { LogIn, LogOut, RefreshCw, Clock, MapPin, Coffee, X, Check, LayoutGrid, Calendar as CalendarIcon } from 'lucide-react'
 import WorkHoursCard from '@/components/WorkHoursCard'
 import SubmissionsRawTable from '@/components/SubmissionsRawTable'
 import { Button, Badge, StatusCard, Select } from '@/components/ui'
@@ -42,7 +42,24 @@ const MyHistoryCalendar = dynamic(() => import('@/components/MyHistoryCalendar')
   ),
 })
 
-type TabKey = 'final' | 'calendar' | 'raw'
+/**
+ * 내 제출 내역 위계
+ *   - 메인 탭(2단): 'final' (정제된 최종 상태) / 'raw' (이벤트 원본 스트림)
+ *   - 'final' 안의 보기 토글: 'list' (일자별) / 'calendar' (월간)
+ */
+type TabKey = 'final' | 'raw'
+type FinalView = 'list' | 'calendar'
+
+/** localStorage 안전 read — SSR에서는 default. */
+function readFinalView(): FinalView {
+  if (typeof window === 'undefined') return 'list'
+  try {
+    const v = localStorage.getItem('home-final-view')
+    return v === 'calendar' ? 'calendar' : 'list'
+  } catch {
+    return 'list'
+  }
+}
 
 /** ISO timestamp → 'HH:mm' (KST 사용자 브라우저 기준) */
 function fmtHHmm(iso: string | null | undefined): string {
@@ -187,7 +204,14 @@ export default function HomePage() {
   const [editScope, setEditScope] = useState<'check_in' | 'check_out' | undefined>(undefined)
 
   const [tab, setTab] = useState<TabKey>('final')
+  const [finalView, setFinalView] = useState<FinalView>(readFinalView)
   const [filterDate, setFilterDate] = useState('')
+
+  // finalView 변경 시 localStorage 저장
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try { localStorage.setItem('home-final-view', finalView) } catch {}
+  }, [finalView])
 
   // 본인 이번 달 근로현황
   const [hoursSummary, setHoursSummary] = useState<{
@@ -499,10 +523,13 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ─── 내 제출 내역 ─────────────────────────────────────────── */}
+      {/* ─── 내 제출 내역 ───────────────────────────────────────────
+          위계 1단: 메인 탭(최종 보고 / RAW) — 데이터 종류 구분
+          위계 2단: 보기 토글(일자별 / 캘린더) — '최종 보고' 안의 표현 방식
+      */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
         <h3 className="text-lg font-bold text-text-primary">내 제출 내역</h3>
-        {tab === 'final' && (
+        {tab === 'final' && finalView === 'list' && (
           <div className="flex items-center gap-2">
             <input
               type="date"
@@ -519,13 +546,12 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* 탭 — 같은 최종 데이터를 다른 형태로 보는 개념. 캘린더가 가운데. */}
+      {/* 메인 탭 (위계 1) */}
       <div className="border-b border-border">
         <nav className="-mb-px flex gap-6" aria-label="탭">
           {[
-            { key: 'final'    as TabKey, label: '일자별 최종 보고' },
-            { key: 'calendar' as TabKey, label: '캘린더뷰' },
-            { key: 'raw'      as TabKey, label: 'RAW 제출 내역' },
+            { key: 'final' as TabKey, label: '최종 보고' },
+            { key: 'raw'   as TabKey, label: 'RAW 제출 내역' },
           ].map(t => (
             <button
               key={t.key}
@@ -543,17 +569,55 @@ export default function HomePage() {
         </nav>
       </div>
 
-      {/* 일자별 최종 */}
+      {/* 최종 보고 — 보기 토글 (위계 2) + 본문 */}
       {tab === 'final' && (
-        <SubmissionsRawTable
-          mine mode="final"
-          onEditWorkLog={openEditByWorkLogId}
-        />
-      )}
+        <>
+          <div className="flex items-center justify-between gap-2">
+            <div
+              role="group"
+              aria-label="보기 방식"
+              className="inline-flex rounded-[10px] border border-border-strong bg-surface p-0.5"
+            >
+              <button
+                type="button"
+                onClick={() => setFinalView('list')}
+                className={cn(
+                  'inline-flex items-center gap-1 h-8 px-2.5 rounded-[8px] text-[12px] font-medium transition-colors',
+                  finalView === 'list'
+                    ? 'bg-surface-muted text-text-primary'
+                    : 'text-text-muted hover:text-text-primary',
+                )}
+                aria-pressed={finalView === 'list'}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
+                일자별
+              </button>
+              <button
+                type="button"
+                onClick={() => setFinalView('calendar')}
+                className={cn(
+                  'inline-flex items-center gap-1 h-8 px-2.5 rounded-[8px] text-[12px] font-medium transition-colors',
+                  finalView === 'calendar'
+                    ? 'bg-surface-muted text-text-primary'
+                    : 'text-text-muted hover:text-text-primary',
+                )}
+                aria-pressed={finalView === 'calendar'}
+              >
+                <CalendarIcon className="h-3.5 w-3.5" aria-hidden />
+                캘린더
+              </button>
+            </div>
+          </div>
 
-      {/* 캘린더뷰 */}
-      {tab === 'calendar' && (
-        <MyHistoryCalendar onEditWorkLog={openEditByWorkLogId} />
+          {finalView === 'list' ? (
+            <SubmissionsRawTable
+              mine mode="final"
+              onEditWorkLog={openEditByWorkLogId}
+            />
+          ) : (
+            <MyHistoryCalendar onEditWorkLog={openEditByWorkLogId} />
+          )}
+        </>
       )}
 
       {/* RAW */}
