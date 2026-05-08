@@ -32,6 +32,7 @@ import {
 import type { BadgeVariant } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
 import { pickLatestPerDay } from '@/lib/submissions/finalize-by-day'
+import type { LeaveTimeline } from '@/types/leave-timeline'
 
 function CopyButton({ text }: { text: string | null }) {
   const [copied, setCopied] = useState(false)
@@ -100,6 +101,11 @@ export interface SubmissionRow {
   expected_work_location_timeline?: Array<{ kind?: string; startTime?: string }> | null
   /** 사전 보고 있는 상태에서 출근만 누른 경우 actual timeline (퇴근예정시각 fallback용) */
   work_location_timeline?: Array<{ kind?: string; startTime?: string }> | null
+
+  /** 휴가/반차 타임라인 — 캘린더뷰 / CalendarDayDetailModal에서 사용. */
+  leave_timeline?: LeaveTimeline | null
+  /** 다음 출근 예정 휴가 타임라인 */
+  expected_leave_timeline?: LeaveTimeline | null
 
   changed_fields: ChangedFieldRow[] | null
 

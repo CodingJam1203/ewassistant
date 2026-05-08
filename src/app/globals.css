@@ -1,7 +1,11 @@
-@import "tailwindcss";
-
-/* Pretendard — CDN font (사내 도구라 CDN 충분) */
+/* Pretendard — CDN font (사내 도구라 CDN 충분).
+ * @import url(...)는 @charset/@layer를 제외한 모든 룰보다 앞에 와야 한다는 CSS spec
+ * 때문에 Tailwind import보다 위에 둔다. (v4가 @import "tailwindcss"를 inline 확장하므로
+ * 그 뒤에 두면 빌드 시 "must precede all rules" 경고 발생.)
+ */
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css");
+
+@import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
  * N-Click Design Tokens (Tailwind v4 @theme)
