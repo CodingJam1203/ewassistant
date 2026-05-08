@@ -130,37 +130,55 @@ export default function MyHistoryCalendar({ onEditWorkLog }: MyHistoryCalendarPr
     return d
   }, [monthEnd])
 
-  /** 데이터 fetch (월 + Google 캘린더 같이) */
+  /**
+   * 데이터 fetch — submissions와 calendar를 독립적으로 처리.
+   *
+   * - submissions(필수): 실패 시 에러 배너 표시. 그래도 calendar는 계속 시도.
+   * - calendar(선택): 실패 시 조용히 무시. 시트 연동 비활성/장애 시에도 본 캘린더는 동작해야 함.
+   * - 한쪽 실패가 다른 쪽 fetch를 막지 않도록 Promise.all 안 씀.
+   */
   const fetchAll = useCallback(async () => {
     setLoading(true)
     setError(null)
     const from = fmtDate(monthStart)
     const to   = fmtDate(monthEnd)
+
+    // 1) 본인 제출 이력 (필수)
     try {
-      // submissions와 calendar는 병렬
-      const [subsRes, calRes] = await Promise.all([
-        fetch(`/api/work-log-submissions?mine=true&from=${from}&to=${to}&limit=1000`),
-        fetch(`/api/calendar/range?from=${fmtDate(gridStart)}&to=${fmtDate(gridEnd)}`)
-          .catch(() => null),
-      ])
-      const subsData = await subsRes.json().catch(() => ({}))
-      if (!subsRes.ok) {
-        setError(subsData?.error ?? '제출 이력을 불러오지 못했습니다.')
+      const res = await fetch(
+        `/api/work-log-submissions?mine=true&from=${from}&to=${to}&limit=1000`,
+        { credentials: 'same-origin' },
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data?.error ?? `제출 이력 조회 실패 (${res.status})`)
       } else {
-        setRows((subsData?.rows ?? []) as SubmissionRow[])
+        setRows((data?.rows ?? []) as SubmissionRow[])
       }
-      if (calRes && calRes.ok) {
-        const calData = await calRes.json().catch(() => ({}))
-        if (calData?.byDate && typeof calData.byDate === 'object') {
-          setCalendar(calData.byDate as Record<string, UserCalendarLookup>)
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : String(err)
+      console.warn('[calendar] submissions fetch failed:', m)
+      setError(`제출 이력 조회 실패 — 네트워크/세션 상태를 확인해주세요. (${m})`)
+    }
+
+    // 2) Google 캘린더 일정 (best-effort) — 실패해도 N-Click 데이터는 그대로 보여줌
+    try {
+      const res = await fetch(
+        `/api/calendar/range?from=${fmtDate(gridStart)}&to=${fmtDate(gridEnd)}`,
+        { credentials: 'same-origin' },
+      )
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}))
+        if (data?.byDate && typeof data.byDate === 'object') {
+          setCalendar(data.byDate as Record<string, UserCalendarLookup>)
         }
       }
     } catch (err: unknown) {
       const m = err instanceof Error ? err.message : String(err)
-      setError(`네트워크 오류: ${m}`)
-    } finally {
-      setLoading(false)
+      console.warn('[calendar] google calendar fetch failed (ignored):', m)
     }
+
+    setLoading(false)
   }, [monthStart, monthEnd, gridStart, gridEnd])
 
   useEffect(() => { fetchAll() }, [fetchAll])
