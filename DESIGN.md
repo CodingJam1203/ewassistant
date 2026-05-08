@@ -244,12 +244,27 @@ FilterBar:
 
 ### 8.5 Table
 
-- 컨테이너: bg `surface`, border, radius `xl(16)`, overflow hidden
-- header: bg `background`(=#F8FAFC), text `text-secondary`, font 12/600 uppercase 옵션
-- cell: padding 12 16, font `body-sm`(13/20)
+- 컨테이너: bg `surface`, border, radius `xl(16)`, overflow hidden (`<TableContainer>`)
+- 가로 스크롤 영역: `<TableScroll>` 안에서만 — Pagination/툴바는 그 바깥에 둔다
+- header (`<Th>`): bg `background`(=#F8FAFC), text `text-secondary`, font 12/600
+- cell (`<Td>`): padding 12 8, font `body-sm`(13/20), 기본 `whitespace-nowrap`
+- 자연 줄바꿈이 필요한 셀은 `<Td wrap>`로 opt-out
 - row hover: bg `surface-muted`(#F1F5F9)
-- 시간/숫자 컬럼: `tabular-nums`
+- 시간/숫자 컬럼: `tabular-nums` (또는 `<Td numeric>`)
 - 강조는 굵기·primary 색상 1군데만. 색상으로 도배 금지.
+
+**구조 권장:**
+```tsx
+<TableContainer>
+  <TableScroll>            {/* 가로 스크롤 담당 */}
+    <Table>
+      <thead><tr><Th>...</Th></tr></thead>
+      <tbody><tr><Td>...</Td></tr></tbody>
+    </Table>
+  </TableScroll>
+  <Pagination ... />        {/* 스크롤 바깥에 위치 */}
+</TableContainer>
+```
 
 ### 8.6 Navigation
 

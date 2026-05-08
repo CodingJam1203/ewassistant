@@ -31,6 +31,7 @@ import {
   Select,
   StatCard,
   TableContainer,
+  TableScroll,
   Table,
   Th,
   Td,
@@ -251,8 +252,9 @@ export default function WorkHoursPage() {
           <div className="px-4 py-3 border-b border-border text-sm font-semibold text-text-primary bg-background">
             팀별 요약
           </div>
-          <Table>
-            <thead>
+          <TableScroll>
+            <Table>
+              <thead>
               <tr>
                 <Th>본부</Th><Th>팀</Th>
                 <Th className="text-center">총원</Th>
@@ -283,7 +285,8 @@ export default function WorkHoursPage() {
                 </tr>
               ))}
             </tbody>
-          </Table>
+            </Table>
+          </TableScroll>
         </TableContainer>
       )}
 
@@ -308,8 +311,9 @@ export default function WorkHoursPage() {
               </Select>
             </div>
           </div>
-          <Table>
-            <thead>
+          <TableScroll>
+            <Table>
+              <thead>
               <tr>
                 <Th>이름</Th><Th>본부</Th><Th>팀</Th>
                 <Th className="text-right">소정기준</Th>
@@ -365,7 +369,8 @@ export default function WorkHoursPage() {
                 </tr>
               ))}
             </tbody>
-          </Table>
+            </Table>
+          </TableScroll>
           {sortedUsers.length === 0 && (
             <div className="py-12 text-center text-sm text-text-muted">조건에 맞는 인원이 없습니다.</div>
           )}

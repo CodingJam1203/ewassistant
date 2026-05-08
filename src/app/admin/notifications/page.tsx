@@ -2,7 +2,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdmin } from '@/lib/admin-check'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { Badge, TableContainer, Table, Th, Td, TR_HOVER, PageHeader } from '@/components/ui'
+import { Badge, TableContainer, TableScroll, Table, Th, Td, TR_HOVER, PageHeader } from '@/components/ui'
 import type { BadgeVariant } from '@/components/ui'
 
 export const dynamic = 'force-dynamic'
@@ -56,8 +56,9 @@ export default async function NotificationsAdminPage() {
       />
 
       <TableContainer>
-        <Table>
-          <thead>
+        <TableScroll>
+          <Table>
+            <thead>
             <tr>
               <Th>발송 일시</Th>
               <Th>상태</Th>
@@ -91,8 +92,9 @@ export default async function NotificationsAdminPage() {
                 </Td>
               </tr>
             ))}
-          </tbody>
-        </Table>
+            </tbody>
+          </Table>
+        </TableScroll>
       </TableContainer>
     </div>
   )

@@ -19,7 +19,7 @@ export type { InputProps, SelectProps, FieldProps } from './Input'
 export { FilterBar } from './FilterBar'
 export type { FilterBarProps, FilterFieldProps } from './FilterBar'
 
-export { TableContainer, Table, Th, Td, TableEmpty, TR_HOVER } from './Table'
+export { TableContainer, TableScroll, Table, Th, Td, TableEmpty, TR_HOVER } from './Table'
 export type { TdProps } from './Table'
 
 export { PageHeader } from './PageHeader'

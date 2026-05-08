@@ -23,6 +23,7 @@ import {
   Input,
   Select,
   TableContainer,
+  TableScroll,
   Table,
   Th,
   Td,
@@ -349,8 +350,9 @@ export default function SubmissionsRawTable({
         </div>
       ) : (
         <TableContainer>
-          <Table>
-            <thead>
+          <TableScroll>
+            <Table>
+              <thead>
               <tr>
                 <Th className="text-center">복사</Th>
                 <Th className="text-center">수정</Th>
@@ -424,10 +426,14 @@ export default function SubmissionsRawTable({
                     <Td numeric>{isCheckOut ? fmtInterval(r.break_time) : dash}</Td>
                     <Td numeric>{isCheckOut ? fmtInterval(r.actual_work_time) : dash}</Td>
                     <Td className="font-bold text-primary-600 tabular-nums">{isCheckOut ? (r.ew_value ?? '-') : dash}</Td>
-                    <Td className="max-w-[200px] truncate text-text-secondary" title={r.work_content ?? ''}>
+                    <Td
+                      className="max-w-[220px] truncate text-text-secondary"
+                      title={r.work_content ?? ''}
+                    >
                       {isCheckOut ? (r.work_content ?? '-') : dash}
                     </Td>
-                    <Td className="max-w-[260px]">
+                    {/* 변경 필드는 여러 줄 ul이라 wrap 허용 */}
+                    <Td wrap className="max-w-[280px]">
                       {isUpdate && r.changed_fields && r.changed_fields.length > 0 ? (
                         <ul className="space-y-0.5 list-none">
                           {r.changed_fields.map((cf, i) => (
@@ -441,8 +447,9 @@ export default function SubmissionsRawTable({
                   </tr>
                 )
               })}
-            </tbody>
-          </Table>
+              </tbody>
+            </Table>
+          </TableScroll>
           <Pagination
             totalCount={processedRows.length}
             page={page}
