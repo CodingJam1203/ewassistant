@@ -3,13 +3,29 @@
 import { useState, useEffect, useCallback } from 'react'
 import { format, addDays, subDays, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
-import { ChevronLeft, ChevronRight, RefreshCw, MapPin, Clock, Coffee, LogIn, LogOut, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RefreshCw, MapPin, Clock, Coffee, LogIn, LogOut, X, LayoutGrid, List } from 'lucide-react'
 import CheckInModal from '@/components/CheckInModal'
 import WorkLogModal from '@/components/WorkLogModal'
-import { Button, Badge, Select, FilterBar, PageHeader } from '@/components/ui'
+import {
+  Button, Badge, Select, FilterBar, PageHeader,
+  TableContainer, TableScroll, Table, Th, Td, TR_HOVER,
+} from '@/components/ui'
 import type { BadgeVariant } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
 import type { TeamMemberCard } from '@/app/api/team-status/route'
+
+type ViewMode = 'card' | 'list'
+
+/** localStorage 안전 read — SSR에서는 default. */
+function readViewMode(): ViewMode {
+  if (typeof window === 'undefined') return 'card'
+  try {
+    const v = localStorage.getItem('team-view-mode')
+    return v === 'list' ? 'list' : 'card'
+  } catch {
+    return 'card'
+  }
+}
 
 /** 현재 시각을 30분 단위로 floor한 'HH:mm' 문자열 (KST 기준) */
 function nowRoundedTo30(): string {
@@ -337,6 +353,189 @@ function MemberCard({
   )
 }
 
+// ─── 팀원 리스트 행 (리스트뷰 전용) ───────────────────────────────────────────
+function MemberListRow({
+  card,
+  date,
+  onAction,
+  onOpenCheckInTime,
+  onCheckOutNeeded,
+}: {
+  card: TeamMemberCard
+  date: string
+  onAction: () => void
+  onOpenCheckInTime: (card: TeamMemberCard) => void
+  onCheckOutNeeded: (card: TeamMemberCard) => void
+}) {
+  const [busy, setBusy] = useState(false)
+
+  const action = async (endpoint: string) => {
+    setBusy(true)
+    await fetch(`/api/team-status/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date }),
+    })
+    setBusy(false)
+    onAction()
+  }
+
+  const leaveLabel =
+    card.calendar_leave_type === 'full_day' ? '휴가'
+    : card.calendar_leave_type === 'morning_half' ? '오전반차'
+    : card.calendar_leave_type === 'afternoon_half' ? '오후반차'
+    : null
+
+  return (
+    <tr className={cn(TR_HOVER, 'border-l-[3px]', STATUS_BORDER[card.color])}>
+      {/* 이름 / 소속 */}
+      <Td>
+        <div className="flex items-center gap-1.5">
+          <span className="font-semibold text-text-primary">
+            {card.display_name ?? card.email}
+          </span>
+          {card.is_self && (
+            <Badge variant="info" className="!h-5 !px-1.5 !text-[10px]">나</Badge>
+          )}
+        </div>
+        <div className="text-[11px] text-text-muted truncate mt-0.5">
+          {[card.division, card.team].filter(Boolean).join(' / ') || '-'}
+        </div>
+      </Td>
+
+      {/* 상태 */}
+      <Td>
+        <div className="flex items-center gap-1">
+          {leaveLabel && !card.work_log_id && (
+            <Badge variant="warning">{leaveLabel}</Badge>
+          )}
+          <Badge variant={colorToBadgeVariant(card.color)} dot>
+            {card.status_text}
+          </Badge>
+        </div>
+      </Td>
+
+      {/* 출근/퇴근 예정 */}
+      <Td className="tabular-nums">{card.start_time ?? '-'}</Td>
+      <Td className="tabular-nums">{card.end_time ?? '-'}</Td>
+
+      {/* 실제 출근/퇴근 */}
+      <Td className="tabular-nums">{fmtTime(card.checked_in_at)}</Td>
+      <Td className="tabular-nums">{fmtTime(card.checked_out_at)}</Td>
+
+      {/* 휴게 */}
+      <Td className="tabular-nums">
+        {card.is_on_break ? (
+          <span className="inline-flex items-center gap-1 text-warning-text">
+            <Coffee className="h-3 w-3" aria-hidden />
+            {fmtTime(card.break_started_at)}
+          </span>
+        ) : (
+          <span className="text-text-muted">-</span>
+        )}
+      </Td>
+
+      {/* 근무지 */}
+      <Td>
+        {card.is_self ? (
+          <LocationSelect
+            current={card.current_location ?? card.work_location}
+            date={date}
+            onChange={onAction}
+          />
+        ) : (
+          <span className="inline-flex items-center gap-1 text-text-secondary">
+            <MapPin className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
+            {card.current_location ?? card.work_location ?? '-'}
+          </span>
+        )}
+      </Td>
+
+      {/* 액션 (본인만) */}
+      <Td>
+        {card.is_self ? (
+          <div className="flex flex-wrap gap-1">
+            {!card.checked_in_at ? (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => onOpenCheckInTime(card)}
+                disabled={busy}
+                className="!h-7 !px-2 !text-[11px]"
+              >
+                <LogIn className="h-3 w-3" aria-hidden />
+                출근
+              </Button>
+            ) : (
+              <Button
+                variant="danger-soft"
+                size="sm"
+                onClick={() => action('check-in-cancel')}
+                disabled={busy}
+                className="!h-7 !px-2 !text-[11px]"
+              >
+                <X className="h-3 w-3" aria-hidden />
+                출근취소
+              </Button>
+            )}
+            {!card.checked_out_at && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => onCheckOutNeeded(card)}
+                disabled={busy}
+                className="!h-7 !px-2 !text-[11px]"
+              >
+                <LogOut className="h-3 w-3" aria-hidden />
+                퇴근
+              </Button>
+            )}
+            {card.checked_out_at && (
+              <Button
+                variant="danger-soft"
+                size="sm"
+                onClick={() => action('check-out-cancel')}
+                disabled={busy}
+                className="!h-7 !px-2 !text-[11px]"
+              >
+                <X className="h-3 w-3" aria-hidden />
+                퇴근취소
+              </Button>
+            )}
+            {card.checked_in_at && !card.checked_out_at && (
+              !card.is_on_break ? (
+                <Button
+                  variant="warning-soft"
+                  size="sm"
+                  onClick={() => action('break-start')}
+                  disabled={busy}
+                  className="!h-7 !px-2 !text-[11px]"
+                >
+                  <Coffee className="h-3 w-3" aria-hidden />
+                  휴게
+                </Button>
+              ) : (
+                <Button
+                  variant="warning-soft"
+                  size="sm"
+                  onClick={() => action('break-end')}
+                  disabled={busy}
+                  className="!h-7 !px-2 !text-[11px] !bg-warning-text !text-white !border-warning-text hover:!bg-warning-text/90"
+                >
+                  <Coffee className="h-3 w-3" aria-hidden />
+                  종료
+                </Button>
+              )
+            )}
+          </div>
+        ) : (
+          <span className="text-text-muted text-[11px]">-</span>
+        )}
+      </Td>
+    </tr>
+  )
+}
+
 // ─── 메인 페이지 ──────────────────────────────────────────────────────────────
 export default function TeamPage() {
   const today = format(new Date(), 'yyyy-MM-dd')
@@ -351,6 +550,13 @@ export default function TeamPage() {
   const [showHeaderCheckIn, setShowHeaderCheckIn] = useState(false)
   const [myProfile, setMyProfile] = useState<{ display_name: string | null; division: string | null; team: string | null } | null>(null)
   const [profileReady, setProfileReady] = useState(false)
+  const [viewMode, setViewMode] = useState<ViewMode>(readViewMode)
+
+  // viewMode 변경 시 localStorage 저장
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try { localStorage.setItem('team-view-mode', viewMode) } catch {}
+  }, [viewMode])
 
   useEffect(() => {
     let cancelled = false
@@ -411,10 +617,49 @@ export default function TeamPage() {
         title="둘러보기"
         description="팀원들의 출근/퇴근/휴게 상태를 한눈에 확인합니다."
         actions={
-          <Button variant="ghost" onClick={fetchCards}>
-            <RefreshCw className="h-4 w-4" aria-hidden />
-            새로고침
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* 뷰 모드 토글 */}
+            <div
+              role="group"
+              aria-label="뷰 모드"
+              className="inline-flex rounded-[10px] border border-border-strong bg-surface p-0.5"
+            >
+              <button
+                type="button"
+                onClick={() => setViewMode('card')}
+                className={cn(
+                  'inline-flex items-center gap-1 h-8 px-2.5 rounded-[8px] text-[12px] font-medium transition-colors',
+                  viewMode === 'card'
+                    ? 'bg-surface-muted text-text-primary'
+                    : 'text-text-muted hover:text-text-primary',
+                )}
+                aria-pressed={viewMode === 'card'}
+                aria-label="카드뷰"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
+                카드
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('list')}
+                className={cn(
+                  'inline-flex items-center gap-1 h-8 px-2.5 rounded-[8px] text-[12px] font-medium transition-colors',
+                  viewMode === 'list'
+                    ? 'bg-surface-muted text-text-primary'
+                    : 'text-text-muted hover:text-text-primary',
+                )}
+                aria-pressed={viewMode === 'list'}
+                aria-label="리스트뷰"
+              >
+                <List className="h-3.5 w-3.5" aria-hidden />
+                리스트
+              </button>
+            </div>
+            <Button variant="ghost" onClick={fetchCards}>
+              <RefreshCw className="h-4 w-4" aria-hidden />
+              새로고침
+            </Button>
+          </div>
         }
       />
 
@@ -479,18 +724,22 @@ export default function TeamPage() {
         </div>
       </FilterBar>
 
-      {/* 카드 그리드 */}
+      {/* 본문 — 카드뷰 / 리스트뷰 */}
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {[...Array(8)].map((_, i) => (
-            <div key={i} className="h-44 bg-surface-muted rounded-2xl animate-pulse" />
-          ))}
-        </div>
+        viewMode === 'card' ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="h-44 bg-surface-muted rounded-2xl animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <div className="h-64 bg-surface-muted rounded-2xl animate-pulse" />
+        )
       ) : cards.length === 0 ? (
         <div className="py-16 text-center text-sm text-text-muted">
           해당 날짜/조직의 팀원이 없습니다.
         </div>
-      ) : (
+      ) : viewMode === 'card' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {cards.map(card => (
             <MemberCard
@@ -503,6 +752,38 @@ export default function TeamPage() {
             />
           ))}
         </div>
+      ) : (
+        <TableContainer>
+          <TableScroll>
+            <Table>
+              <thead>
+                <tr>
+                  <Th>이름 / 소속</Th>
+                  <Th>상태</Th>
+                  <Th>출근예정</Th>
+                  <Th>퇴근예정</Th>
+                  <Th>실제 출근</Th>
+                  <Th>실제 퇴근</Th>
+                  <Th>휴게</Th>
+                  <Th>근무지</Th>
+                  <Th>액션</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {cards.map(card => (
+                  <MemberListRow
+                    key={card.email}
+                    card={card}
+                    date={date}
+                    onAction={fetchCards}
+                    onOpenCheckInTime={(c) => setCheckInTarget({ card: c, startTime: nowRoundedTo30() })}
+                    onCheckOutNeeded={setCheckOutTarget}
+                  />
+                ))}
+              </tbody>
+            </Table>
+          </TableScroll>
+        </TableContainer>
       )}
 
       {/* 출근보고 작성 모달 */}
