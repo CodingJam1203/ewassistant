@@ -88,6 +88,9 @@ html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  /* 모바일에서 어떤 자식 요소도 가로 스크롤을 유발하지 못하도록 차단.
+     내부 .overflow-x-auto (TableScroll 등)는 정상 동작함. */
+  overflow-x: clip;
 }
 
 body {
@@ -95,6 +98,7 @@ body {
   color: var(--color-text-primary);
   font-family: var(--font-sans);
   letter-spacing: -0.02em;
+  overflow-x: clip;
 }
 
 /* tabular numerals for time/numeric heavy contexts */

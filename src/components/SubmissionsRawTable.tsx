@@ -435,11 +435,10 @@ export default function SubmissionsRawTable({
                         <span
                           role="tooltip"
                           className={cn(
-                            'pointer-events-none invisible opacity-0',
-                            'group-hover/wc:visible group-hover/wc:opacity-100',
-                            'transition-opacity duration-100',
+                            // hidden: 비-hover 상태에서는 DOM에서 렌더 안 됨 → 스크롤 영역 영향 0
+                            'pointer-events-none hidden group-hover/wc:block',
                             'absolute z-30 top-full left-3 mt-1',
-                            'w-[360px] max-w-[80vw]',
+                            'w-[360px] max-w-[min(80vw,360px)]',
                             'rounded-[10px] border border-border bg-surface',
                             'text-[13px] leading-relaxed text-text-primary',
                             'p-3 shadow-[var(--shadow-popover)]',
