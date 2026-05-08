@@ -69,10 +69,16 @@ N-Click은 NHR 임직원의 일일 출퇴근·휴게·휴가·근로시간 보�
 
 | 의미 | bg | text | border |
 |---|---|---|---|
-| Success (정상/근무중/완료) | `#ECFDF5` | `#047857` | `#A7F3D0` |
-| Warning (주의/대기/작성됨) | `#FFFBEB` | `#B45309` | `#FDE68A` |
+| Success (정상/근무중/완료) | `#ECFDF5` | `#15803D` | `#BBF7D0` |
+| Warning (주의/대기/작성됨) | `#FEFCE8` | `#CA8A04` | `#FDE68A` |
 | Danger (위험/미제출/초과/삭제) | `#FEF2F2` | `#DC2626` | `#FECACA` |
 | Info (정보/리더 배지/알림) | `#EFF6FF` | `#2563EB` | `#BFDBFE` |
+
+토큰 선택 노트:
+- **success-text** = `green-700`. 이전 emerald-700(`#047857`)은 청록 기운 + 어두움 때문에 갈색처럼 보였다. green-700이 더 친근하면서 신뢰감 유지.
+- **warning-text** = `yellow-600`. 이전 amber-700(`#B45309`)은 갈색이 너무 강했다. yellow-600은 노랑 톤이 살아있어 "주의"라는 의미가 한눈에 들어온다.
+- **success-border** = `green-200`. 이전 emerald-200보다 밝아 칩이 더 밝게 떠보임.
+- bg는 `success`만 emerald-50 유지 (mint 느낌이 신선), `warning`은 yellow-50으로 시프트.
 
 ### 3.4 Color Rules
 
@@ -154,13 +160,17 @@ base = **4px**, scale = 4 / 8 / 12 / 16 / 20 / 24 / 32 / 40 / 48 / 64.
 
 ## 7. Elevation
 
-그림자는 매우 절제. 대부분 컨테이너는 border 우선.
+그림자는 거의 안 보일 만큼 절제. 카드 분리는 **border가 우선**, 그림자는 보조.
 
 | 토큰 | 값 | 용도 |
 |---|---|---|
-| `shadow-card` | `0 1px 2px rgba(15,23,42,.06), 0 1px 3px rgba(15,23,42,.08)` | 기본 카드 |
-| `shadow-popover` | `0 8px 24px rgba(15,23,42,.12)` | 드롭다운, 팝오버, 모달 |
+| `shadow-card` | `0 1px 2px rgba(15,23,42,.04)` | 기본 카드 — 단일 레이어, 매우 옅게 |
+| `shadow-popover` | `0 8px 24px rgba(15,23,42,.10)` | 드롭다운, 팝오버, 모달 |
 | `focus-ring` | `0 0 0 3px rgba(37,99,235,.16)` | 포커스 |
+
+규칙:
+- 인위적인 떠오름 효과 금지. 카드는 border + 매우 옅은 그림자.
+- hover 강조가 필요한 클릭 가능 카드는 색이 아니라 `shadow-popover`로 살짝 떠올림.
 
 ---
 

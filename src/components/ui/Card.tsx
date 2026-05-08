@@ -11,7 +11,7 @@ const PAD: Record<CardPadding, string> = {
 
 export interface CardProps extends HTMLAttributes<HTMLDivElement> {
   padding?: CardPadding
-  /** hover 시 primary border (예: 클릭 가능한 카드) */
+  /** hover 시 살짝 떠올림 (클릭 가능한 카드) — border 색이 아니라 그림자로 강조 */
   interactive?: boolean
   /** shadow 적용 여부 (기본 true) */
   shadow?: boolean
@@ -31,7 +31,7 @@ export function Card({
         'bg-surface border border-border rounded-2xl',
         shadow && 'shadow-[var(--shadow-card)]',
         PAD[padding],
-        interactive && 'transition-colors hover:border-primary-200',
+        interactive && 'transition-shadow hover:shadow-[var(--shadow-popover)] cursor-pointer',
         className,
       )}
       {...props}
@@ -99,13 +99,22 @@ export interface StatusCardProps extends Omit<CardProps, 'children'> {
 }
 
 const STATUS_BORDER: Record<StatusCardTone, string> = {
-  success: 'before:bg-success-text',
-  warning: 'before:bg-warning-text',
-  danger:  'before:bg-danger-text',
-  info:    'before:bg-info-text',
-  neutral: 'before:bg-border-strong',
+  success: 'border-l-success-text',
+  warning: 'border-l-warning-text',
+  danger:  'border-l-danger-text',
+  info:    'border-l-info-text',
+  neutral: 'border-l-border-strong',
 }
 
+/**
+ * 좌측에 semantic 색 띠를 가진 카드.
+ *
+ * `border-l-[5px]`로 좌측만 두꺼운 border를 적용하면 카드의 `rounded-2xl`을
+ * 따라 좌상/좌하 모서리가 자연스럽게 깎인다. (이전 `before:` pseudo-element
+ * 방식은 직각이라 어색했음.)
+ *
+ * hover는 색이 아니라 그림자로 — border-l 색상이 hover 때문에 흐트러지지 않게.
+ */
 export function StatusCard({
   tone,
   padding = 'md',
@@ -118,13 +127,12 @@ export function StatusCard({
   return (
     <div
       className={cn(
-        'relative bg-surface border border-border rounded-2xl overflow-hidden',
-        shadow && 'shadow-[var(--shadow-card)]',
-        // 좌측 4px semantic bar
-        'before:content-[""] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1',
+        'bg-surface rounded-2xl',
+        'border border-border border-l-[5px]',
         STATUS_BORDER[tone],
+        shadow && 'shadow-[var(--shadow-card)]',
         PAD[padding],
-        interactive && 'transition-colors hover:border-primary-200',
+        interactive && 'transition-shadow hover:shadow-[var(--shadow-popover)]',
         className,
       )}
       {...props}

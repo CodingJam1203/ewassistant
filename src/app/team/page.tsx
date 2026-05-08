@@ -36,9 +36,9 @@ function colorToBadgeVariant(c: 'green' | 'yellow' | 'red'): BadgeVariant {
 }
 
 const STATUS_BORDER: Record<'green' | 'yellow' | 'red', string> = {
-  green:  'before:bg-success-text',
-  yellow: 'before:bg-warning-text',
-  red:    'before:bg-danger-text',
+  green:  'border-l-success-text',
+  yellow: 'border-l-warning-text',
+  red:    'border-l-danger-text',
 }
 
 // ─── 근무지 변경 드롭다운 ─────────────────────────────────────────────────────
@@ -156,10 +156,10 @@ function MemberCard({
   return (
     <div
       className={cn(
-        'relative bg-surface border border-border rounded-2xl shadow-[var(--shadow-card)]',
-        'p-4 flex flex-col gap-3 overflow-hidden',
-        'before:content-[""] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1',
+        'bg-surface rounded-2xl shadow-[var(--shadow-card)]',
+        'border border-border border-l-[5px]',
         STATUS_BORDER[card.color],
+        'p-4 flex flex-col gap-3',
       )}
     >
       {/* 상단: 이름 + 상태 배지 */}
@@ -274,11 +274,10 @@ function MemberCard({
             </Button>
           ) : (
             <Button
-              variant="ghost"
+              variant="danger-soft"
               size="sm"
               onClick={() => action('check-in-cancel')}
               disabled={busy}
-              className="!text-danger-text hover:!bg-danger-bg"
             >
               <X className="h-3.5 w-3.5" aria-hidden />
               출근취소
@@ -298,11 +297,10 @@ function MemberCard({
           )}
           {card.checked_out_at && (
             <Button
-              variant="ghost"
+              variant="danger-soft"
               size="sm"
               onClick={() => action('check-out-cancel')}
               disabled={busy}
-              className="!text-danger-text hover:!bg-danger-bg"
             >
               <X className="h-3.5 w-3.5" aria-hidden />
               퇴근취소

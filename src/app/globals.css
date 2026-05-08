@@ -29,13 +29,17 @@
   --color-text-muted:     #94A3B8;
   --color-text-disabled:  #CBD5E1;
 
-  /* Color — Semantic */
+  /* Color — Semantic
+   *   success: green-700 계열로 (이전 emerald-700은 청록·갈색 기운이 있어 변경)
+   *   warning: yellow-600 계열로 (이전 amber-700은 갈색이 너무 강했음)
+   *   bg/border는 그대로 — 텍스트만 톤 시프트해도 칩이 한층 밝고 친근해진다.
+   */
   --color-success-bg:     #ECFDF5;
-  --color-success-text:   #047857;
-  --color-success-border: #A7F3D0;
+  --color-success-text:   #15803D;
+  --color-success-border: #BBF7D0;
 
-  --color-warning-bg:     #FFFBEB;
-  --color-warning-text:   #B45309;
+  --color-warning-bg:     #FEFCE8;
+  --color-warning-text:   #CA8A04;
   --color-warning-border: #FDE68A;
 
   --color-danger-bg:      #FEF2F2;
@@ -55,9 +59,11 @@
   --radius-2xl:  20px;
   --radius-full: 9999px;
 
-  /* Shadows */
-  --shadow-card:    0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.08);
-  --shadow-popover: 0 8px 24px rgba(15, 23, 42, 0.12);
+  /* Shadows — 거의 안 보일 만큼 절제. 카드 분리는 border가 우선, 그림자는 보조.
+   * 인위적이지 않도록 단일 레이어 + 매우 옅은 알파만 사용한다.
+   */
+  --shadow-card:    0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-popover: 0 8px 24px rgba(15, 23, 42, 0.10);
 
   /* Font */
   --font-sans: "Pretendard Variable", Pretendard, system-ui, -apple-system,
