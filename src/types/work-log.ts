@@ -34,6 +34,7 @@ export interface WorkLog {
   leave_timeline?: LeaveTimeline | null
 
   // ─── 휴게 4분리 ───────────────────────────────────────────────────────────
+  // (= 점심 외 추가 휴게. 점심 1h는 워크타입 기반 자동 차감 + EW range 자동 포함)
   break_auto_actual_minutes?: number | null
   break_auto_rounded_minutes?: number | null
   break_manual_rounded_minutes?: number | null

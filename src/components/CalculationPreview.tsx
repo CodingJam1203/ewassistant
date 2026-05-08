@@ -26,6 +26,12 @@ export default function CalculationPreview({ result, error }: CalculationPreview
     )
   }
 
+  // 점심시간 자동 처리에 어색한 케이스 — 사용자에게 별도 계산 안내:
+  //   1) 실근무 4시간 이하 (= 240분 이하): 짧은 근무는 점심 안 먹었을 가능성이 큼
+  //   2) 공휴일근로 (workTypeCode=3): X=0이라 자동 점심 처리 안 되는데, 식사 했다면 별도로 빼야 함
+  const showLunchAdvisory =
+    result.actualWorkMinutes <= 4 * 60 || result.workTypeCode === 3
+
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden sticky top-6">
       <div className="px-6 py-5 border-b border-gray-200 bg-gray-50">
@@ -46,6 +52,12 @@ export default function CalculationPreview({ result, error }: CalculationPreview
             <p className="mt-1 text-lg font-semibold text-blue-600">{result.ewValue}</p>
           </div>
         </div>
+
+        {showLunchAdvisory && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            * 점심시간 진행 여부에 따라 근무시간을 별도 계산하여 EW에 상신해주세요.
+          </div>
+        )}
 
         <div className="pt-4 border-t border-gray-200">
           <p className="text-xs font-medium text-gray-500 mb-2">복사용 문구 미리보기</p>

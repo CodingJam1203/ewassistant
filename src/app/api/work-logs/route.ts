@@ -22,7 +22,6 @@ import {
   snapHHmm,
   isHalfHour,
   isHalfHourHHmm,
-  hhmmToMinutes,
 } from '@/lib/utils/half-hour'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
@@ -222,7 +221,6 @@ export async function POST(request: Request) {
       leaveMinutes,
       // 종일 휴가면 actual_work_time을 0으로 (default 09-18 - 480 = 60 잔여 버그 방지)
       isFullDayLeave: leaveAllDay,
-      // leaveIncludesLunch 자동 처리 안 함 — 사용자가 차감시간 직접 조정
     })
 
     // ─── 30분 정책 최종 강제 — actual_work_time을 30분 단위로 스냅 ──────────
@@ -280,7 +278,7 @@ export async function POST(request: Request) {
       expected_work_location: finalExpectedWorkLocation,
       expected_work_location_timeline: expectedTimeline,
       expected_leave_timeline: expectedLeaveTimeline,
-      // 휴가/휴게 분리
+      // 휴가/휴게 분리 — 휴게는 점심 외 추가만 저장 (점심은 deduction_time/워크타입 기반 자동)
       leave_timeline: leaveTimeline,
       break_auto_actual_minutes:    breakAutoActualMin,
       break_auto_rounded_minutes:   breakAutoRoundedMin,

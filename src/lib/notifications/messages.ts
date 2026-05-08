@@ -132,7 +132,10 @@ function buildLeaveLines(timeline: WorklogNotifyPayload['leaveTimeline']): strin
   return ['🔹휴가/반차', ...lines.map((l, i) => `${i + 1}. ${l}`)]
 }
 
-/** 휴게시간 라인 — 자동/사용자 수정 표시 */
+/**
+ * 휴게시간 라인 — 사용자 입력 K값 그대로 표시 (= 점심 외 추가 휴게).
+ * 점심 1h는 워크타입 기반 자동이라 메시지에 명시 안 함.
+ */
 function buildBreakLine(p: WorklogNotifyPayload): string {
   const finalMin = p.breakFinalRoundedMinutes
   if (typeof finalMin === 'number' && finalMin >= 0) {

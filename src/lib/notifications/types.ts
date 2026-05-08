@@ -35,7 +35,7 @@ export interface WorklogNotifyPayload {
   breakAutoActualMinutes?: number | null
   /** 휴게 자동 30분 올림 분 */
   breakAutoRoundedMinutes?: number | null
-  /** EW 계산에 실제 사용된 휴게 분 */
+  /** EW 계산에 실제 사용된 휴게 분 (= 점심 외 추가 휴게) */
   breakFinalRoundedMinutes?: number | null
   /** 사용자가 휴게시간을 수정했는지 (Teams 메시지 표시용) */
   breakIsManual?: boolean

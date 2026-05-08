@@ -121,12 +121,12 @@ export async function GET(request: Request) {
   // ─── 어제 퇴근보고 — 메시지 하단 표시용 (기존 유지) ───────────────────────
   const { data: workLogs } = await adminClient
     .from('work_logs')
-    .select('user_email, start_time, end_time, break_time, work_location, created_at')
+    .select('user_email, start_time, end_time, break_time, work_location, work_type_code, created_at')
     .eq('leave_date', yesterdayDate)
     .eq('is_deleted', false)
     .order('created_at', { ascending: false })
 
-  const workLogMap = new Map<string, { start_time: string; end_time: string; break_time: string; work_location: string }>()
+  const workLogMap = new Map<string, { start_time: string; end_time: string; break_time: string; work_location: string; work_type_code: number | null }>()
   for (const w of workLogs ?? []) {
     if (!workLogMap.has(w.user_email)) {
       workLogMap.set(w.user_email, {
@@ -134,18 +134,24 @@ export async function GET(request: Request) {
         end_time:      w.end_time,
         break_time:    w.break_time,
         work_location: w.work_location,
+        work_type_code: typeof w.work_type_code === 'number' ? w.work_type_code : null,
       })
     }
   }
 
-  /** EW 실근무 시간 (분) 계산 — (퇴근-출근) - 휴게. 명일 케이스 처리. 야근 판정용. */
-  function computeActualMinutes(start: string | null, end: string | null, br: string | null): number {
+  /**
+   * EW 실근무 시간 (분) 계산 — (퇴근-출근) - 점심(워크타입 기반) - 휴게.
+   * 점심: 기본/간주(=1,2) = 60분, 공휴일(=3) = 0. workTypeCode 모르면 60 가정.
+   * 명일 케이스 처리. 야근 판정용.
+   */
+  function computeActualMinutes(start: string | null, end: string | null, br: string | null, workTypeCode: number | null): number {
     if (!start || !end) return 0
     const toMin = (hhmm: string): number => {
       const [h, m] = hhmm.slice(0, 5).split(':').map(Number)
       return (h || 0) * 60 + (m || 0)
     }
-    let mins = toMin(end) - toMin(start) - toMin(br ?? '00:00')
+    const lunchAuto = workTypeCode === 3 ? 0 : 60
+    let mins = toMin(end) - toMin(start) - lunchAuto - toMin(br ?? '00:00')
     if (mins < 0) mins += 24 * 60
     return mins
   }
@@ -258,7 +264,7 @@ export async function GET(request: Request) {
     const yesterdayWorkLogs = group.users.map(u => {
       const log = workLogMap.get(u.email)
       const actualMin = log
-        ? computeActualMinutes(log.start_time, log.end_time, log.break_time)
+        ? computeActualMinutes(log.start_time, log.end_time, log.break_time, log.work_type_code)
         : 0
       return {
         name:   u.display_name || u.email,

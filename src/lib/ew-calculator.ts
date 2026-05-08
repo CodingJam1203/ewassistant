@@ -6,7 +6,15 @@ export interface EwInput {
   leaveDate: string;
   startTime: string; // "HH:mm"
   endTime: string; // "HH:mm"
-  breakTime: string; // "HH:mm"  (= 30분 단위 올림 처리된 휴게 반영값)
+  /**
+   * 휴게시간 (= 점심 외 추가 휴게) "HH:mm". 30분 단위.
+   *
+   * 회사 정책: 점심 1h는 근무유형에 따라 자동 차감되고 EW range에는 자동 포함됨
+   * (= getDeductionMinutes 함수 결과 X). 사용자는 점심 외 추가로 쉰 시간만 입력.
+   * 실근무 = (퇴-입) - X - 휴게 - 휴가
+   * EW range 끝 = ewStart + 실근무 + X
+   */
+  breakTime: string;
   workLocation: string;
   workContent?: string;
   breakReason?: string;
@@ -17,9 +25,7 @@ export interface EwInput {
    */
   leaveMinutes?: number;
   /**
-   * 휴가 시간이 점심시간(12:00~13:00)을 포함하는지 여부.
-   * true이면 점심 1H 자동 차감을 건너뜀 (중복 차감 방지).
-   * 미지정 시 false.
+   * @deprecated 사용자가 차감시간을 직접 조정하므로 사용 안 함.
    */
   leaveIncludesLunch?: boolean;
   /**
@@ -104,25 +110,20 @@ export function diffMinutes(startMinutes: number, endMinutes: number): number {
   return endMinutes - startMinutes;
 }
 
-// 7.3 실근무시간 Y
+// 7.3 실근무시간 Y (= Google Sheets Y열)
 //
-// 실근무시간 = (퇴근 - 출근) - 휴게(30분 올림) - 휴가(차감)
-//
-// 정책 변경(2026.05): 점심 자동 차감 제거.
-// - 점심을 먹었으면 사용자가 휴게시간(예: 1:00)에 직접 입력
-// - 점심을 안 먹었으면 휴게 0:00으로 두면 그대로 반영됨
-// - 이전엔 점심 1H를 자동 차감해서 짧은 근무자가 퇴근시각을 가짜로 늘려 입력하는 문제 있었음
-//
-// 인자 deductionMinutes / leaveIncludesLunch는 호환성을 위해 시그니처에 남겨두지만 사용하지 않음.
+// 실근무시간 = (퇴근 - 출근) - X(deductionMinutes) - 휴게 - 휴가
+//   X: getDeductionMinutes — 기본/간주 = 60, 공휴일 = 0
+//   휴게(breakMinutes): 사용자 입력 = 점심 외 추가 휴게
 export function getActualWorkMinutes(
   startMinutes: number,
   endMinutes: number,
   breakMinutes: number,
-  _deductionMinutes: number,
+  deductionMinutes: number,
   leaveMinutes: number = 0,
-  _leaveIncludesLunch: boolean = false
+  _leaveIncludesLunch: boolean = false,
 ): number {
-  return diffMinutes(startMinutes, endMinutes) - breakMinutes - leaveMinutes;
+  return diffMinutes(startMinutes, endMinutes) - deductionMinutes - breakMinutes - leaveMinutes;
 }
 
 // 7.4 날짜 표시값 Z
@@ -143,28 +144,32 @@ export function getEwStartMinutes(startMinutes: number): number {
   return Math.min(startMinutes, nineAM);
 }
 
-// 7.7 EW 종료시간 AH
-// 공식: EW 종료 = 실제 퇴근 - 휴게
-//   - 사용자 입력 그대로 빼는 단순 룰. 자동 점심 차감 없음.
-//   - 휴게는 사용자가 입력한 만큼만 빠짐.
+// 7.7 EW 종료시간 AH (= Google Sheets AG열)
+// 공식: EW 종료 = ewStart + 실근무 + X(deductionMinutes)
+//   - 점심(X = 1h for 기본/간주, 0 for 공휴일)이 EW range에 자동 포함
+//   - 휴게(break)는 EW range에서 빠짐 (실근무에서 차감되어 자연 반영)
+//   - ewStart: 9시 이후 출근은 09:00로 cap, 9시 이전 출근은 그대로
+//   - 인자 _breakMinutes / _endMinutes는 이전 호환성을 위해 시그니처에 남겨두지만 사용하지 않음.
 export function getEwEndMinutes(
-  _ewStartMinutes: number,
-  _actualWorkMinutes: number,
-  breakMinutes: number,
-  endMinutes: number,
+  ewStartMinutes: number,
+  actualWorkMinutes: number,
+  _breakMinutes: number,
+  _endMinutes: number,
+  deductionMinutes: number = 0,
 ): number {
-  return endMinutes - breakMinutes
+  return ewStartMinutes + actualWorkMinutes + deductionMinutes
 }
 
-// 7.8 간주근로용 AC
-// 동일하게 endMinutes - breakMinutes 사용 (간주근로도 사용자 입력 그대로 반영)
+// 7.8 간주근로용 AC (= Google Sheets AC열)
+// 동일 규칙: deductionMinutes만 EW range에 포함. cap 없이 startMinutes 그대로 사용.
 export function getAcMinutes(
-  _startMinutes: number,
-  _actualWorkMinutes: number,
-  breakMinutes: number,
-  endMinutes: number,
+  startMinutes: number,
+  actualWorkMinutes: number,
+  _breakMinutes: number,
+  _endMinutes: number,
+  deductionMinutes: number = 0,
 ): number {
-  return endMinutes - breakMinutes
+  return startMinutes + actualWorkMinutes + deductionMinutes
 }
 
 // 7.9 간주근로 EW 값 AB
@@ -219,6 +224,7 @@ export function buildCopyText(params: {
   startTimeText: string;
   endTimeText: string;
   actualWorkText: string;
+  /** 사용자 입력 휴게(= 점심 외 추가 휴게) 'HH:MM'. 시트와 동일하게 K값 그대로 표시 */
   breakTimeText: string;
   /** 휴가/반차 차감 시간 'HH:MM'. 없거나 0이면 생략 */
   leaveTimeText?: string;
@@ -240,7 +246,7 @@ export function buildCopyText(params: {
   return text;
 }
 
-// 메인 계산 함수
+// 메인 계산 함수 — Google Sheets 기존 함수 정렬
 export function calculateEw(input: EwInput): EwCalculationResult {
   const workTypeCode = getWorkTypeCode(input.workTypeLabel);
   const deductionMinutes = getDeductionMinutes(workTypeCode);
@@ -252,10 +258,12 @@ export function calculateEw(input: EwInput): EwCalculationResult {
   const leaveMinutes = Number.isFinite(input.leaveMinutes) ? Math.max(0, Number(input.leaveMinutes)) : 0;
   const leaveIncludesLunch = !!input.leaveIncludesLunch;
 
-  // 정책 변경(2026.05): 점심 자동 차감 제거.
-  // - 실근무: (퇴근 - 출근) - 휴게 - 휴가
-  // - EW 종료/간주근로 종료: ewStart + 실근무 + 휴게 (= 사용자 입력 출퇴근 시각 그대로)
-  // - 종일 휴가: actual_work_time을 0으로 강제 (default span 09:00~18:00 - 휴가 480분 = 60분 잔여 버그 방지)
+  // 시트 정책 정렬:
+  //   실근무 = (퇴근 - 출근) - X(deductionMinutes) - 휴게 - 휴가
+  //   EW range 끝 = ewStart + 실근무 + X
+  //     X = 1h(기본/간주) | 0h(공휴일) — 점심 자동 차감
+  //     휴게(K) = 사용자 입력 = 점심 외 추가 휴게
+  //   종일 휴가는 actual_work_time을 0으로 강제 (default span 09:00~18:00 - 휴가 480분 = 60분 잔여 버그 방지)
   const actualWorkMinutes = input.isFullDayLeave
     ? 0
     : getActualWorkMinutes(
@@ -269,16 +277,17 @@ export function calculateEw(input: EwInput): EwCalculationResult {
   const actualWorkText = formatDurationHHMM(actualWorkMinutes);
 
   const ewStartMinutes = getEwStartMinutes(startMinutes);
-  const ewEndMinutes = getEwEndMinutes(ewStartMinutes, actualWorkMinutes, breakMinutes, endMinutes);
+  const ewEndMinutes = getEwEndMinutes(ewStartMinutes, actualWorkMinutes, breakMinutes, endMinutes, deductionMinutes);
 
   let deemedWorkEwValue: string | null = null;
   if (workTypeCode === 2) {
-    const acMinutes = getAcMinutes(startMinutes, actualWorkMinutes, breakMinutes, endMinutes);
+    const acMinutes = getAcMinutes(startMinutes, actualWorkMinutes, breakMinutes, endMinutes, deductionMinutes);
     deemedWorkEwValue = getDeemedWorkEwValue(actualWorkMinutes, acMinutes, ewEndMinutes);
   }
 
   const ewValue = getFinalEwValue(workTypeCode, ewStartMinutes, ewEndMinutes, deemedWorkEwValue);
   const dateText = formatKoreanDate(input.leaveDate);
+  // 시트 동일: (휴게시간 : K) — 사용자 입력 K값 그대로 표시 (점심은 자동이라 K에 포함 안 됨)
   const breakTimeText = formatDurationHHMM(breakMinutes);
   // 휴가 시간이 있을 때만 복사 문구에 (휴가시간 : HH:MM) 포함
   const leaveTimeText = leaveMinutes > 0 ? formatDurationHHMM(leaveMinutes) : undefined;

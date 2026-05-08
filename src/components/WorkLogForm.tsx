@@ -67,6 +67,7 @@ const formSchema = z.object({
   workLocationTimeline: z.array(timelineEntryZ).optional(),
   // 본문 휴가/반차 타임라인
   leaveTimeline: z.array(leaveItemZ).optional(),
+  /** 휴게시간 (= 점심 외 추가 휴게). 점심 1h는 근무유형에 따라 자동 차감 + EW range 자동 포함. */
   breakTime: z.string().min(1, '휴게시간을 선택해주세요'),
   breakReason: z.string().optional(),
   workContent: z.string().min(1, '근무내용을 입력해주세요'),
@@ -192,6 +193,7 @@ function trimToHHmm(t: string | undefined | null): string {
   return t.slice(0, 5)
 }
 
+
 /** initial props로 본문 timeline 기본값 결정 */
 function buildInitialTimeline(
   initialTimeline?: WorkLocationTimeline | null,
@@ -282,16 +284,13 @@ export default function WorkLogForm({
   })()
 
   /**
-   * 신규 모드 휴게시간 default — 기본근로/간주근로는 항상 1:00 (점심 가정).
-   * 사용자가 점심 안 먹었으면 select에서 직접 변경.
-   *   1) 휴게 시작/종료 버튼 누적값(>0)이 있으면 그것 우선
-   *   2) 그 외 → 1:00 default (사용자가 필요 시 0:00으로 변경)
-   * (공휴일근로는 calculateEw에서 deductionMinutes=0이지만 default 휴게는 사용자 입력값 그대로 가니
-   *  여기서 1:00으로 두어도 사용자가 수정해서 사용하면 됨)
+   * 신규 모드 휴게시간 default — 시트 정책: K는 점심 외 추가 휴게라서 보통 0:00.
+   *   1) 휴게 시작/종료 버튼 누적값(>0)이 있으면 그것 우선 (= 추가 휴게 버튼을 눌렀던 케이스)
+   *   2) 그 외 → 00:00 default
    */
   const defaultBreakHHmm = (() => {
     if (breakAutoRoundedMinutes > 0) return breakAutoHHmm
-    return '01:00'
+    return '00:00'
   })()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -349,10 +348,7 @@ export default function WorkLogForm({
           leaveDate: getKstTodayDateString(),
           workLocationTimeline: buildInitialTimeline(initialTimeline, initialStartTime, initialEndTime),
           leaveTimeline: (initialLeaveTimeline ?? []) as LeaveTimeline,
-          // 휴게 default 추론 (점심 자동 차감 폐지 — 점심도 휴게에 포함):
-          //   자동 누적값 > 0 → 그 값
-          //   점심시간(11:30~13:30) 포함 → 1:00
-          //   그 외 → 0:00
+          // 휴게시간 default — 0:00 (= 점심 외 추가 휴게. 점심 1h는 워크타입 기반 자동 차감)
           breakTime: defaultBreakHHmm,
           workContent: '',
           lateOrAttendanceStatus: '아니오',
@@ -382,7 +378,7 @@ export default function WorkLogForm({
   const leaveMinutesTotal = totalLeaveRoundedMinutes(leaveTl)
   const isAllDay = isFullDayLeave(leaveTl)
 
-  // 휴게사유 표시 여부: 휴게시간 30분 이상
+  // 휴게사유 표시 여부: 점심 외 추가 휴게가 30분 이상일 때만
   const showBreakReason = formValues.breakTime && formValues.breakTime !== '00:00'
 
   // 휴게 사용자 수정 여부 — 자동 계산값과 다르면 manual로 간주
@@ -415,14 +411,9 @@ export default function WorkLogForm({
       }
     }
     if (prevWorkTypeRef.current !== wt) {
-      // 공통 룰: 자동 누적값이 있으면 그 값 우선
-      // - 공휴일근로 진입: 자동값 없으면 0:00 (점심 가정 제거)
-      // - 공휴일근로 이탈: 자동값 없으면 1:00 (점심 가정)
-      if (wt === '공휴일근로 등록') {
-        setValue('breakTime', breakAutoRoundedMinutes > 0 ? breakAutoHHmm : '00:00')
-      } else if (prevWorkTypeRef.current === '공휴일근로 등록') {
-        setValue('breakTime', breakAutoRoundedMinutes > 0 ? breakAutoHHmm : '01:00')
-      }
+      // 시트 정책: 점심은 워크타입 기반 자동 (X). 사용자 입력 휴게(K)는 항상 추가 휴게.
+      // 공휴일/기본 전환 시 K는 자동 누적값 우선, 없으면 0:00 default.
+      setValue('breakTime', breakAutoRoundedMinutes > 0 ? breakAutoHHmm : '00:00')
       prevWorkTypeRef.current = wt
     }
   }, [formValues.workTypeLabel, setValue, breakAutoRoundedMinutes, breakAutoHHmm, isEditing])
@@ -481,7 +472,6 @@ export default function WorkLogForm({
           breakReason: showBreakReason ? formValues.breakReason : undefined,
           leaveMinutes: leaveMinutesTotal,
           isFullDayLeave: isAllDay,
-          // leaveIncludesLunch는 사용자가 차감시간을 직접 조정하므로 항상 false (점심 자동 차감 그대로)
         })
         onCalculate(result, null)
       } else {
@@ -520,7 +510,7 @@ export default function WorkLogForm({
         ? '휴가'
         : (buildLocationSummary(submittedTimeline) || submittedWorkLocation)
 
-      // 휴게: manual = breakTime, auto = breakAutoRoundedMinutes
+      // 휴게(= 점심 외 추가): manual = breakTime, auto = breakAutoRoundedMinutes
       const breakManualHHmm = data.breakTime || '00:00'
       const [bH, bM] = breakManualHHmm.split(':').map(Number)
       const breakManualMinutes = (Number.isFinite(bH) ? bH : 0) * 60 + (Number.isFinite(bM) ? bM : 0)
@@ -540,7 +530,6 @@ export default function WorkLogForm({
         breakReason: showBreakReason ? data.breakReason : undefined,
         leaveMinutes: submittedLeaveMinutes,
         isFullDayLeave: submittedIsAllDay,
-        // leaveIncludesLunch 자동 처리 안 함 — 사용자가 차감시간 직접 조정
       })
 
       try {
@@ -569,7 +558,7 @@ export default function WorkLogForm({
           workLocationCustom: submittedFirst?.type === 'custom' ? (submittedFirst.customLabel ?? '') : '',
           finalWorkLocation: submittedWorkLocation,
           workLocation: submittedWorkLocation, // PATCH legacy fallback 호환
-          // 휴게 분리 값
+          // 휴게 분리 값 (= 점심 외 추가 휴게. 점심은 워크타입 자동 차감)
           breakAutoActualMinutes: breakAutoActualMinutes,
           breakAutoRoundedMinutes: breakAutoRoundedMinutes,
           breakManualRoundedMinutes: breakIsManual ? breakManualMinutes : null,
@@ -720,9 +709,12 @@ export default function WorkLogForm({
         <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 border-b pb-2">휴게 및 근무내용</h3>
         <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-2">
           <div>
-            <label className="block text-sm font-medium text-gray-700">휴게시간 * <span className="text-xs font-normal text-gray-500">(점심 포함)</span></label>
+            <label className="block text-sm font-medium text-gray-700">
+              휴게시간 *
+              <span className="ml-1 text-xs font-normal text-gray-500">(점심 외 추가 휴게)</span>
+            </label>
             <p className="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
-              💡 점심 1시간을 자동으로 빼지 않습니다. <strong>점심 먹었다면 1:00, 안 먹었다면 0:00</strong>으로 직접 선택해주세요.
+              ☕ 점심 1시간은 근무유형에 따라 <strong>자동 처리</strong>됩니다 (기본/간주근로 = 1h, 공휴일근로 = 0). 여기에는 <strong>점심 외에 추가로 쉰 시간만</strong> 입력하세요. 없으면 0:00.
             </p>
             {breakAutoRoundedMinutes > 0 && (
               <p className="mt-1 mb-1 text-xs text-gray-500">
@@ -734,9 +726,9 @@ export default function WorkLogForm({
               {...register('breakTime')}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border bg-white"
             >
-              <option value="00:00">00:00 (휴게 없음)</option>
+              <option value="00:00">00:00 (추가 휴게 없음)</option>
               <option value="00:30">00:30 (30분)</option>
-              <option value="01:00">01:00 (1시간 / 점심)</option>
+              <option value="01:00">01:00 (1시간)</option>
               <option value="01:30">01:30 (1시간 30분)</option>
               <option value="02:00">02:00 (2시간)</option>
               <option value="02:30">02:30 (2시간 30분)</option>
