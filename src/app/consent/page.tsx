@@ -53,22 +53,22 @@ export default function ConsentPage() {
   }
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-xl shadow-sm border border-gray-100">
+    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8 bg-surface p-8 rounded-2xl shadow-[var(--shadow-card)] border border-border">
         <div>
-          <h2 className="mt-2 text-center text-2xl font-bold text-gray-900 tracking-tight">
+          <h2 className="mt-2 text-center text-2xl font-bold text-text-primary tracking-tight">
             서비스 이용 동의
           </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
+          <p className="mt-2 text-center text-sm text-text-secondary">
             원활한 서비스 이용을 위해 아래 정책에 동의해 주세요.
           </p>
         </div>
-        
+
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div>
-              <label htmlFor="displayName" className="block text-sm font-medium text-gray-700">
-                이름 <span className="text-red-500">*</span>
+              <label htmlFor="displayName" className="block text-[12px] font-semibold text-text-secondary">
+                이름 <span className="text-danger-text">*</span>
               </label>
               <input
                 id="displayName"
@@ -79,54 +79,50 @@ export default function ConsentPage() {
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="예: 김도담"
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                className="mt-1.5 block w-full h-10 px-3 rounded-[10px] border border-border-strong bg-surface text-sm placeholder:text-text-muted focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
                 autoComplete="name"
               />
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1.5 text-[12px] text-text-muted">
                 관리자가 가입자를 식별할 수 있도록 본인의 이름을 입력해 주세요.
               </p>
             </div>
 
-            <div className="flex items-start">
-              <div className="flex items-center h-5">
-                <input
-                  id="terms"
-                  name="terms"
-                  type="checkbox"
-                  checked={agreedTerms}
-                  onChange={(e) => setAgreedTerms(e.target.checked)}
-                  className="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded"
-                />
-              </div>
-              <div className="ml-3 text-sm flex-1">
-                <label htmlFor="terms" className="font-medium text-gray-700 select-none">
+            <div className="flex items-start gap-3">
+              <input
+                id="terms"
+                name="terms"
+                type="checkbox"
+                checked={agreedTerms}
+                onChange={(e) => setAgreedTerms(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border-strong text-primary-600 focus:ring-primary-500"
+              />
+              <div className="text-sm flex-1">
+                <label htmlFor="terms" className="font-medium text-text-primary select-none">
                   [필수] 이용약관에 동의합니다.
                 </label>
                 <div className="mt-1">
-                  <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-500 text-xs font-semibold">
+                  <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:text-primary-700 text-[12px] font-semibold">
                     이용약관 보기 &rarr;
                   </a>
                 </div>
               </div>
             </div>
 
-            <div className="flex items-start">
-              <div className="flex items-center h-5">
-                <input
-                  id="privacy"
-                  name="privacy"
-                  type="checkbox"
-                  checked={agreedPrivacy}
-                  onChange={(e) => setAgreedPrivacy(e.target.checked)}
-                  className="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded"
-                />
-              </div>
-              <div className="ml-3 text-sm flex-1">
-                <label htmlFor="privacy" className="font-medium text-gray-700 select-none">
+            <div className="flex items-start gap-3">
+              <input
+                id="privacy"
+                name="privacy"
+                type="checkbox"
+                checked={agreedPrivacy}
+                onChange={(e) => setAgreedPrivacy(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border-strong text-primary-600 focus:ring-primary-500"
+              />
+              <div className="text-sm flex-1">
+                <label htmlFor="privacy" className="font-medium text-text-primary select-none">
                   [필수] 개인정보 처리방침을 확인하고 동의합니다.
                 </label>
                 <div className="mt-1">
-                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-500 text-xs font-semibold">
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:text-primary-700 text-[12px] font-semibold">
                     개인정보 처리방침 보기 &rarr;
                   </a>
                 </div>
@@ -135,7 +131,7 @@ export default function ConsentPage() {
           </div>
 
           {error && (
-            <div className="text-sm text-red-600 bg-red-50 p-3 rounded-md">
+            <div className="text-sm text-danger-text bg-danger-bg border border-danger-border p-3 rounded-[10px]">
               {error}
             </div>
           )}
@@ -144,10 +140,10 @@ export default function ConsentPage() {
             <button
               type="submit"
               disabled={isSubmitting || !agreedTerms || !agreedPrivacy || !displayName.trim()}
-              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full inline-flex justify-center items-center gap-2 h-12 px-5 rounded-[10px] text-base font-semibold text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isSubmitting ? (
-                <Loader2 className="animate-spin w-5 h-5" />
+                <Loader2 className="animate-spin w-5 h-5" aria-hidden />
               ) : (
                 '동의하고 시작하기'
               )}

@@ -1,13 +1,13 @@
 export default function PrivacyPage() {
   return (
-    <div className="max-w-4xl mx-auto py-12 px-4 sm:px-6 lg:px-8 bg-white rounded-lg shadow-sm border border-gray-100 my-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-8 pb-4 border-b">개인정보 처리방침</h1>
-      <div className="prose prose-blue max-w-none text-gray-700 space-y-6">
+    <div className="max-w-4xl mx-auto py-12 px-4 sm:px-6 lg:px-8 bg-surface rounded-lg shadow-sm border border-border my-8">
+      <h1 className="text-3xl font-bold text-text-primary mb-8 pb-4 border-b">개인정보 처리방침</h1>
+      <div className="max-w-none leading-relaxed text-text-primary space-y-6">
         <p className="text-lg font-medium">NHR 출퇴근보고 시스템 개인정보 처리방침</p>
         <p>NHR은 내부 임직원의 출퇴근보고, 근무상태 확인, 근태 관리 및 관련 운영 업무를 위해 필요한 최소한의 개인정보를 처리합니다.</p>
 
         <section>
-          <h2 className="text-xl font-bold text-gray-900 mt-8 mb-4">1. 개인정보의 처리 목적</h2>
+          <h2 className="text-xl font-bold text-text-primary mt-8 mb-4">1. 개인정보의 처리 목적</h2>
           <p>회사는 다음의 목적을 위해 개인정보를 처리합니다.</p>
           <ol className="list-decimal pl-5 space-y-2">
             <li>임직원 계정 식별 및 서비스 이용 권한 관리</li>
@@ -22,7 +22,7 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2 className="text-xl font-bold text-gray-900 mt-8 mb-4">2. 처리하는 개인정보 항목</h2>
+          <h2 className="text-xl font-bold text-text-primary mt-8 mb-4">2. 처리하는 개인정보 항목</h2>
           <p>회사는 다음의 개인정보를 처리할 수 있습니다.</p>
           
           <h3 className="text-lg font-semibold mt-4 mb-2">필수 항목:</h3>
@@ -41,14 +41,14 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2 className="text-xl font-bold text-gray-900 mt-8 mb-4">3. 개인정보의 처리 및 보유 기간</h2>
+          <h2 className="text-xl font-bold text-text-primary mt-8 mb-4">3. 개인정보의 처리 및 보유 기간</h2>
           <p>회사는 개인정보를 내부 근태관리 및 인사노무 운영 목적 달성에 필요한 기간 동안 보유합니다.</p>
           <p>원칙적으로 임직원의 재직 기간 동안 보유하며, 퇴사 또는 계정 비활성화 후에도 관련 법령, 내부 감사, 노무 분쟁 대응, 근태 기록 확인을 위해 필요한 기간 동안 보관할 수 있습니다.</p>
           <p>구체적인 보유 기간은 회사의 내부 인사노무 기록 보존 기준에 따릅니다.</p>
         </section>
 
         <section>
-          <h2 className="text-xl font-bold text-gray-900 mt-8 mb-4">4. 개인정보의 제3자 제공</h2>
+          <h2 className="text-xl font-bold text-text-primary mt-8 mb-4">4. 개인정보의 제3자 제공</h2>
           <p>회사는 원칙적으로 개인정보를 외부 제3자에게 제공하지 않습니다.</p>
           <p>다만 다음의 경우에는 예외적으로 제공될 수 있습니다.</p>
           <ol className="list-decimal pl-5 space-y-2">
@@ -59,7 +59,7 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2 className="text-xl font-bold text-gray-900 mt-8 mb-4">5. 개인정보 처리업무의 위탁</h2>
+          <h2 className="text-xl font-bold text-text-primary mt-8 mb-4">5. 개인정보 처리업무의 위탁</h2>
           <p>회사는 서비스 운영을 위해 다음과 같은 외부 서비스를 사용할 수 있습니다.</p>
           <ul className="list-disc pl-5 space-y-1">
             <li>Supabase: 계정 및 데이터 저장</li>
@@ -68,18 +68,18 @@ export default function PrivacyPage() {
             <li>이메일 또는 알림 발송 서비스: 계정 승인 및 시스템 알림 발송</li>
             <li>Microsoft Teams 등: 내부 알림 연동이 적용되는 경우</li>
           </ul>
-          <p className="mt-2 text-sm text-gray-500">위탁 또는 외부 서비스 연동이 추가되는 경우, 회사는 처리방침에 해당 내용을 반영합니다.</p>
+          <p className="mt-2 text-sm text-text-muted">위탁 또는 외부 서비스 연동이 추가되는 경우, 회사는 처리방침에 해당 내용을 반영합니다.</p>
         </section>
 
         <section>
-          <h2 className="text-xl font-bold text-gray-900 mt-8 mb-4">6. 개인정보의 파기</h2>
+          <h2 className="text-xl font-bold text-text-primary mt-8 mb-4">6. 개인정보의 파기</h2>
           <p>회사는 개인정보 보유 목적이 달성되거나 보유 기간이 경과한 경우 지체 없이 파기합니다.</p>
           <p>전자적 파일 형태의 정보는 복구 및 재생이 불가능한 방법으로 삭제하며, 출력물 등 서면 자료는 분쇄 또는 소각합니다.</p>
           <p>다만 법령 또는 내부 규정에 따라 보존이 필요한 경우에는 해당 기간 동안 별도 보관할 수 있습니다.</p>
         </section>
 
         <section>
-          <h2 className="text-xl font-bold text-gray-900 mt-8 mb-4">7. 개인정보의 안전성 확보조치</h2>
+          <h2 className="text-xl font-bold text-text-primary mt-8 mb-4">7. 개인정보의 안전성 확보조치</h2>
           <p>회사는 개인정보 보호를 위해 다음과 같은 조치를 취합니다.</p>
           <ol className="list-decimal pl-5 space-y-2">
             <li>관리자 권한 제한 및 비활성 계정 잠금 처리</li>
@@ -93,13 +93,13 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2 className="text-xl font-bold text-gray-900 mt-8 mb-4">8. 정보주체의 권리</h2>
+          <h2 className="text-xl font-bold text-text-primary mt-8 mb-4">8. 정보주체의 권리</h2>
           <p>임직원은 본인의 개인정보에 대해 열람, 정정, 삭제, 처리정지를 요청할 수 있습니다.</p>
           <p>다만 출퇴근보고, 근태관리, 인사노무 운영상 보존이 필요한 정보는 관계 법령 및 내부 기준에 따라 일정 기간 보관될 수 있습니다.</p>
         </section>
 
         <section>
-          <h2 className="text-xl font-bold text-gray-900 mt-8 mb-4">9. 개인정보 보호 담당자</h2>
+          <h2 className="text-xl font-bold text-text-primary mt-8 mb-4">9. 개인정보 보호 담당자</h2>
           <p>개인정보 및 서비스 이용 관련 문의는 아래 담당자에게 문의할 수 있습니다.</p>
           <ul className="list-none pl-0 space-y-1 mt-2">
             <li><strong>담당자:</strong> NHR 내부 관리자</li>
@@ -108,12 +108,12 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2 className="text-xl font-bold text-gray-900 mt-8 mb-4">10. 처리방침의 변경</h2>
+          <h2 className="text-xl font-bold text-text-primary mt-8 mb-4">10. 처리방침의 변경</h2>
           <p>본 개인정보 처리방침은 서비스 운영 정책, 법령 변경, 기능 추가에 따라 변경될 수 있습니다.</p>
           <p>처리방침이 변경되는 경우 서비스 내 공지 또는 재동의 절차를 통해 안내합니다.</p>
         </section>
 
-        <p className="mt-8 pt-8 border-t text-sm text-gray-500">
+        <p className="mt-8 pt-8 border-t text-sm text-text-muted">
           시행일: 2026년 5월 1일
         </p>
       </div>

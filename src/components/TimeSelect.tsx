@@ -81,9 +81,9 @@ export default function TimeSelect({
   }
 
   const baseSelectCls =
-    'block rounded-md border border-gray-300 bg-white shadow-sm ' +
-    'focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 ' +
-    'disabled:bg-gray-100 disabled:text-gray-400'
+    'select-tight block h-10 rounded-[10px] border border-border-strong bg-surface ' +
+    'text-sm tabular-nums focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 px-3 py-2 ' +
+    'disabled:bg-surface-muted disabled:text-text-disabled disabled:cursor-not-allowed'
 
   return (
     <div className={`flex items-center gap-2 ${className ?? ''}`}>
@@ -99,7 +99,7 @@ export default function TimeSelect({
           <option key={h} value={h}>{h}</option>
         ))}
       </select>
-      <span className="text-gray-500 text-sm select-none">:</span>
+      <span className="text-text-muted text-sm select-none">:</span>
       <select
         aria-label={ariaLabelMinute}
         disabled={disabled}

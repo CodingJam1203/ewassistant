@@ -192,28 +192,28 @@ export default function WorkLocationTimelineInput({
         return (
           <div
             key={i}
-            className={`rounded-lg border p-3 ${
+            className={`rounded-[10px] border p-3 ${
               isEnd
-                ? 'border-blue-200 bg-blue-50/40 dark:border-blue-800 dark:bg-blue-900/10'
-                : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800'
+                ? 'border-info-border bg-info-bg/60'
+                : 'border-border bg-surface'
             }`}
           >
             <div className="flex items-center gap-2 flex-wrap">
               {/* 순번 + 아이콘 */}
               <div className="flex items-center gap-1 min-w-[2.5rem]">
-                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                <span className="text-[12px] font-semibold text-text-secondary tabular-nums">
                   {i + 1}.
                 </span>
                 {isEnd ? (
-                  <LogOut className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
+                  <LogOut className="h-3.5 w-3.5 text-info-text shrink-0" aria-hidden />
                 ) : (
-                  <MapPin className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                  <MapPin className="h-3.5 w-3.5 text-text-muted shrink-0" aria-hidden />
                 )}
               </div>
 
               {/* 라벨/장소 선택 */}
               {isEnd ? (
-                <span className="text-sm font-medium text-blue-700 dark:text-blue-300 min-w-[5rem]">
+                <span className="text-sm font-semibold text-info-text min-w-[5rem]">
                   {endLabel}
                 </span>
               ) : (
@@ -221,7 +221,7 @@ export default function WorkLocationTimelineInput({
                   value={(entry as WorkLocationItem).type}
                   onChange={e => handleTypeChange(i, e.target.value as WorkLocationType)}
                   disabled={disabled}
-                  className="rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="select-tight rounded-[10px] border border-border-strong bg-surface h-9 px-3 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50"
                 >
                   {TYPE_ORDER.map(t => (
                     <option key={t} value={t}>
@@ -231,7 +231,7 @@ export default function WorkLocationTimelineInput({
                 </select>
               )}
 
-              {/* 시간 select — 첫 항목(출근시각)은 당일만, 그 외(중간 근무지/퇴근)는 명일 12:00까지 선택 가능 */}
+              {/* 시간 select */}
               {(() => {
                 const allowNextDay = i > 0
                 const opts = allowNextDay
@@ -242,7 +242,7 @@ export default function WorkLocationTimelineInput({
                     value={entry.startTime}
                     onChange={e => updateAt(i, { startTime: e.target.value })}
                     disabled={disabled}
-                    className="rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="select-tight rounded-[10px] border border-border-strong bg-surface h-9 px-3 text-sm tabular-nums focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50"
                   >
                     {opts.map(t => (
                       <option key={t} value={t}>
@@ -254,16 +254,16 @@ export default function WorkLocationTimelineInput({
                 )
               })()}
 
-              {/* 삭제 버튼: work_location 행 + 2개 이상일 때만 */}
+              {/* 삭제 버튼 */}
               {!isEnd && workLocCount > 1 && (
                 <button
                   type="button"
                   onClick={() => removeAt(i)}
                   disabled={disabled}
                   aria-label="삭제"
-                  className="ml-auto p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+                  className="ml-auto inline-flex items-center justify-center h-8 w-8 rounded-[8px] text-text-muted hover:text-danger-text hover:bg-danger-bg disabled:opacity-50 transition-colors"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-4 w-4" aria-hidden />
                 </button>
               )}
             </div>
@@ -277,7 +277,7 @@ export default function WorkLocationTimelineInput({
                   value={(entry as WorkLocationItem).customLabel ?? ''}
                   onChange={e => updateAt(i, { customLabel: e.target.value })}
                   disabled={disabled}
-                  className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full h-9 rounded-[10px] border border-border-strong bg-surface px-3 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50"
                 />
               </div>
             )}
@@ -286,7 +286,7 @@ export default function WorkLocationTimelineInput({
             {itemErrors.length > 0 && (
               <div className="mt-1 ml-10 space-y-0.5">
                 {itemErrors.map((m, idx) => (
-                  <p key={idx} className="text-xs text-red-600">{m}</p>
+                  <p key={idx} className="text-[12px] text-danger-text">{m}</p>
                 ))}
               </div>
             )}
@@ -299,9 +299,9 @@ export default function WorkLocationTimelineInput({
         type="button"
         onClick={addLocation}
         disabled={disabled}
-        className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 disabled:opacity-50"
+        className="w-full inline-flex items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-border-strong bg-surface hover:bg-surface-muted h-10 px-3 text-sm font-medium text-text-secondary hover:text-text-primary disabled:opacity-50 transition-colors"
       >
-        <Plus className="h-4 w-4" />
+        <Plus className="h-4 w-4" aria-hidden />
         근무장소 추가
       </button>
 
@@ -309,7 +309,7 @@ export default function WorkLocationTimelineInput({
       {errorByIndex.general.length > 0 && (
         <div className="space-y-0.5">
           {errorByIndex.general.map((m, i) => (
-            <p key={i} className="text-xs text-red-600">{m}</p>
+            <p key={i} className="text-[12px] text-danger-text">{m}</p>
           ))}
         </div>
       )}

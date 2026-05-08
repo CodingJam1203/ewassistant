@@ -140,31 +140,31 @@ function OrgManager({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
+    <div className="bg-surface border border-border rounded-lg shadow-sm">
       {/* 헤더 (토글) */}
       <button
         onClick={() => setExpanded(v => !v)}
-        className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors rounded-lg"
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-surface-muted transition-colors rounded-lg"
       >
-        <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-          <Building2 className="h-4 w-4 text-blue-600" />
+        <div className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+          <Building2 className="h-4 w-4 text-primary-600" />
           조직 구조 관리
-          <span className="text-xs font-normal text-gray-400 ml-1">
+          <span className="text-xs font-normal text-text-muted ml-1">
             ({org.length}개 본부 / {org.reduce((s, d) => s + d.teams.length, 0)}개 팀)
           </span>
         </div>
         {expanded
-          ? <ChevronDown className="h-4 w-4 text-gray-400" />
-          : <ChevronRight className="h-4 w-4 text-gray-400" />}
+          ? <ChevronDown className="h-4 w-4 text-text-muted" />
+          : <ChevronRight className="h-4 w-4 text-text-muted" />}
       </button>
 
       {expanded && (
-        <div className="border-t border-gray-100 px-5 py-4 space-y-3">
+        <div className="border-t border-border px-5 py-4 space-y-3">
           {org.map(div => (
-            <div key={div.id} className="border border-gray-200 rounded-lg overflow-hidden">
+            <div key={div.id} className="border border-border rounded-lg overflow-hidden">
               {/* 본부 행 */}
-              <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50">
-                <button onClick={() => toggleDiv(div.id)} className="text-gray-400 hover:text-gray-600">
+              <div className="flex items-center gap-2 px-4 py-2.5 bg-surface-muted">
+                <button onClick={() => toggleDiv(div.id)} className="text-text-muted hover:text-text-secondary">
                   {expandedDivs.has(div.id)
                     ? <ChevronDown className="h-4 w-4" />
                     : <ChevronRight className="h-4 w-4" />}
@@ -176,18 +176,18 @@ function OrgManager({
                       value={editDivName}
                       onChange={e => setEditDivName(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') saveDivName(div.id); if (e.key === 'Escape') setEditingDiv(null) }}
-                      className="flex-1 border border-blue-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      className="flex-1 border border-primary-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
                       autoFocus
                     />
                     <button onClick={() => saveDivName(div.id)} disabled={busy}
-                      className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">저장</button>
+                      className="text-xs px-2 py-1 bg-primary-600 text-white rounded hover:bg-primary-700">저장</button>
                     <button onClick={() => setEditingDiv(null)}
-                      className="text-xs px-2 py-1 text-gray-500 hover:text-gray-700">취소</button>
+                      className="text-xs px-2 py-1 text-text-secondary hover:text-text-primary">취소</button>
                   </div>
                 ) : (
-                  <span className="flex-1 font-medium text-gray-800 text-sm">
+                  <span className="flex-1 font-medium text-text-primary text-sm">
                     {div.name}
-                    <span className="ml-2 text-xs text-gray-400">({div.teams.length}개 팀)</span>
+                    <span className="ml-2 text-xs text-text-muted">({div.teams.length}개 팀)</span>
                   </span>
                 )}
 
@@ -195,7 +195,7 @@ function OrgManager({
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => { setEditingDiv(div.id); setEditDivName(div.name) }}
-                      className="text-gray-400 hover:text-blue-600 transition-colors p-1"
+                      className="text-text-muted hover:text-primary-600 transition-colors p-1"
                       title="본부명 수정"
                     >
                       <Pencil className="h-3.5 w-3.5" />
@@ -203,7 +203,7 @@ function OrgManager({
                     <button
                       onClick={() => deleteDivision(div)}
                       disabled={busy}
-                      className="text-gray-300 hover:text-red-500 transition-colors p-1"
+                      className="text-text-disabled hover:text-danger-text transition-colors p-1"
                       title="본부 삭제"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -214,30 +214,30 @@ function OrgManager({
 
               {/* 팀 목록 */}
               {expandedDivs.has(div.id) && (
-                <div className="px-4 py-2 space-y-1.5 bg-white">
+                <div className="px-4 py-2 space-y-1.5 bg-surface">
                   {div.teams.map(team => (
                     <div key={team.id} className="flex items-center gap-2 group">
-                      <span className="text-gray-400 text-xs">└</span>
+                      <span className="text-text-muted text-xs">└</span>
                       {editingTeam === team.id ? (
                         <div className="flex items-center gap-1 flex-1">
                           <input
                             value={editTeamName}
                             onChange={e => setEditTeamName(e.target.value)}
                             onKeyDown={e => { if (e.key === 'Enter') saveTeamName(team.id); if (e.key === 'Escape') setEditingTeam(null) }}
-                            className="flex-1 border border-blue-300 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            className="flex-1 border border-primary-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
                             autoFocus
                           />
                           <button onClick={() => saveTeamName(team.id)} disabled={busy}
-                            className="text-xs px-2 py-0.5 bg-blue-600 text-white rounded hover:bg-blue-700">저장</button>
+                            className="text-xs px-2 py-0.5 bg-primary-600 text-white rounded hover:bg-primary-700">저장</button>
                           <button onClick={() => setEditingTeam(null)}
-                            className="text-xs px-2 py-0.5 text-gray-500 hover:text-gray-700">취소</button>
+                            className="text-xs px-2 py-0.5 text-text-secondary hover:text-text-primary">취소</button>
                         </div>
                       ) : (
                         <>
-                          <span className="flex-1 text-sm text-gray-700">{team.name}</span>
+                          <span className="flex-1 text-sm text-text-primary">{team.name}</span>
                           <button
                             onClick={() => { setEditingTeam(team.id); setEditTeamName(team.name) }}
-                            className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-blue-500 p-0.5 transition-all"
+                            className="opacity-0 group-hover:opacity-100 text-text-disabled hover:text-primary-600 p-0.5 transition-all"
                             title="팀명 수정"
                           >
                             <Pencil className="h-3 w-3" />
@@ -245,7 +245,7 @@ function OrgManager({
                           <button
                             onClick={() => deleteTeam(team)}
                             disabled={busy}
-                            className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 p-0.5 transition-all"
+                            className="opacity-0 group-hover:opacity-100 text-text-disabled hover:text-danger-text p-0.5 transition-all"
                             title="팀 삭제"
                           >
                             <Trash2 className="h-3 w-3" />
@@ -257,18 +257,18 @@ function OrgManager({
 
                   {/* 팀 추가 입력 */}
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="text-gray-300 text-xs">└</span>
+                    <span className="text-text-disabled text-xs">└</span>
                     <input
                       value={newTeamName[div.id] ?? ''}
                       onChange={e => setNewTeamName(prev => ({ ...prev, [div.id]: e.target.value }))}
                       onKeyDown={e => { if (e.key === 'Enter') addTeam(div.id) }}
                       placeholder="팀명 입력 후 Enter"
-                      className="flex-1 border border-dashed border-gray-300 rounded px-2 py-1 text-xs text-gray-500 focus:outline-none focus:border-blue-400 focus:text-gray-900"
+                      className="flex-1 border border-dashed border-border-strong rounded px-2 py-1 text-xs text-text-secondary focus:outline-none focus:border-primary-500 focus:text-text-primary"
                     />
                     <button
                       onClick={() => addTeam(div.id)}
                       disabled={busy || !newTeamName[div.id]?.trim()}
-                      className="text-xs px-2 py-1 text-blue-600 border border-blue-300 rounded hover:bg-blue-50 disabled:opacity-40 transition-colors"
+                      className="text-xs px-2 py-1 text-primary-600 border border-primary-200 rounded hover:bg-primary-50 disabled:opacity-40 transition-colors"
                     >
                       <Plus className="h-3 w-3" />
                     </button>
@@ -286,18 +286,18 @@ function OrgManager({
                 onChange={e => setNewDivName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') addDivision(); if (e.key === 'Escape') setAddingDiv(false) }}
                 placeholder="새 본부명 입력"
-                className="flex-1 border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="flex-1 border border-primary-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
                 autoFocus
               />
               <button onClick={addDivision} disabled={busy || !newDivName.trim()}
-                className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">추가</button>
+                className="px-3 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">추가</button>
               <button onClick={() => { setAddingDiv(false); setNewDivName('') }}
-                className="px-3 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg hover:bg-gray-50">취소</button>
+                className="px-3 py-2 text-sm text-text-secondary border border-border-strong rounded-lg hover:bg-surface-muted">취소</button>
             </div>
           ) : (
             <button
               onClick={() => setAddingDiv(true)}
-              className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium"
+              className="flex items-center gap-1.5 text-sm text-primary-600 hover:text-primary-700 font-medium"
             >
               <Plus className="h-4 w-4" /> 본부 추가
             </button>
@@ -385,10 +385,10 @@ function EditUserModal({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
     >
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h3 className="text-base font-semibold text-gray-900">계정 편집</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+      <div className="bg-surface rounded-xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h3 className="text-base font-semibold text-text-primary">계정 편집</h3>
+          <button onClick={onClose} className="text-text-muted hover:text-text-secondary">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -396,38 +396,38 @@ function EditUserModal({
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
           {/* 이메일 */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">이메일 *</label>
+            <label className="block text-xs font-medium text-text-secondary mb-1">이메일 *</label>
             <input
               type="email"
               value={form.email}
               onChange={e => set('email', e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-border-strong rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
             {form.email.toLowerCase() !== user.email && user.id !== null && (
-              <p className="mt-1 text-xs text-amber-600">⚠ 이메일 변경 시 사용자는 새 이메일로 재로그인해야 합니다.</p>
+              <p className="mt-1 text-xs text-warning-text">⚠ 이메일 변경 시 사용자는 새 이메일로 재로그인해야 합니다.</p>
             )}
           </div>
 
           {/* 이름 */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">이름</label>
+            <label className="block text-xs font-medium text-text-secondary mb-1">이름</label>
             <input
               type="text"
               value={form.display_name}
               onChange={e => set('display_name', e.target.value)}
               placeholder="홍길동"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-border-strong rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
           </div>
 
           {/* 본부 + 팀 */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">본부</label>
+              <label className="block text-xs font-medium text-text-secondary mb-1">본부</label>
               <select
                 value={form.division}
                 onChange={e => handleDivisionChange(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-border-strong rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               >
                 <option value="">선택 안 함</option>
                 {org.map(d => (
@@ -436,12 +436,12 @@ function EditUserModal({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">팀</label>
+              <label className="block text-xs font-medium text-text-secondary mb-1">팀</label>
               <select
                 value={form.team}
                 onChange={e => set('team', e.target.value)}
                 disabled={!form.division || availableTeams.length === 0}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+                className="w-full border border-border-strong rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-surface-muted disabled:text-text-muted"
               >
                 <option value="">선택 안 함</option>
                 {availableTeams.map(t => (
@@ -454,12 +454,12 @@ function EditUserModal({
           {/* 권한 + 상태 */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">권한</label>
+              <label className="block text-xs font-medium text-text-secondary mb-1">권한</label>
               <select
                 value={form.role}
                 onChange={e => set('role', e.target.value)}
                 disabled={user.email === 'hrb.main@gmail.com'}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+                className="w-full border border-border-strong rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-surface-muted disabled:text-text-muted"
               >
                 <option value="user">일반</option>
                 <option value="leader">리더 (본인 팀/본부)</option>
@@ -467,12 +467,12 @@ function EditUserModal({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">계정 상태</label>
+              <label className="block text-xs font-medium text-text-secondary mb-1">계정 상태</label>
               <select
                 value={form.is_active ? 'active' : 'inactive'}
                 onChange={e => set('is_active', e.target.value === 'active')}
                 disabled={user.role === 'admin'}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+                className="w-full border border-border-strong rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-surface-muted disabled:text-text-muted"
               >
                 <option value="active">활성</option>
                 <option value="inactive">비활성</option>
@@ -482,9 +482,9 @@ function EditUserModal({
 
           {/* 표시 순서 */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">
+            <label className="block text-xs font-medium text-text-secondary mb-1">
               표시 순서
-              <span className="ml-1 font-normal text-gray-400">(숫자가 작을수록 앞에 표시, 기본 999)</span>
+              <span className="ml-1 font-normal text-text-muted">(숫자가 작을수록 앞에 표시, 기본 999)</span>
             </label>
             <input
               type="number"
@@ -492,21 +492,21 @@ function EditUserModal({
               max={9999}
               value={form.display_order}
               onChange={e => setForm(p => ({ ...p, display_order: Number(e.target.value) }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-border-strong rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
           </div>
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+            <p className="text-sm text-danger-text bg-danger-bg border border-danger-border rounded-lg px-3 py-2">{error}</p>
           )}
 
           <div className="flex justify-end gap-3 pt-1">
             <button type="button" onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+              className="px-4 py-2 text-sm font-medium text-text-primary bg-surface border border-border-strong rounded-lg hover:bg-surface-muted">
               취소
             </button>
             <button type="submit" disabled={saving}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               저장
             </button>
@@ -549,43 +549,43 @@ function RegisterForm({ org, onDone }: { org: OrgDivision[]; onDone: () => void 
   }
 
   return (
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-5">
-      <h3 className="text-sm font-semibold text-blue-800 mb-4">새 계정 사전 등록</h3>
+    <div className="bg-info-bg border border-info-border rounded-lg p-5">
+      <h3 className="text-sm font-semibold text-primary-700 mb-4">새 계정 사전 등록</h3>
       <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">이메일 *</label>
+          <label className="block text-xs font-medium text-text-secondary mb-1">이메일 *</label>
           <input type="email" value={form.email} onChange={e => set('email', e.target.value)}
             placeholder="name@company.com"
-            className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            className="w-full border border-border-strong rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary-500" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">이름</label>
+          <label className="block text-xs font-medium text-text-secondary mb-1">이름</label>
           <input type="text" value={form.display_name} onChange={e => set('display_name', e.target.value)}
             placeholder="홍길동"
-            className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            className="w-full border border-border-strong rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary-500" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">본부</label>
+          <label className="block text-xs font-medium text-text-secondary mb-1">본부</label>
           <select value={form.division}
             onChange={e => setForm(p => ({ ...p, division: e.target.value, team: '' }))}
-            className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+            className="w-full border border-border-strong rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary-500">
             <option value="">선택 안 함</option>
             {org.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">팀</label>
+          <label className="block text-xs font-medium text-text-secondary mb-1">팀</label>
           <select value={form.team} onChange={e => set('team', e.target.value)}
             disabled={!form.division || availableTeams.length === 0}
-            className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50">
+            className="w-full border border-border-strong rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:bg-surface-muted">
             <option value="">선택 안 함</option>
             {availableTeams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">권한</label>
+          <label className="block text-xs font-medium text-text-secondary mb-1">권한</label>
           <select value={form.role} onChange={e => set('role', e.target.value)}
-            className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+            className="w-full border border-border-strong rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary-500">
             <option value="user">일반</option>
             <option value="leader">리더</option>
             <option value="admin">관리자</option>
@@ -593,16 +593,16 @@ function RegisterForm({ org, onDone }: { org: OrgDivision[]; onDone: () => void 
         </div>
         <div className="flex items-end gap-2">
           <button type="submit" disabled={saving}
-            className="flex-1 bg-blue-600 text-white rounded-md px-3 py-1.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+            className="flex-1 bg-primary-600 text-white rounded-md px-3 py-1.5 text-sm font-medium hover:bg-primary-700 disabled:opacity-50">
             {saving ? '등록 중...' : '등록'}
           </button>
           <button type="button" onClick={onDone}
-            className="px-3 py-1.5 border border-gray-300 rounded-md text-sm text-gray-600 hover:bg-gray-50">
+            className="px-3 py-1.5 border border-border-strong rounded-md text-sm text-text-secondary hover:bg-surface-muted">
             취소
           </button>
         </div>
       </form>
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-xs text-danger-text">{error}</p>}
     </div>
   )
 }
@@ -914,7 +914,7 @@ export default function AdminPage() {
               </tbody>
             </table>
             {users.length === 0 && (
-              <div className="py-12 text-center text-sm text-gray-500">계정이 없습니다.</div>
+              <div className="py-12 text-center text-sm text-text-secondary">계정이 없습니다.</div>
             )}
           </div>
         </div>

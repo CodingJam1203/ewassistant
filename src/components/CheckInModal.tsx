@@ -176,56 +176,60 @@ export default function CheckInModal({
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto py-6 px-4"
     >
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="bg-surface rounded-[20px] shadow-[var(--shadow-popover)] w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">출근보고 작성하기</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{date} — 근무장소 타임라인을 입력해주세요</p>
+            <h3 className="text-base font-semibold text-text-primary">출근보고 작성하기</h3>
+            <p className="text-[12px] text-text-secondary mt-0.5">{date} — 근무장소 타임라인을 입력해주세요</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X className="h-5 w-5" />
+          <button
+            onClick={onClose}
+            className="inline-flex items-center justify-center h-9 w-9 rounded-[10px] text-text-muted hover:text-text-primary hover:bg-surface-muted transition-colors"
+            aria-label="닫기"
+          >
+            <X className="h-5 w-5" aria-hidden />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
           {/* 날짜 */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">날짜 *</label>
+            <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">날짜 *</label>
             <input
               type="date"
               value={date}
               onChange={e => setDate(e.target.value || initialDate)}
-              className="w-full sm:w-1/2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full sm:w-1/2 h-10 rounded-[10px] border border-border-strong bg-surface text-sm px-3 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
             />
-            <p className="mt-1 text-xs text-gray-400">기본값은 오늘이며, 다른 날짜로도 작성할 수 있습니다.</p>
+            <p className="mt-1 text-[12px] text-text-muted">기본값은 오늘이며, 다른 날짜로도 작성할 수 있습니다.</p>
           </div>
 
           {/* 이름 */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">이름 *</label>
+            <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">이름 *</label>
             <input
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full h-10 rounded-[10px] border border-border-strong bg-surface text-sm px-3 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
             />
           </div>
 
           {/* 외부 캘린더 일정 안내 박스 */}
           {calendarLookup?.enabled && (calendarLookup.leaveType || calendarLookup.events.length > 0 || calendarLookup.fetchFailed) && (
-            <div className="rounded-lg border border-blue-100 bg-blue-50/60 dark:border-blue-900/40 dark:bg-blue-900/10 px-3 py-2">
+            <div className="rounded-[10px] border border-info-border bg-info-bg px-3 py-2">
               <div className="flex items-center gap-1.5 mb-1">
-                <Calendar className="h-3.5 w-3.5 text-blue-500" />
-                <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">캘린더 일정 ({date})</span>
+                <Calendar className="h-3.5 w-3.5 text-info-text" aria-hidden />
+                <span className="text-[12px] font-semibold text-info-text">캘린더 일정 ({date})</span>
               </div>
               {calendarLookup.fetchFailed ? (
-                <p className="text-xs text-amber-700">캘린더 데이터를 불러오지 못했습니다 (이전 캐시도 없음).</p>
+                <p className="text-[12px] text-warning-text">캘린더 데이터를 불러오지 못했습니다 (이전 캐시도 없음).</p>
               ) : (
-                <ul className="text-xs text-gray-700 dark:text-gray-300 space-y-0.5">
+                <ul className="text-[12px] text-text-primary space-y-0.5">
                   {calendarLookup.leaveType && (
                     <li>
-                      <span className="font-medium text-amber-700">{calendarLookup.leaveLabel}</span>
-                      <span className="ml-1 text-gray-500">— 아래 휴가/반차에 자동 반영됨</span>
+                      <span className="font-semibold text-warning-text">{calendarLookup.leaveLabel}</span>
+                      <span className="ml-1 text-text-muted">— 아래 휴가/반차에 자동 반영됨</span>
                     </li>
                   )}
                   {calendarLookup.events.map((ev, i) => (
@@ -238,19 +242,19 @@ export default function CheckInModal({
 
           {/* 휴가/반차 */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">휴가/반차</label>
+            <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">휴가/반차</label>
             <LeaveTimelineInput value={leaveTimeline} onChange={setLeaveTimeline} />
           </div>
 
           {/* 근무장소 타임라인 — 종일 휴가가 아닐 때만 활성 */}
           {!isAllDayLeave && (
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">근무장소 타임라인 *</label>
-              <p className="text-xs text-gray-400 mb-2">
+              <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">근무장소 타임라인 *</label>
+              <p className="text-[12px] text-text-muted mb-2">
                 하루 안에 여러 장소에서 근무하는 경우 <span className="font-medium">근무장소 추가</span>로 행을 늘리고, 마지막에 <span className="font-medium">퇴근예정</span> 시간을 입력하세요. 시간은 30분 단위입니다.
               </p>
               {loadingPrefill && (
-                <p className="text-xs text-gray-400 mb-2">어제 퇴근보고의 출근 예정 정보를 불러오는 중...</p>
+                <p className="text-[12px] text-text-muted mb-2">어제 퇴근보고의 출근 예정 정보를 불러오는 중...</p>
               )}
               <WorkLocationTimelineInput
                 value={timeline}
@@ -262,28 +266,34 @@ export default function CheckInModal({
 
           {/* 메모 */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">메모</label>
+            <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">메모</label>
             <textarea
               value={workContent}
               onChange={e => setWorkContent(e.target.value)}
               rows={2}
               placeholder="비고"
-              className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              className="w-full rounded-[10px] border border-border-strong bg-surface text-sm px-3 py-2 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 resize-none"
             />
           </div>
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+            <p className="text-sm text-danger-text bg-danger-bg border border-danger-border rounded-[10px] px-3 py-2">{error}</p>
           )}
 
-          <div className="flex justify-end gap-3 pt-1">
-            <button type="button" onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600">
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center justify-center h-10 px-4 rounded-[10px] text-sm font-medium text-text-primary bg-surface border border-border-strong hover:bg-surface-muted transition-colors"
+            >
               취소
             </button>
-            <button type="submit" disabled={saving || validationErrors.length > 0}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50">
-              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            <button
+              type="submit"
+              disabled={saving || validationErrors.length > 0}
+              className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 transition-colors"
+            >
+              {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
               저장
             </button>
           </div>

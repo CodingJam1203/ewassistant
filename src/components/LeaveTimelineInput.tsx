@@ -88,12 +88,12 @@ export default function LeaveTimelineInput({ value, onChange, disabled }: LeaveT
     <div className="space-y-2">
       {/* 휴가 종류 + 차감시간 select */}
       <div className="flex items-center gap-2 flex-wrap">
-        <Plane className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+        <Plane className="h-3.5 w-3.5 text-warning-text shrink-0" aria-hidden />
         <select
           value={current}
           onChange={e => handleTypeChange(e.target.value as Selection)}
           disabled={disabled}
-          className="rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+          className="select-tight rounded-[10px] border border-border-strong bg-surface h-9 px-3 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50"
         >
           {OPTIONS.map(opt => (
             <option key={opt.value} value={opt.value}>
@@ -104,12 +104,12 @@ export default function LeaveTimelineInput({ value, onChange, disabled }: LeaveT
 
         {current !== 'none' && (
           <>
-            <span className="text-xs text-gray-400">차감시간:</span>
+            <span className="text-[12px] text-text-muted">차감시간:</span>
             <select
               value={currentDeduction}
               onChange={e => handleDeductionChange(parseInt(e.target.value, 10))}
               disabled={disabled}
-              className="rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="select-tight rounded-[10px] border border-border-strong bg-surface h-9 px-3 text-sm tabular-nums focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50"
             >
               {DEDUCTION_OPTIONS.map(opt => (
                 <option key={opt.minutes} value={opt.minutes}>
@@ -123,9 +123,9 @@ export default function LeaveTimelineInput({ value, onChange, disabled }: LeaveT
 
       {/* 시간 폭 안내 */}
       {def && (
-        <p className="text-xs text-gray-500">
+        <p className="text-[12px] text-text-secondary tabular-nums">
           {LEAVE_TYPE_LABELS[current as LeaveType]} {def.startTime}~{def.endTime}
-          <span className="ml-1 text-gray-400">— 차감시간은 직접 조정할 수 있습니다.</span>
+          <span className="ml-1 text-text-muted">— 차감시간은 직접 조정할 수 있습니다.</span>
         </p>
       )}
     </div>

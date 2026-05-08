@@ -121,22 +121,22 @@ export default function TeamsRoutingAdminPage() {
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Teams 알림 라우팅 관리</h2>
-          <p className="text-xs text-gray-500 mt-1">
+          <h2 className="text-2xl font-bold text-text-primary">Teams 알림 라우팅 관리</h2>
+          <p className="text-xs text-text-secondary mt-1">
             본부/팀/보고유형 별로 Teams 채널 anchor 메시지를 매핑합니다. 변경은 60초 캐시 후 반영됩니다.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={fetchRows}
-            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 px-3 py-1.5 border border-blue-200 rounded"
+            className="inline-flex items-center gap-1 text-sm text-primary-600 hover:text-primary-700 px-3 py-1.5 border border-primary-200 rounded"
           >
             <RefreshCw className="h-4 w-4" />
             새로고침
           </button>
           <button
             onClick={() => setCreating(true)}
-            className="inline-flex items-center gap-1 text-sm text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded"
+            className="inline-flex items-center gap-1 text-sm text-white bg-primary-600 hover:bg-primary-700 px-3 py-1.5 rounded"
           >
             <Plus className="h-4 w-4" />
             새 라우팅 추가
@@ -145,7 +145,7 @@ export default function TeamsRoutingAdminPage() {
       </div>
 
       {error && (
-        <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex items-start gap-2">
+        <div className="rounded-md bg-danger-bg border border-danger-border p-3 text-sm text-danger-text flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
           <span>{error}</span>
         </div>
@@ -154,18 +154,18 @@ export default function TeamsRoutingAdminPage() {
       {loading ? (
         <div className="space-y-2">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-12 bg-gray-100 rounded animate-pulse" />
+            <div key={i} className="h-12 bg-surface-muted rounded animate-pulse" />
           ))}
         </div>
       ) : rows.length === 0 ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center text-sm text-gray-500">
-          등록된 라우팅이 없습니다. <span className="text-blue-600">"새 라우팅 추가"</span> 버튼으로 시작하세요.
+        <div className="bg-surface rounded-lg border border-border p-12 text-center text-sm text-text-secondary">
+          등록된 라우팅이 없습니다. <span className="text-primary-600">"새 라우팅 추가"</span> 버튼으로 시작하세요.
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="bg-surface rounded-lg border border-border overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-surface-muted">
                 <tr>
                   <Th>본부</Th>
                   <Th>팀</Th>
@@ -180,12 +180,12 @@ export default function TeamsRoutingAdminPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {rows.map(row => (
-                  <tr key={row.id} className={`hover:bg-gray-50 ${!row.is_active ? 'opacity-50' : ''}`}>
+                  <tr key={row.id} className={`hover:bg-surface-muted ${!row.is_active ? 'opacity-50' : ''}`}>
                     <Td>{row.department}</Td>
                     <Td>{row.team_name}</Td>
                     <Td>
                       <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
-                        row.report_type === '출근보고' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'
+                        row.report_type === '출근보고' ? 'bg-primary-50 text-primary-700' : 'bg-warning-bg text-warning-text'
                       }`}>
                         {row.report_type}
                       </span>
@@ -198,28 +198,28 @@ export default function TeamsRoutingAdminPage() {
                         onClick={() => handleToggleActive(row)}
                         className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${
                           row.is_active
-                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                            : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                            ? 'bg-success-bg text-success-text border border-success-border hover:bg-success-bg/60'
+                            : 'bg-surface-muted text-text-secondary border border-border hover:bg-border'
                         }`}
                       >
                         {row.is_active ? '활성' : '비활성'}
                       </button>
                     </Td>
                     <Td>
-                      <span className="text-xs text-gray-500">{row.notes || '-'}</span>
+                      <span className="text-xs text-text-secondary">{row.notes || '-'}</span>
                     </Td>
                     <Td className="text-center">
                       <div className="flex items-center justify-center gap-2">
                         <button
                           onClick={() => setEditingRow(row)}
-                          className="text-gray-400 hover:text-blue-600"
+                          className="text-text-muted hover:text-primary-600"
                           title="수정"
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
                         <button
                           onClick={() => handleDelete(row)}
-                          className="text-gray-400 hover:text-red-600"
+                          className="text-text-muted hover:text-danger-text"
                           title="삭제"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -231,8 +231,8 @@ export default function TeamsRoutingAdminPage() {
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-500">
-            총 <span className="font-semibold text-gray-700">{rows.length}</span>건
+          <div className="px-4 py-3 border-t border-border text-xs text-text-secondary">
+            총 <span className="font-semibold text-text-primary">{rows.length}</span>건
             {' · '}
             본부 {new Set(rows.map(r => r.department)).size}개
             {' · '}
@@ -262,8 +262,8 @@ export default function TeamsRoutingAdminPage() {
       )}
 
       {/* 도움말 */}
-      <details className="bg-blue-50 rounded-lg border border-blue-100 p-3 text-xs text-gray-700">
-        <summary className="font-medium text-blue-700 cursor-pointer">
+      <details className="bg-primary-50 rounded-lg border border-primary-200 p-3 text-xs text-text-primary">
+        <summary className="font-medium text-primary-700 cursor-pointer">
           📘 messageId / channelId 어디서 가져오나요?
         </summary>
         <div className="mt-2 space-y-1 leading-relaxed">
@@ -271,7 +271,7 @@ export default function TeamsRoutingAdminPage() {
           <p>2. Teams 웹/앱에서 해당 메시지 우클릭 → <strong>링크 복사</strong></p>
           <p>3. 복사한 URL에서:</p>
           <p className="ml-4">
-            <code className="bg-white px-1 rounded">
+            <code className="bg-surface px-1 rounded">
               https://teams.microsoft.com/l/message/&lt;channelId&gt;/&lt;messageId&gt;?...&groupId=&lt;teamId&gt;
             </code>
           </p>
@@ -341,14 +341,14 @@ function RoutingFormModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl bg-white rounded-lg shadow-xl"
+        className="w-full max-w-xl bg-surface rounded-lg shadow-xl"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-3 border-b">
-          <h3 className="text-lg font-semibold text-gray-900">
+          <h3 className="text-lg font-semibold text-text-primary">
             {isEdit ? 'Teams 라우팅 수정' : '새 Teams 라우팅 추가'}
           </h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-text-muted hover:text-text-secondary">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -431,14 +431,14 @@ function RoutingFormModal({
                 type="checkbox"
                 checked={form.is_active}
                 onChange={e => setForm({ ...form, is_active: e.target.checked })}
-                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                className="h-4 w-4 rounded border-border-strong text-primary-600 focus:ring-blue-500"
               />
               활성 (체크 해제 시 해당 라우팅으로 알림 안 감)
             </label>
           </Field>
 
           {err && (
-            <div className="rounded bg-red-50 border border-red-200 p-2 text-xs text-red-700">
+            <div className="rounded bg-danger-bg border border-danger-border p-2 text-xs text-danger-text">
               {err}
             </div>
           )}
@@ -447,14 +447,14 @@ function RoutingFormModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-1.5 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
+              className="px-4 py-1.5 text-sm text-text-primary bg-surface border border-border-strong rounded hover:bg-surface-muted"
             >
               취소
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="inline-flex items-center gap-1 px-4 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50"
+              className="inline-flex items-center gap-1 px-4 py-1.5 text-sm text-white bg-primary-600 hover:bg-primary-700 rounded disabled:opacity-50"
             >
               <Save className="h-4 w-4" />
               {saving ? '저장 중...' : isEdit ? '수정 저장' : '추가'}
@@ -469,7 +469,7 @@ function RoutingFormModal({
 // ─── 작은 부품들 ────────────────────────────────────────────────────────────
 
 const inputCls =
-  'mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 ' +
+  'mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 ' +
   'sm:text-sm px-3 py-1.5 border'
 
 function Field({
@@ -477,16 +477,16 @@ function Field({
 }: { label?: string; children: React.ReactNode; hint?: string }) {
   return (
     <div>
-      {label && <label className="block text-xs font-medium text-gray-700">{label}</label>}
+      {label && <label className="block text-xs font-medium text-text-primary">{label}</label>}
       {children}
-      {hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-text-muted">{hint}</p>}
     </div>
   )
 }
 
 function Th({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <th className={`px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider whitespace-nowrap ${className}`}>
+    <th className={`px-3 py-2 text-left text-xs font-medium text-text-secondary uppercase tracking-wider whitespace-nowrap ${className}`}>
       {children}
     </th>
   )
@@ -494,13 +494,13 @@ function Th({ children, className = '' }: { children: React.ReactNode; className
 
 function Td({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <td className={`px-3 py-2 text-gray-700 whitespace-nowrap ${className}`}>{children}</td>
+    <td className={`px-3 py-2 text-text-primary whitespace-nowrap ${className}`}>{children}</td>
   )
 }
 
 function Mono({ children }: { children: React.ReactNode }) {
   return (
-    <span className="font-mono text-xs text-gray-600 truncate max-w-[280px] inline-block align-middle"
+    <span className="font-mono text-xs text-text-secondary truncate max-w-[280px] inline-block align-middle"
           title={typeof children === 'string' ? children : ''}>
       {children}
     </span>

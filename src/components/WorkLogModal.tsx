@@ -84,9 +84,9 @@ export default function WorkLogModal({
       type="submit"
       form="work-log-form"
       disabled={formSubmitting}
-      className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-sm text-base font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+      className="w-full inline-flex justify-center items-center gap-2 h-12 px-5 rounded-[10px] text-base font-semibold text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-500 disabled:opacity-50 transition-colors"
     >
-      {formSubmitting ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <Copy className="h-5 w-5 mr-2" />}
+      {formSubmitting ? <Loader2 className="animate-spin h-5 w-5" aria-hidden /> : <Copy className="h-5 w-5" aria-hidden />}
       {submitButtonLabel}
     </button>
   )
@@ -126,18 +126,19 @@ export default function WorkLogModal({
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 overflow-y-auto py-6 px-4"
     >
-      <div className="relative w-full max-w-5xl bg-white dark:bg-gray-800 rounded-2xl shadow-2xl">
+      <div className="relative w-full max-w-5xl bg-surface rounded-[20px] shadow-[var(--shadow-popover)]">
         {/* 헤더 */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{headerTitle}</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{headerSubtitle}</p>
+            <h3 className="text-base font-semibold text-text-primary">{headerTitle}</h3>
+            <p className="text-[12px] text-text-secondary mt-0.5">{headerSubtitle}</p>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="inline-flex items-center justify-center h-9 w-9 rounded-[10px] text-text-muted hover:text-text-primary hover:bg-surface-muted transition-colors"
+            aria-label="닫기"
           >
-            <X className="h-5 w-5" />
+            <X className="h-5 w-5" aria-hidden />
           </button>
         </div>
 
@@ -145,8 +146,8 @@ export default function WorkLogModal({
         <div className="p-6">
           {checkingOut ? (
             <div className="py-12 text-center">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-200 border-t-blue-600 mb-3" />
-              <p className="text-sm text-gray-500">퇴근 처리 중...</p>
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-border border-t-primary-600 mb-3" />
+              <p className="text-sm text-text-secondary">퇴근 처리 중...</p>
             </div>
           ) : (
             // 출근보고 수정 시에는 EW 계산 결과 패널 숨김 (출근 영역만 수정 — EW 무관)
