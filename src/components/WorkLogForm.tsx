@@ -7,7 +7,7 @@ import * as z from 'zod'
 import { calculateEw, EwCalculationResult } from '@/lib/ew-calculator'
 import { Loader2, Copy } from 'lucide-react'
 import { format, addDays } from 'date-fns'
-import { getKstTodayDateString, toKstDateString } from '@/lib/utils/date'
+import { getKstTodayDateString, toKstDateString, dowKo } from '@/lib/utils/date'
 import WorkLocationTimelineInput, { defaultTimeline, defaultCheckoutTimeline } from '@/components/WorkLocationTimelineInput'
 import LeaveTimelineInput from '@/components/LeaveTimelineInput'
 import TimeSelect from '@/components/TimeSelect'
@@ -295,6 +295,8 @@ export default function WorkLogForm({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [showEwPopup, setShowEwPopup] = useState(false)
+  // 마지막 제출의 EW 계산 결과 — 복사 완료 팝업에서 점심시간 안내 노출 판정용
+  const [lastSubmitResult, setLastSubmitResult] = useState<EwCalculationResult | null>(null)
 
   // 외부(모달 우측 컬럼·하단 플로팅) 제출 버튼이 spinner/에러를 표시할 수 있도록 부모에 통지
   useEffect(() => {
@@ -377,6 +379,12 @@ export default function WorkLogForm({
   const leaveTl = (formValues.leaveTimeline ?? []) as LeaveTimeline
   const leaveMinutesTotal = totalLeaveRoundedMinutes(leaveTl)
   const isAllDay = isFullDayLeave(leaveTl)
+  // 반차(오전/오후) 사용 여부 — 회사 EW 표준대로 폭은 09:00~18:00로 강제 처리
+  const hasReducedLeave = leaveTl.some(it =>
+    it.leaveType === 'morning_half' || it.leaveType === 'afternoon_half'
+  )
+  // 회사 EW 시트 표준: 휴가/반차 row는 09:00~18:00 폭에서 차감 계산
+  const forceStandardSpan = isAllDay || hasReducedLeave
 
   // 휴게사유 표시 여부: 점심 외 추가 휴게가 30분 이상일 때만
   const showBreakReason = formValues.breakTime && formValues.breakTime !== '00:00'
@@ -448,9 +456,10 @@ export default function WorkLogForm({
     try {
       // 24+ 시간(명일 00:00 ~ 36:00 = 명일 12:00)도 인식
       const timeRegex = /^([01]\d|2\d|3[0-6]):([0-5]\d)$/
-      // 종일 휴가일 땐 work_location 시간 검증을 스킵하고 09:00~18:00을 가정
-      const calcStart = isAllDay ? '09:00' : derivedStartTime
-      const calcEnd   = isAllDay ? '18:00' : derivedEndTime
+      // 종일 휴가 또는 반차일 땐 work_location 시간 검증 스킵하고 09:00~18:00 폭 강제
+      // (회사 EW 시트 표준: 모든 휴가성 row는 표준 폭에서 차감 처리)
+      const calcStart = forceStandardSpan ? '09:00' : derivedStartTime
+      const calcEnd   = forceStandardSpan ? '18:00' : derivedEndTime
       const calcLocation = isAllDay ? '휴가' : (derivedWorkLocationSummary || '사무실')
 
       if (
@@ -484,7 +493,7 @@ export default function WorkLogForm({
     formValues.name, formValues.workTypeLabel, formValues.leaveDate,
     derivedStartTime, derivedEndTime, derivedWorkLocationSummary,
     formValues.breakTime, formValues.workContent, formValues.breakReason,
-    leaveMinutesTotal, isAllDay,
+    leaveMinutesTotal, isAllDay, forceStandardSpan,
     onCalculate, showBreakReason
   ])
 
@@ -495,14 +504,18 @@ export default function WorkLogForm({
     try {
       const submittedLeave = (data.leaveTimeline ?? []) as LeaveTimeline
       const submittedIsAllDay = isFullDayLeave(submittedLeave)
+      const submittedHasReducedLeave = submittedLeave.some(it =>
+        it.leaveType === 'morning_half' || it.leaveType === 'afternoon_half'
+      )
+      const submittedForceStandardSpan = submittedIsAllDay || submittedHasReducedLeave
       const submittedLeaveMinutes = totalLeaveRoundedMinutes(submittedLeave)
 
       const submittedTimeline = (data.workLocationTimeline ?? []) as WorkLocationTimeline
       const submittedFirst = firstWorkLocation(submittedTimeline)
       const submittedEnd = endItemOf(submittedTimeline)
-      // 종일 휴가일 때는 09:00~18:00 가정 (EW/legacy mirror용)
-      const submittedStartTime = submittedIsAllDay ? '09:00' : (submittedFirst?.startTime ?? '09:00')
-      const submittedEndTime   = submittedIsAllDay ? '18:00' : (submittedEnd?.startTime ?? '18:00')
+      // 종일 휴가/반차일 때는 09:00~18:00 강제 (회사 EW 시트 표준)
+      const submittedStartTime = submittedForceStandardSpan ? '09:00' : (submittedFirst?.startTime ?? '09:00')
+      const submittedEndTime   = submittedForceStandardSpan ? '18:00' : (submittedEnd?.startTime ?? '18:00')
       const submittedWorkLocation = submittedIsAllDay
         ? '휴가'
         : (submittedFirst ? displayLocation(submittedFirst) : '사무실')
@@ -574,6 +587,7 @@ export default function WorkLogForm({
         throw new Error(resData.error || '제출에 실패했습니다.')
       }
 
+      setLastSubmitResult(result)
       setShowEwPopup(true)
       // onSubmitSuccess는 팝업 버튼 클릭 후 호출 (팝업이 닫히면서 호출)
     } catch (err: any) {
@@ -589,9 +603,15 @@ export default function WorkLogForm({
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
           <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-sm p-6">
             <h3 className="text-lg font-semibold text-text-primary mb-2">상신할 내용이 복사되었습니다!</h3>
-            <p className="text-sm text-text-secondary mb-5">
+            <p className="text-sm text-text-secondary mb-3">
               복사한 내용을 EW(Enjoy Working) 또는 NPM(휴가 상신)에 붙여 넣어 등록할 수 있습니다.
             </p>
+            {/* 4시간 이하 또는 공휴일근로 — 점심시간 자동 처리가 어색한 케이스에 안내 */}
+            {lastSubmitResult && (lastSubmitResult.actualWorkMinutes <= 4 * 60 || lastSubmitResult.workTypeCode === 3) && (
+              <div className="mb-5 rounded-[10px] border border-warning-border bg-warning-bg px-3 py-2 text-[12px] text-warning-text">
+                * 점심시간 진행 여부에 따라 근무시간을 별도 계산하여 EW에 상신해주세요.
+              </div>
+            )}
             <div className="flex flex-col gap-2">
               {/* 1. EW 상신 */}
               <a
@@ -624,7 +644,7 @@ export default function WorkLogForm({
           </div>
         </div>
       )}
-      <form id="work-log-form" onSubmit={handleSubmit(onSubmit)} className="space-y-8 bg-surface p-6 sm:p-8 rounded-lg border border-border shadow-sm pb-24 lg:pb-8">
+      <form id="work-log-form" onSubmit={handleSubmit(onSubmit)} className="space-y-8 bg-surface p-6 sm:p-8 rounded-lg border border-border shadow-sm">
 
       {/* 1. 기본 정보 섹션 */}
       <div>
@@ -654,11 +674,16 @@ export default function WorkLogForm({
 
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-text-primary">퇴근일자 *</label>
-            <input
-              type="date"
-              {...register('leaveDate')}
-              className="mt-1 block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border"
-            />
+            <div className="mt-1 flex items-center gap-2">
+              <input
+                type="date"
+                {...register('leaveDate')}
+                className="block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border"
+              />
+              {formValues.leaveDate && (
+                <span className="text-sm text-text-muted">({dowKo(formValues.leaveDate)})</span>
+              )}
+            </div>
             {errors.leaveDate && <p className="mt-1 text-sm text-danger-text">{errors.leaveDate.message as string}</p>}
           </div>
         </div>
@@ -668,6 +693,12 @@ export default function WorkLogForm({
       {showCheckOutSections && (
       <div>
         <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">휴가/반차</h3>
+        {hasReducedLeave && (
+          <div className="mb-2 rounded-[10px] border border-info-border bg-info-bg px-3 py-2 text-[12px] text-info-text">
+            ⓘ 반차 사용 시 출퇴근시간은 <span className="font-semibold">09:00~18:00</span> 표준 폭으로 자동 계산됩니다.
+            (회사 EW 시트 정책 — 휴가시간 차감으로 실근무 4H 인정)
+          </div>
+        )}
         <LeaveTimelineInput
           value={(formValues.leaveTimeline ?? []) as LeaveTimeline}
           onChange={next => setValue('leaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
@@ -838,7 +869,12 @@ export default function WorkLogForm({
                 <div>
                   <label className="block text-xs font-medium text-text-secondary">출근 예정 날짜 *</label>
                   <p className="text-xs text-text-muted mt-0.5">내일 출근 날짜를 입력해주세요</p>
-                  <input type="date" {...register('expectedStartDate')} className="mt-1 block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border" />
+                  <div className="mt-1 flex items-center gap-2">
+                    <input type="date" {...register('expectedStartDate')} className="block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border" />
+                    {formValues.expectedStartDate && (
+                      <span className="text-sm text-text-muted">({dowKo(formValues.expectedStartDate)})</span>
+                    )}
+                  </div>
                   {errors.expectedStartDate && <p className="mt-1 text-xs text-danger-text">{errors.expectedStartDate.message as string}</p>}
                 </div>
 
@@ -908,24 +944,7 @@ export default function WorkLogForm({
         </div>
       )}
 
-      {/* PC에서는 모달이 우측 컬럼에 [수정하기/제출하고 복사하기] 버튼을 별도로 렌더링.
-          모바일에서는 화면 하단 플로팅 바로 표시 (lg 이상에서는 숨김). */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 px-4 py-3 bg-surface border-t border-border shadow-[0_-4px_8px_-2px_rgba(0,0,0,0.05)]">
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="w-full flex justify-center items-center py-3.5 px-4 border border-transparent rounded-md shadow-sm text-base font-bold text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-        >
-          {isSubmitting ? (
-            <Loader2 className="animate-spin h-5 w-5 mr-2" />
-          ) : (
-            <Copy className="h-5 w-5 mr-2" />
-          )}
-          {isSubmitting
-            ? (isEditing ? '수정 중...' : '제출 중...')
-            : (isEditing ? '수정하기' : '제출하고 복사하기')}
-        </button>
-      </div>
+      {/* 제출 버튼은 WorkLogModal에서 footer/우측컬럼으로 렌더 — form="work-log-form" attribute로 submit 트리거. */}
     </form>
     </>
   )
