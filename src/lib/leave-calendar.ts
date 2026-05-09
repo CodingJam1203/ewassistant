@@ -228,12 +228,28 @@ export async function getCalendarRangeBatch(
 
   const sorted = missing.slice().sort()
 
-  // 90일 단위로 분할 — 91일 이상이면 Apps Script가 range_too_large 반환
-  const MAX_CHUNK = 90
+  // 날짜 span 기준 chunk — Apps Script MAX_RANGE_DAYS=90이라 from~to span이 90일 이상이면 거부됨.
+  // entry 수가 적어도 첫 날짜와 마지막 날짜가 멀면 한 호출에 못 담음.
+  const MAX_SPAN_DAYS = 89  // from-to 양끝 포함 90일 이내
+  const dayMs = 86_400_000
+  const toMs = (s: string) => new Date(s + 'T00:00:00Z').getTime()
   const chunks: string[][] = []
-  for (let i = 0; i < sorted.length; i += MAX_CHUNK) {
-    chunks.push(sorted.slice(i, i + MAX_CHUNK))
+  let curChunk: string[] = []
+  let curStartMs = 0
+  for (const d of sorted) {
+    const dMs = toMs(d)
+    if (curChunk.length === 0) {
+      curChunk = [d]
+      curStartMs = dMs
+    } else if ((dMs - curStartMs) / dayMs > MAX_SPAN_DAYS) {
+      chunks.push(curChunk)
+      curChunk = [d]
+      curStartMs = dMs
+    } else {
+      curChunk.push(d)
+    }
   }
+  if (curChunk.length > 0) chunks.push(curChunk)
 
   for (const chunk of chunks) {
     const params = new URLSearchParams({
