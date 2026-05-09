@@ -14,6 +14,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { format } from 'date-fns'
+import { dowKo } from '@/lib/utils/date'
 import { ko } from 'date-fns/locale'
 import { LogIn, LogOut, RefreshCw, Clock, MapPin, Coffee, X, Check, LayoutGrid, Calendar as CalendarIcon } from 'lucide-react'
 import WorkHoursCard from '@/components/WorkHoursCard'
@@ -561,6 +562,9 @@ export default function HomePage() {
               onChange={e => setFilterDate(e.target.value)}
               className="h-9 rounded-[10px] border border-border-strong bg-surface text-[13px] px-3 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
             />
+            {filterDate && (
+              <span className="text-[12px] text-text-muted whitespace-nowrap">({dowKo(filterDate)})</span>
+            )}
             {filterDate && (
               <Button variant="ghost" size="sm" onClick={() => setFilterDate('')}>
                 초기화

@@ -303,10 +303,20 @@ export default function SubmissionsRawTable({
         )}
 
         <FilterBar.Field label="대상일 시작">
-          <Input type="date" inputSize="sm" value={from} onChange={e => setFrom(e.target.value)} className="min-w-[140px]" />
+          <div className="flex items-center gap-1.5">
+            <Input type="date" inputSize="sm" value={from} onChange={e => setFrom(e.target.value)} className="min-w-[140px]" />
+            {from && (
+              <span className="text-[11px] text-text-muted whitespace-nowrap">({dowKo(from)})</span>
+            )}
+          </div>
         </FilterBar.Field>
         <FilterBar.Field label="대상일 종료">
-          <Input type="date" inputSize="sm" value={to} onChange={e => setTo(e.target.value)} className="min-w-[140px]" />
+          <div className="flex items-center gap-1.5">
+            <Input type="date" inputSize="sm" value={to} onChange={e => setTo(e.target.value)} className="min-w-[140px]" />
+            {to && (
+              <span className="text-[11px] text-text-muted whitespace-nowrap">({dowKo(to)})</span>
+            )}
+          </div>
         </FilterBar.Field>
 
         {allowOrgFilter && (
