@@ -42,6 +42,10 @@ import type { LeaveTimeline, LeaveTimelineItem } from '@/types/leave-timeline'
 interface MyHistoryCalendarProps {
   /** 셀 / 상세 모달의 ✏ 수정 버튼이 트리거하는 콜백 (부모가 WorkLogModal 띄움) */
   onEditWorkLog?: (workLogId: string, scope: 'check_in' | 'check_out') => void
+  /** 상세 모달의 "출근보고 작성" 버튼 — 부모가 그 날짜로 CheckInModal 띄움 */
+  onCreateCheckIn?: (date: string) => void
+  /** 상세 모달의 "퇴근보고 작성" 버튼 — 부모가 그 날짜로 WorkLogModal 신규 제출 띄움 */
+  onCreateCheckOut?: (date: string) => void
 }
 
 interface DayData {
@@ -101,7 +105,7 @@ function extractCheckoutTime(
   return null
 }
 
-export default function MyHistoryCalendar({ onEditWorkLog }: MyHistoryCalendarProps) {
+export default function MyHistoryCalendar({ onEditWorkLog, onCreateCheckIn, onCreateCheckOut }: MyHistoryCalendarProps) {
   // 현재 보고 있는 월 (그 월의 1일 기준 Date 객체)
   const [cursor, setCursor] = useState<Date>(() => startOfMonth(new Date()))
   const [rows, setRows] = useState<SubmissionRow[]>([])
@@ -337,6 +341,18 @@ export default function MyHistoryCalendar({ onEditWorkLog }: MyHistoryCalendarPr
             // (selectedDate는 유지 — 휴가 모달의 시작/종료일 prefill에 쓰임)
             setVacationOpen(true)
           }}
+          onCreateCheckIn={onCreateCheckIn ? () => {
+            // 상세 모달 먼저 닫고 부모의 CheckInModal로 전환
+            const d = selectedDate
+            setSelectedDate(null)
+            if (d) onCreateCheckIn(d)
+          } : undefined}
+          onCreateCheckOut={onCreateCheckOut ? () => {
+            // 상세 모달 먼저 닫고 부모의 WorkLogModal(신규)로 전환
+            const d = selectedDate
+            setSelectedDate(null)
+            if (d) onCreateCheckOut(d)
+          } : undefined}
         />
       )}
     </div>

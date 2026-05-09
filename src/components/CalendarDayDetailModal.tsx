@@ -23,7 +23,7 @@
 import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
-import { X, Pencil, CalendarPlus, Copy, Check, Plane, Clock, MapPin } from 'lucide-react'
+import { X, Pencil, CalendarPlus, Copy, Check, Plane, Clock, MapPin, Plus, LogIn, LogOut } from 'lucide-react'
 import { Badge, Button } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
 import type { SubmissionRow } from '@/components/SubmissionsRawTable'
@@ -40,6 +40,10 @@ export interface CalendarDayDetailModalProps {
   onEditWorkLog?: (workLogId: string, scope: 'check_in' | 'check_out') => void
   /** "휴가 등록" — 부모에서 VacationRegisterModal 호출 */
   onRegisterVacation?: () => void
+  /** "출근보고 작성" — 부모에서 CheckInModal 호출 (해당 date로) */
+  onCreateCheckIn?: () => void
+  /** "퇴근보고 작성" — 부모에서 WorkLogModal 호출 (해당 date로 신규 제출) */
+  onCreateCheckOut?: () => void
 }
 
 function trimToHHmm(s: string | null | undefined): string {
@@ -64,6 +68,8 @@ export default function CalendarDayDetailModal({
   onClose,
   onEditWorkLog,
   onRegisterVacation,
+  onCreateCheckIn,
+  onCreateCheckOut,
 }: CalendarDayDetailModalProps) {
   const dayDate = parseISO(date)
   const dateLabel = format(dayDate, 'yyyy년 M월 d일 (EEE)', { locale: ko })
@@ -119,7 +125,7 @@ export default function CalendarDayDetailModal({
             title="출근보고"
             empty={!ci && !co?.start_time}
             actions={
-              ci?.work_log_id && onEditWorkLog && (
+              ci?.work_log_id && onEditWorkLog ? (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -127,7 +133,15 @@ export default function CalendarDayDetailModal({
                 >
                   <Pencil className="h-3.5 w-3.5" aria-hidden /> 수정
                 </Button>
-              )
+              ) : (!ci && !co?.start_time && onCreateCheckIn ? (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={onCreateCheckIn}
+                >
+                  <LogIn className="h-3.5 w-3.5" aria-hidden /> 출근보고 작성
+                </Button>
+              ) : null)
             }
           >
             <KvRow label="출근예정" value={trimToHHmm(ci?.expected_work_time)} />
@@ -148,7 +162,7 @@ export default function CalendarDayDetailModal({
             title="퇴근보고"
             empty={!co?.end_time}
             actions={
-              co?.work_log_id && onEditWorkLog && (
+              co?.work_log_id && onEditWorkLog ? (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -156,7 +170,15 @@ export default function CalendarDayDetailModal({
                 >
                   <Pencil className="h-3.5 w-3.5" aria-hidden /> 수정
                 </Button>
-              )
+              ) : (!co?.end_time && onCreateCheckOut ? (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={onCreateCheckOut}
+                >
+                  <LogOut className="h-3.5 w-3.5" aria-hidden /> 퇴근보고 작성
+                </Button>
+              ) : null)
             }
           >
             <KvRow label="실제 퇴근" value={trimToHHmm(co?.end_time)} />

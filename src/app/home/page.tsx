@@ -222,9 +222,13 @@ export default function HomePage() {
   // 본인 오늘 카드 (status header용)
   const [myCard, setMyCard] = useState<TeamMemberCard | null>(null)
 
-  // CheckInModal / WorkLogModal 트리거
+  // CheckInModal / WorkLogModal 트리거 (헤더용)
   const [showCheckIn, setShowCheckIn] = useState(false)
   const [checkOutTarget, setCheckOutTarget] = useState<TeamMemberCard | null>(null)
+
+  // 캘린더뷰 → 상세 모달 → 작성 버튼 — 임의 날짜로 신규 작성
+  const [calendarCheckInDate, setCalendarCheckInDate] = useState<string | null>(null)
+  const [calendarCheckOutDate, setCalendarCheckOutDate] = useState<string | null>(null)
 
   // ─── 본인 이번 달 근로현황 ──────────────────────────────────────
   useEffect(() => {
@@ -368,6 +372,26 @@ export default function HomePage() {
           resubmitWorkLogId={checkOutTarget.work_log_id ?? null}
           onClose={() => setCheckOutTarget(null)}
           onSuccess={() => { setCheckOutTarget(null); fetchMyCard() }}
+        />
+      )}
+
+      {/* 캘린더 → 출근보고 작성 (임의 날짜) */}
+      {calendarCheckInDate && (
+        <CheckInModal
+          date={calendarCheckInDate}
+          userName={userName}
+          onClose={() => setCalendarCheckInDate(null)}
+          onSuccess={() => { setCalendarCheckInDate(null); fetchMyCard() }}
+        />
+      )}
+
+      {/* 캘린더 → 퇴근보고 작성 (임의 날짜, 신규 제출) */}
+      {calendarCheckOutDate && (
+        <WorkLogModal
+          date={calendarCheckOutDate}
+          userName={userName}
+          onClose={() => setCalendarCheckOutDate(null)}
+          onSuccess={() => { setCalendarCheckOutDate(null); fetchMyCard() }}
         />
       )}
 
@@ -615,7 +639,11 @@ export default function HomePage() {
               onEditWorkLog={openEditByWorkLogId}
             />
           ) : (
-            <MyHistoryCalendar onEditWorkLog={openEditByWorkLogId} />
+            <MyHistoryCalendar
+              onEditWorkLog={openEditByWorkLogId}
+              onCreateCheckIn={(date) => setCalendarCheckInDate(date)}
+              onCreateCheckOut={(date) => setCalendarCheckOutDate(date)}
+            />
           )}
         </>
       )}
