@@ -85,11 +85,20 @@ export function parseTimeHHMM(timeStr: string): number {
   return hours * 60 + minutes;
 }
 
-// 분(minutes)을 시간(HH:mm)으로 변환
+// 분(minutes)을 시간(HH:mm)으로 변환 — 24h normalize (시계 표시용)
 export function formatTimeHHMM(totalMinutes: number): string {
   const normalized = ((totalMinutes % 1440) + 1440) % 1440;
   const hours = Math.floor(normalized / 60);
   const minutes = normalized % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+// 분 → HH:mm — normalize 안 함. 24h 초과해도 그대로 (예: 27:00, 33:30).
+// 명일까지 이어지는 근무의 종료시간 표시용.
+export function formatTimeOver24(totalMinutes: number): string {
+  if (totalMinutes < 0) totalMinutes = 0;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
@@ -179,7 +188,7 @@ export function getDeemedWorkEwValue(
   ewEndMinutes: number
 ): string {
   if (actualWorkMinutes < 8 * 60) {
-    return `${formatTimeHHMM(acMinutes)}~${formatTimeHHMM(ewEndMinutes)}`;
+    return `${formatTimeHHMM(acMinutes)}~${formatTimeOver24(ewEndMinutes)}`;
   }
 
   if (actualWorkMinutes <= 8 * 60 + 30) return "L1";
@@ -206,7 +215,7 @@ export function getFinalEwValue(
   deemedWorkEwValue: string | null
 ): string {
   if (workTypeCode === 1 || workTypeCode === 3) {
-    return `${formatTimeHHMM(ewStartMinutes)}~${formatTimeHHMM(ewEndMinutes)}`;
+    return `${formatTimeHHMM(ewStartMinutes)}~${formatTimeOver24(ewEndMinutes)}`;
   }
 
   if (workTypeCode === 2) {
@@ -292,11 +301,17 @@ export function calculateEw(input: EwInput): EwCalculationResult {
   // 휴가 시간이 있을 때만 복사 문구에 (휴가시간 : HH:MM) 포함
   const leaveTimeText = leaveMinutes > 0 ? formatDurationHHMM(leaveMinutes) : undefined;
 
+  // 종료시간이 명일이면 27:00 형식으로 표시
+  const isNextDay = endMinutes < startMinutes
+  const displayEndTimeText = isNextDay
+    ? formatTimeOver24(endMinutes + 1440)
+    : input.endTime
+
   const copyText = buildCopyText({
     dateText,
     workLocation: input.workLocation,
     startTimeText: input.startTime,
-    endTimeText: input.endTime,
+    endTimeText: displayEndTimeText,
     actualWorkText,
     breakTimeText,
     leaveTimeText,
@@ -312,7 +327,7 @@ export function calculateEw(input: EwInput): EwCalculationResult {
     actualWorkText,
     dateText,
     ewStartText: formatTimeHHMM(ewStartMinutes),
-    ewEndText: formatTimeHHMM(ewEndMinutes),
+    ewEndText: formatTimeOver24(ewEndMinutes),
     ewValue,
     copyText,
   };
