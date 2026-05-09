@@ -31,6 +31,11 @@ export default function CalculationPreview({ result, error }: CalculationPreview
   const showLunchAdvisory =
     result.actualWorkMinutes <= 4 * 60 || result.workTypeCode === 3
 
+  // 간주근로(workTypeCode=2)는 8h 이상에서 L1~L9 코드로 인정. 8h 미만은 EW 표시
+  // 형식이 어색해질 수 있어 기본근무로 변경 안내.
+  const showDeemedWorkAdvisory =
+    result.workTypeCode === 2 && result.actualWorkMinutes < 8 * 60
+
   return (
     <div className="bg-surface border border-border rounded-2xl shadow-[var(--shadow-card)] overflow-hidden sticky top-6">
       <div className="px-5 py-4 border-b border-border bg-background">
@@ -55,6 +60,12 @@ export default function CalculationPreview({ result, error }: CalculationPreview
         {showLunchAdvisory && (
           <div className="rounded-[10px] border border-warning-border bg-warning-bg px-3 py-2 text-[12px] text-warning-text">
             * 점심시간 진행 여부에 따라 근무시간을 별도 계산하여 EW에 상신해주세요.
+          </div>
+        )}
+
+        {showDeemedWorkAdvisory && (
+          <div className="rounded-[10px] border border-warning-border bg-warning-bg px-3 py-2 text-[12px] text-warning-text">
+            * 간주근로는 보통 8시간 이상 근무 시 L1~L9 코드로 인정됩니다. 실근무 8시간 미만이면 <span className="font-semibold">근무유형을 &lsquo;기본근무 등록&rsquo;</span>으로 변경해주세요.
           </div>
         )}
 
