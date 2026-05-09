@@ -221,64 +221,72 @@ export async function getCalendarRangeBatch(
 
   if (missing.length === 0) return result
 
-  // 2) 누락분 한 번의 Apps Script 호출로 처리
+  // 2) 누락분 batch 호출 — Apps Script의 MAX_RANGE_DAYS=90 한도에 맞춰 chunk
   const url = process.env.LEAVE_CALENDAR_WEBHOOK_URL
   if (!url) return result
   const token = process.env.LEAVE_CALENDAR_TOKEN
 
   const sorted = missing.slice().sort()
-  const params = new URLSearchParams({
-    from: sorted[0],
-    to:   sorted[sorted.length - 1],
-  })
-  if (token) params.set('token', token)
-  const fullUrl = url.includes('?') ? `${url}&${params}` : `${url}?${params}`
 
-  // batch는 시트 read 1회라 단일 호출 timeout보다 살짝만 늘려도 충분
-  const timeoutMs = 12_000
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-
-  try {
-    const res = await fetch(fullUrl, {
-      method: 'GET',
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-    if (!res.ok) {
-      console.warn('[leave-calendar] batch fetch HTTP', res.status)
-      return result  // stale fallback 그대로
-    }
-    const data = await res.json() as { batch?: Record<string, { departments: CalendarBatchResponse['departments'] }>, error?: string }
-    if (data.error) {
-      console.warn('[leave-calendar] batch fetch error:', data.error)
-      return result
-    }
-    if (!data.batch || typeof data.batch !== 'object') {
-      console.warn('[leave-calendar] batch fetch returned no batch field')
-      return result
-    }
-
-    // 응답에서 누락 날짜 채우고, 동시에 캐시도 업데이트
-    for (const date of missing) {
-      const entry = data.batch[date]
-      if (entry) {
-        const payload: CalendarBatchResponse = {
-          date,
-          departments: entry.departments ?? {},
-        }
-        result[date] = payload
-        // fire-and-forget cache write (await로 묶으면 응답 지연됨)
-        writeCache(date, payload).catch(() => {})
-      }
-    }
-    return result
-  } catch (err) {
-    console.warn('[leave-calendar] batch fetch failed:', err)
-    return result  // stale fallback 그대로
-  } finally {
-    clearTimeout(timer)
+  // 90일 단위로 분할 — 91일 이상이면 Apps Script가 range_too_large 반환
+  const MAX_CHUNK = 90
+  const chunks: string[][] = []
+  for (let i = 0; i < sorted.length; i += MAX_CHUNK) {
+    chunks.push(sorted.slice(i, i + MAX_CHUNK))
   }
+
+  for (const chunk of chunks) {
+    const params = new URLSearchParams({
+      from: chunk[0],
+      to:   chunk[chunk.length - 1],
+    })
+    if (token) params.set('token', token)
+    const fullUrl = url.includes('?') ? `${url}&${params}` : `${url}?${params}`
+
+    const timeoutMs = 12_000
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+    try {
+      const res = await fetch(fullUrl, {
+        method: 'GET',
+        cache: 'no-store',
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        console.warn('[leave-calendar] batch chunk HTTP', res.status)
+        continue
+      }
+      const data = await res.json() as { batch?: Record<string, { departments: CalendarBatchResponse['departments'] }>, error?: string }
+      if (data.error) {
+        console.warn('[leave-calendar] batch chunk error:', data.error)
+        continue
+      }
+      if (!data.batch || typeof data.batch !== 'object') {
+        console.warn('[leave-calendar] batch chunk returned no batch field')
+        continue
+      }
+
+      // chunk 응답에서 해당 날짜만 채움
+      for (const date of chunk) {
+        const entry = data.batch[date]
+        if (entry) {
+          const payload: CalendarBatchResponse = {
+            date,
+            departments: entry.departments ?? {},
+          }
+          result[date] = payload
+          writeCache(date, payload).catch(() => {})
+        }
+      }
+    } catch (err) {
+      console.warn('[leave-calendar] batch chunk fetch failed:', err)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  return result
 }
 
 /**
