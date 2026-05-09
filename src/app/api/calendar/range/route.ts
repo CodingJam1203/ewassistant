@@ -19,7 +19,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getUserCalendarLookup, isCalendarEnabled } from '@/lib/leave-calendar'
+import { isCalendarEnabled, getCalendarRangeBatch, parseCell } from '@/lib/leave-calendar'
 import type { UserCalendarLookup } from '@/types/leave-calendar'
 
 const MAX_DAYS = 45
@@ -74,33 +74,36 @@ export async function GET(request: Request) {
       dates.push(d.toISOString().slice(0, 10))
     }
 
-    // 동시 호출 수 제한 (CONCURRENCY=3) — Apps Script가 동시 요청에 약해서
-    // Promise.all로 41개 한 번에 쏘면 대부분 throttle/timeout. 작은 배치로 묶어서
-    // sequentially 처리하면 Apps Script 1개당 응답 시간이 안정적이라 모두 성공함.
-    // 최악의 경우 ceil(41/3) * 6s ≈ 84s까지 갈 수 있지만, 실제론 cache hit 비율이
-    // 점점 올라가서 두 번째 페이지 로드부터는 1~2초 안에 끝남.
-    const CONCURRENCY = 3
-    const results: UserCalendarLookup[] = new Array(dates.length)
-    for (let i = 0; i < dates.length; i += CONCURRENCY) {
-      const batch = dates.slice(i, i + CONCURRENCY)
-      const batchResults = await Promise.all(
-        batch.map(date =>
-          getUserCalendarLookup({
-            date,
-            department: profile.division!,
-            userName: profile.display_name!,
-          }).catch((): UserCalendarLookup => ({
-            enabled: true,
-            fetchFailed: true,
-            leaveType: null,
-            leaveLabel: null,
-            events: [],
-            raw: null,
-          })),
-        )
-      )
-      batchResults.forEach((r, j) => { results[i + j] = r })
-    }
+    // Apps Script batch 호출 (?from=&to=) — 시트 read 1회로 모든 날짜 처리.
+    // 누락된 날짜만 모아 한 번에 호출하고, 응답에서 본인 row를 추출해 lookup 변환.
+    const batch = await getCalendarRangeBatch(dates)
+
+    const results: UserCalendarLookup[] = dates.map(date => {
+      const data = batch[date]
+      if (!data) {
+        return {
+          enabled: true,
+          fetchFailed: true,
+          leaveType: null,
+          leaveLabel: null,
+          events: [],
+          raw: null,
+        }
+      }
+      const deptEntries = data.departments?.[profile.division!] ?? []
+      const target = deptEntries.find(e => e.name?.trim() === profile.display_name!.trim())
+      if (!target) {
+        return { enabled: true, leaveType: null, leaveLabel: null, events: [], raw: null }
+      }
+      const parsed = parseCell(target.cellValue)
+      return {
+        enabled: true,
+        leaveType: parsed.leaveType,
+        leaveLabel: parsed.leaveType ? target.cellValue.trim() : null,
+        events: parsed.events,
+        raw: target.cellValue,
+      }
+    })
 
     const byDate: Record<string, UserCalendarLookup> = {}
     dates.forEach((d, i) => { byDate[d] = results[i] })

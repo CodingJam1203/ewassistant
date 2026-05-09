@@ -186,6 +186,100 @@ function triggerBackgroundRefresh(date: string): void {
 }
 
 /**
+ * Batch 호출 — Apps Script ?from=&to= 한 번에 여러 날짜 fetch.
+ *
+ * 캐시 hit인 날짜는 내부적으로 배치 호출에서 제외하고 cached 반환.
+ * 미스인 날짜만 모아서 1회의 Apps Script 호출로 처리 → 시트 read 1회.
+ *
+ * 응답 형식:
+ *   { 'YYYY-MM-DD': CalendarBatchResponse, ... }
+ */
+export async function getCalendarRangeBatch(
+  dates: string[]
+): Promise<Record<string, CalendarBatchResponse | null>> {
+  if (!isCalendarEnabled()) {
+    return Object.fromEntries(dates.map(d => [d, null]))
+  }
+
+  const result: Record<string, CalendarBatchResponse | null> = {}
+  const missing: string[] = []
+  const now = Date.now()
+
+  // 1) 캐시 우선 체크 — fresh hit는 즉시 채움
+  for (const date of dates) {
+    const cached = await readCache(date)
+    if (cached && now - cached.updatedAtMs < TTL_MS) {
+      result[date] = cached.data
+    } else {
+      // stale도 일단 fallback으로 채워두고, batch가 실패하면 그대로 반환
+      if (cached) result[date] = cached.data
+      missing.push(date)
+    }
+  }
+
+  if (missing.length === 0) return result
+
+  // 2) 누락분 한 번의 Apps Script 호출로 처리
+  const url = process.env.LEAVE_CALENDAR_WEBHOOK_URL
+  if (!url) return result
+  const token = process.env.LEAVE_CALENDAR_TOKEN
+
+  const sorted = missing.slice().sort()
+  const params = new URLSearchParams({
+    from: sorted[0],
+    to:   sorted[sorted.length - 1],
+  })
+  if (token) params.set('token', token)
+  const fullUrl = url.includes('?') ? `${url}&${params}` : `${url}?${params}`
+
+  // batch는 시트 read 1회라 단일 호출 timeout보다 살짝만 늘려도 충분
+  const timeoutMs = 12_000
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const res = await fetch(fullUrl, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      console.warn('[leave-calendar] batch fetch HTTP', res.status)
+      return result  // stale fallback 그대로
+    }
+    const data = await res.json() as { batch?: Record<string, { departments: CalendarBatchResponse['departments'] }>, error?: string }
+    if (data.error) {
+      console.warn('[leave-calendar] batch fetch error:', data.error)
+      return result
+    }
+    if (!data.batch || typeof data.batch !== 'object') {
+      console.warn('[leave-calendar] batch fetch returned no batch field')
+      return result
+    }
+
+    // 응답에서 누락 날짜 채우고, 동시에 캐시도 업데이트
+    for (const date of missing) {
+      const entry = data.batch[date]
+      if (entry) {
+        const payload: CalendarBatchResponse = {
+          date,
+          departments: entry.departments ?? {},
+        }
+        result[date] = payload
+        // fire-and-forget cache write (await로 묶으면 응답 지연됨)
+        writeCache(date, payload).catch(() => {})
+      }
+    }
+    return result
+  } catch (err) {
+    console.warn('[leave-calendar] batch fetch failed:', err)
+    return result  // stale fallback 그대로
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
  * 강제 갱신 — TTL 무시, 무조건 Apps Script 호출.
  * cron(07:00 KST)에서 호출.
  *
