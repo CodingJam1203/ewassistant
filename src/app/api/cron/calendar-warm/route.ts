@@ -24,6 +24,9 @@ import {
   isCalendarEnabled,
 } from '@/lib/leave-calendar'
 
+// Vercel Hobby 기본 함수 timeout 10s — batch 전체 처리에 필요한 만큼 늘림
+export const maxDuration = 60
+
 /** KST 기준 오늘 날짜 (YYYY-MM-DD) */
 function getKstDate(offsetDays = 0): string {
   const d = new Date(Date.now() + 9 * 60 * 60 * 1000)

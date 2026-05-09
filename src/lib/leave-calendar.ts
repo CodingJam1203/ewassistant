@@ -205,13 +205,15 @@ export async function getCalendarRangeBatch(
   const missing: string[] = []
   const now = Date.now()
 
-  // 1) 캐시 우선 체크 — fresh hit는 즉시 채움
-  for (const date of dates) {
-    const cached = await readCache(date)
+  // 1) 캐시 우선 체크 — 90개를 병렬로 읽어서 sequential overhead 제거.
+  //    fresh hit는 즉시 채움, stale은 fallback + missing에 추가.
+  const cacheChecks = await Promise.all(
+    dates.map(async (date) => ({ date, cached: await readCache(date) }))
+  )
+  for (const { date, cached } of cacheChecks) {
     if (cached && now - cached.updatedAtMs < TTL_MS) {
       result[date] = cached.data
     } else {
-      // stale도 일단 fallback으로 채워두고, batch가 실패하면 그대로 반환
       if (cached) result[date] = cached.data
       missing.push(date)
     }
