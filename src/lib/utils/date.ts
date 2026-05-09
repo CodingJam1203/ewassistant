@@ -15,3 +15,14 @@ export function toKstDateString(date: Date | string): string {
   const d = String(kst.getDate()).padStart(2, "0")
   return `${y}-${m}-${d}`
 }
+
+/** 'YYYY-MM-DD' 또는 Date → '월','화',...,'일'. 잘못된 입력은 빈 문자열. */
+export function dowKo(input: string | Date | null | undefined): string {
+  if (!input) return ''
+  const d = typeof input === 'string'
+    ? new Date(input + 'T00:00:00')
+    : input
+  if (isNaN(d.getTime())) return ''
+  const labels = ['일', '월', '화', '수', '목', '금', '토']
+  return labels[d.getDay()]
+}
