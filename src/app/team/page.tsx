@@ -677,6 +677,9 @@ export default function TeamPage() {
               onChange={e => setDate(e.target.value)}
               className="h-10 rounded-[10px] border border-border-strong bg-surface px-3 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
             />
+            <span className="text-[12px] text-text-muted whitespace-nowrap px-1">
+              ({format(parseISO(date), 'eee', { locale: ko })})
+            </span>
             <Button
               variant="ghost"
               size="sm"
@@ -687,9 +690,6 @@ export default function TeamPage() {
             >
               <ChevronRight className="h-4 w-4" aria-hidden />
             </Button>
-            <span className="ml-1 text-[12px] text-text-muted">
-              {format(parseISO(date), 'M월 d일 (eee)', { locale: ko })}
-            </span>
           </div>
         </FilterBar.Field>
 
