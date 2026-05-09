@@ -28,6 +28,13 @@ import {
 } from '@/lib/utils/work-hours'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 import { totalLeaveRoundedMinutes } from '@/lib/leave-timeline'
+import { LEAVE_TYPE_DEFINITIONS } from '@/types/leave-timeline'
+import {
+  isCalendarEnabled,
+  getCalendarRangeBatch,
+  parseCell,
+} from '@/lib/leave-calendar'
+import { getKstTodayDateString } from '@/lib/utils/date'
 
 interface ProfileRow {
   email: string
@@ -174,6 +181,54 @@ export async function GET(request: Request) {
         leave_minutes_sum: leaveMin,
       })
       logsByEmail.set(row.user_email, arr)
+    }
+
+    // ── Google 캘린더 자동 휴가 인정 (mineOnly만 적용) ──────────────────────
+    //   정책: 어제 이전(< todayKst) 날짜에 work_log가 없고 Google 시트에
+    //   휴가 키워드(휴가/연차/반차/오전반차/오후반차)가 있으면, 해당 분만큼
+    //   자동 휴가로 인정해서 시간 계산에 합산.
+    //   work_log이 하나라도 있는 날은 Google 무시 (사용자가 휴가 취소한 것으로 해석).
+    if (mineOnly && isCalendarEnabled()) {
+      try {
+        const me = profiles.find(p => p.email === user.email!)
+        if (me?.display_name && me?.division) {
+          const todayKst = getKstTodayDateString()
+          const dateLogged = new Set<string>()
+          for (const row of dedupedLogs) {
+            if (row.user_email === user.email!) dateLogged.add(row.leave_date)
+          }
+          const pastDates: string[] = []
+          for (let day = 1; day <= baselines.daysInMonth; day++) {
+            const d = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+            if (d < todayKst && !dateLogged.has(d)) pastDates.push(d)
+          }
+          if (pastDates.length > 0) {
+            const calBatch = await getCalendarRangeBatch(pastDates)
+            const arr = logsByEmail.get(user.email!) ?? []
+            for (const date of pastDates) {
+              const data = calBatch[date]
+              if (!data) continue
+              const deptEntries = data.departments?.[me.division!] ?? []
+              const target = deptEntries.find(e => e.name?.trim() === me.display_name!.trim())
+              if (!target) continue
+              const parsed = parseCell(target.cellValue)
+              if (!parsed.leaveType) continue
+              const minutes = LEAVE_TYPE_DEFINITIONS[parsed.leaveType].defaultDeductionMinutes
+              arr.push({
+                email: user.email!,
+                display_name: null,
+                division: null,
+                team: null,
+                actual_work_time: null,
+                leave_minutes_sum: minutes,
+              })
+            }
+            if (arr.length > 0) logsByEmail.set(user.email!, arr)
+          }
+        }
+      } catch (err) {
+        console.warn('[work-hours] google calendar auto-leave failed:', err)
+      }
     }
 
     // ── 사용자별 요약 ────────────────────────────────────────────────────────

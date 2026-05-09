@@ -562,14 +562,22 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
     }
   }
 
-  // 4) Google 휴가 라벨 (별개로 표시 — 시각적으로 N-Click 휴가와 구분되게 outline 스타일은 ITEM_STYLE의 chip + 부가)
+  // 4) Google 휴가 라벨 (별개로 표시 — N-Click 휴가와 시각적 구분).
+  //    과거 날짜 + work_log 없음 → "(자동인정)" 라벨 추가:
+  //    /api/work-hours에서 시간 계산에 자동 합산되는 케이스 명시.
   const cal = data.calendar
   if (cal?.leaveLabel && !leaveLabel) {
+    const todayStr = format(new Date(), 'yyyy-MM-dd')
+    const isPast = data.date < todayStr
+    const noWorkLog = !data.checkIn && !data.checkOut
+    const isAutoRecognized = isPast && noWorkLog
     out.push({
       tone: 'warning',
       icon: <Plane className="h-3 w-3" aria-hidden />,
-      text: `Google: ${cal.leaveLabel}`,
-      title: 'Google 캘린더 휴가',
+      text: `Google: ${cal.leaveLabel}${isAutoRecognized ? ' (자동인정)' : ''}`,
+      title: isAutoRecognized
+        ? 'Google 캘린더 휴가 — 시간 계산 자동 인정'
+        : 'Google 캘린더 휴가',
     })
   }
 
