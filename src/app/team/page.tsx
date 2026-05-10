@@ -149,6 +149,66 @@ function LocationSelect({
   )
 }
 
+// ─── 실제 근무지 chips 편집기 (본인만) — chips 편집 + ★ 현재 위치 마커 ────────
+function ActualChipsEditor({
+  initialChips, currentLabel, date, onChange,
+}: {
+  initialChips: WorkLocationsType
+  currentLabel: string | null
+  date: string
+  onChange: () => void
+}) {
+  const [chips, setChips] = useState<WorkLocationsType>(initialChips)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => { setChips(initialChips) }, [JSON.stringify(initialChips)]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleChipsChange = async (next: WorkLocationsType) => {
+    setChips(next)
+    setSaving(true)
+    try {
+      await fetch('/api/team-status/location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, target: 'actual_replace', locations: next, location: '' }),
+      })
+      onChange()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSetCurrent = async (label: string) => {
+    setSaving(true)
+    try {
+      await fetch('/api/team-status/location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, target: 'current', location: label }),
+      })
+      onChange()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-1">
+      <WorkLocationChipsInput
+        value={chips}
+        onChange={handleChipsChange}
+        currentLabel={currentLabel}
+        onSetCurrent={handleSetCurrent}
+        compact
+        disabled={saving}
+      />
+      <p className="text-[11px] text-text-muted">
+        ★ = 현재 위치 (다른 칩의 ☆ 클릭 → 이동)
+      </p>
+    </div>
+  )
+}
+
 // ─── 팀원 카드 ────────────────────────────────────────────────────────────────
 function MemberCard({
   card,
