@@ -11,7 +11,7 @@
  * 디자인 시스템 — DESIGN.md 참고. ui/ 컴포넌트만 사용.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { memo, useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { format, addDays, parseISO } from 'date-fns'
 import { LogIn, LogOut, RefreshCw, Clock, MapPin, Coffee, X, Check, LayoutGrid, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -88,7 +88,7 @@ function colorToBadgeVariant(color: 'green' | 'yellow' | 'red'): BadgeVariant {
 }
 
 /** 상단 시각 요약 칩 */
-function StatChip({
+const StatChip = memo(function StatChip({
   icon, label, value,
 }: {
   icon: React.ReactNode
@@ -108,7 +108,7 @@ function StatChip({
       </div>
     </div>
   )
-}
+})
 
 const LOCATION_OPTIONS = ['사무실', '재택', '외근', '기타'] as const
 

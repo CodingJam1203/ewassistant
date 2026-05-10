@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { memo, useState, useEffect, useCallback } from 'react'
 import { format, addDays, subDays, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { ChevronLeft, ChevronRight, RefreshCw, MapPin, Clock, Coffee, LogIn, LogOut, X, LayoutGrid, List, Check } from 'lucide-react'
@@ -63,7 +63,7 @@ const STATUS_BORDER: Record<'green' | 'yellow' | 'red', string> = {
 }
 
 // ─── 팀원 카드 ────────────────────────────────────────────────────────────────
-function MemberCard({
+const MemberCard = memo(function MemberCard({
   card,
   date,
   onAction,
@@ -361,10 +361,10 @@ function MemberCard({
       })()}
     </div>
   )
-}
+})
 
 // ─── 팀원 리스트 행 (리스트뷰 전용) ───────────────────────────────────────────
-function MemberListRow({
+const MemberListRow = memo(function MemberListRow({
   card,
   date,
   onAction,
@@ -548,7 +548,7 @@ function MemberListRow({
       </Td>
     </tr>
   )
-}
+})
 
 // ─── 메인 페이지 ──────────────────────────────────────────────────────────────
 export default function TeamPage() {
@@ -602,7 +602,21 @@ export default function TeamPage() {
       if (filterTeam) params.set('team', filterTeam)
       const res = await fetch(`/api/team-status?${params}`, { cache: 'no-store' })
       const data = await res.json()
-      if (Array.isArray(data)) setCards(data)
+      if (Array.isArray(data)) {
+        // 변경되지 않은 카드는 이전 객체 참조를 유지 — React.memo가 실제로 skip되도록.
+        // 50개 카드 × small JSON ≈ 5-10ms. 매 fetch마다 새 객체로 덮으면 모든 카드 재렌더.
+        setCards(prev => {
+          if (!Array.isArray(prev) || prev.length === 0) return data
+          const prevByEmail = new Map(prev.map(c => [c.email, c]))
+          return data.map(newCard => {
+            const old = prevByEmail.get(newCard.email)
+            if (!old) return newCard
+            try {
+              return JSON.stringify(old) === JSON.stringify(newCard) ? old : newCard
+            } catch { return newCard }
+          })
+        })
+      }
     } catch {
       setCards([])
     } finally {
@@ -614,6 +628,14 @@ export default function TeamPage() {
     if (!profileReady) return
     fetchCards()
   }, [fetchCards, profileReady])
+
+  // 안정 콜백 — memo'd MemberCard/MemberListRow의 prop identity 고정
+  const handleOpenCheckIn = useCallback(
+    (c: TeamMemberCard, mode: 'create' | 'edit' | 'complete') => {
+      setCheckInTarget({ card: c, mode })
+    },
+    [],
+  )
 
   const availableTeams = orgDivisions.find(d => d.name === filterDiv)?.teams ?? []
 
@@ -761,7 +783,7 @@ export default function TeamPage() {
               card={card}
               date={date}
               onAction={fetchCards}
-              onOpenCheckIn={(c, mode) => setCheckInTarget({ card: c, mode })}
+              onOpenCheckIn={handleOpenCheckIn}
               onCheckOutNeeded={setCheckOutTarget}
             />
           ))}
@@ -790,7 +812,7 @@ export default function TeamPage() {
                     card={card}
                     date={date}
                     onAction={fetchCards}
-                    onOpenCheckIn={(c, mode) => setCheckInTarget({ card: c, mode })}
+                    onOpenCheckIn={handleOpenCheckIn}
                     onCheckOutNeeded={setCheckOutTarget}
                   />
                 ))}

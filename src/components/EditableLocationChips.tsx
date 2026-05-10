@@ -11,7 +11,7 @@
  *   추가 pill 줄이 아래에 펼쳐지고, 수정 버튼이 [완료] 버튼으로 바뀜.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { Pencil, Check } from 'lucide-react'
 import WorkLocationChipsView from '@/components/WorkLocationChipsView'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
@@ -46,7 +46,7 @@ function LabelPill({ text, tone }: { text: string; tone: 'planned' | 'actual' })
   )
 }
 
-export default function EditableLocationChips({
+function EditableLocationChipsImpl({
   value, currentLabel, currentIndex, date, onChange,
   plannedHint, emptyText,
   showLabels = true,
@@ -206,3 +206,5 @@ export default function EditableLocationChips({
     </div>
   )
 }
+
+export default memo(EditableLocationChipsImpl)

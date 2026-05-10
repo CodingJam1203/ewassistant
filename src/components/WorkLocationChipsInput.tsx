@@ -11,7 +11,7 @@
  * - chipsLeading / chipsTrailing — 칩 줄 시작/끝에 외부 노드(라벨 pill, 완료 버튼 등) 끼우기
  */
 
-import { useState, useMemo, type ReactNode } from 'react'
+import { memo, useState, useMemo, type ReactNode } from 'react'
 import { ArrowRight, X, MapPin, ArrowLeft, Plus, Star } from 'lucide-react'
 import {
   WORK_LOCATION_KIND_LABELS,
@@ -42,7 +42,7 @@ interface WorkLocationChipsInputProps {
 
 const KIND_ORDER: WorkLocationKind[] = ['office', 'field', 'remote', 'custom']
 
-export default function WorkLocationChipsInput({
+function WorkLocationChipsInputImpl({
   value,
   onChange,
   errors,
@@ -299,3 +299,5 @@ export default function WorkLocationChipsInput({
     </div>
   )
 }
+
+export default memo(WorkLocationChipsInputImpl)

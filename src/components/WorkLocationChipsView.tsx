@@ -13,7 +13,7 @@
  *   />
  */
 
-import type { ReactNode } from 'react'
+import { memo, type ReactNode } from 'react'
 import { ArrowRight, MapPin, Star } from 'lucide-react'
 import type { WorkLocations } from '@/types/work-locations-v2'
 import { chipLabel } from '@/lib/work-locations-v2'
@@ -34,7 +34,7 @@ interface WorkLocationChipsViewProps {
   chipSize?: 'sm' | 'md'
 }
 
-export default function WorkLocationChipsView({
+function WorkLocationChipsViewImpl({
   value, currentIndex, currentLabel,
   chipsLeading, chipsTrailing, emptyText,
   chipSize = 'md',
@@ -98,3 +98,5 @@ export default function WorkLocationChipsView({
     </div>
   )
 }
+
+export default memo(WorkLocationChipsViewImpl)
