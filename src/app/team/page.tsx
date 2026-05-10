@@ -13,7 +13,7 @@ import {
 import type { BadgeVariant } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
 import type { TeamMemberCard } from '@/app/api/team-status/route'
-import { resolveDisplayLocations, chipLabel, formatChipsArrow } from '@/lib/work-locations-v2'
+import { resolveDisplayLocations, resolvePlannedLocations, chipLabel, formatChipsArrow } from '@/lib/work-locations-v2'
 import type { WorkLocations } from '@/types/work-locations-v2'
 
 type ViewMode = 'card' | 'list'
@@ -263,42 +263,77 @@ function MemberCard({
         </div>
       )}
 
-      {/* 근무지 (v2 chips 우선, 없으면 단일 라벨 fallback) */}
-      {card.is_self ? (
-        <LocationSelect
-          current={card.current_location ?? card.work_location}
-          date={date}
-          onChange={onAction}
-        />
-      ) : (
-        (() => {
-          const chips = resolveDisplayLocations({
-            actual: card.actual_work_locations,
-            planned: card.planned_work_locations,
-            legacyActualTimeline: card.work_location_timeline,
-            legacyWorkLocation: card.current_location ?? card.work_location,
-          })
-          if (chips && chips.length > 0) {
-            return (
-              <div className="flex items-center gap-1 flex-wrap">
-                <MapPin className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
-                {chips.map((chip, i) => (
-                  <span key={i} className="inline-flex items-center text-[12px] text-text-secondary">
-                    {i > 0 && <span className="mx-1 text-text-muted">→</span>}
-                    {chipLabel(chip)}
-                  </span>
-                ))}
+      {/* 근무지 — 예정 chips + 실제 chips 분리 표시 */}
+      {(() => {
+        const plannedChips = resolvePlannedLocations({
+          planned: card.planned_work_locations,
+          legacyExpectedTimeline: card.work_location_timeline,
+          legacyExpectedWorkLocation: card.work_location,
+        })
+        const actualChips = resolveDisplayLocations({
+          actual: card.actual_work_locations,
+          // actual이 NULL이면 planned는 보지 않음 (위에서 따로 표시)
+          legacyActualTimeline: card.actual_work_locations ? null : null,
+          legacyWorkLocation: card.current_location,
+        })
+        const showPlanned = plannedChips && plannedChips.length > 0
+        const showActual = actualChips && actualChips.length > 0
+        return (
+          <div className="space-y-1.5">
+            {showPlanned && (
+              <div className="flex items-start gap-2 text-[12px]">
+                <span className="shrink-0 text-text-muted font-semibold mt-0.5">예정</span>
+                <div className="flex items-center gap-1 flex-wrap text-text-secondary">
+                  <MapPin className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
+                  {plannedChips!.map((chip, i) => (
+                    <span key={i} className="inline-flex items-center">
+                      {i > 0 && <span className="mx-1 text-text-muted">→</span>}
+                      {chipLabel(chip)}
+                    </span>
+                  ))}
+                </div>
               </div>
-            )
-          }
-          return (
-            <div className="flex items-center gap-1 text-[12px] text-text-secondary">
-              <MapPin className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
-              <span>{card.current_location ?? card.work_location ?? '-'}</span>
+            )}
+            <div className="flex items-start gap-2 text-[12px]">
+              <span className="shrink-0 text-text-muted font-semibold mt-0.5">실제</span>
+              <div className="flex-1 min-w-0">
+                {card.is_self ? (
+                  <div className="space-y-1">
+                    {showActual && (
+                      <div className="flex items-center gap-1 flex-wrap text-text-primary font-medium">
+                        <MapPin className="h-3 w-3 text-primary-600 shrink-0" aria-hidden />
+                        {actualChips!.map((chip, i) => (
+                          <span key={i} className="inline-flex items-center">
+                            {i > 0 && <span className="mx-1 text-text-muted">→</span>}
+                            {chipLabel(chip)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <LocationSelect
+                      current={card.current_location ?? card.work_location}
+                      date={date}
+                      onChange={onAction}
+                    />
+                  </div>
+                ) : showActual ? (
+                  <div className="flex items-center gap-1 flex-wrap text-text-primary font-medium">
+                    <MapPin className="h-3 w-3 text-primary-600 shrink-0" aria-hidden />
+                    {actualChips!.map((chip, i) => (
+                      <span key={i} className="inline-flex items-center">
+                        {i > 0 && <span className="mx-1 text-text-muted">→</span>}
+                        {chipLabel(chip)}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-text-muted">- (실제 변경 없음)</span>
+                )}
+              </div>
             </div>
-          )
-        })()
-      )}
+          </div>
+        )
+      })()}
 
       {/* 출퇴근 액션 (본인만) */}
       {card.is_self && (
@@ -460,34 +495,41 @@ function MemberListRow({
         )}
       </Td>
 
-      {/* 근무지 (v2 chips 우선) */}
+      {/* 근무지 — 리스트뷰는 컴팩트, 두 줄로 예정/실제 */}
       <Td>
-        {card.is_self ? (
-          <LocationSelect
-            current={card.current_location ?? card.work_location}
-            date={date}
-            onChange={onAction}
-          />
-        ) : (() => {
-          const chips = resolveDisplayLocations({
-            actual: card.actual_work_locations,
+        {(() => {
+          const plannedChips = resolvePlannedLocations({
             planned: card.planned_work_locations,
-            legacyActualTimeline: card.work_location_timeline,
-            legacyWorkLocation: card.current_location ?? card.work_location,
+            legacyExpectedTimeline: card.work_location_timeline,
+            legacyExpectedWorkLocation: card.work_location,
           })
-          if (chips && chips.length > 0) {
-            return (
-              <span className="inline-flex items-center gap-1 text-text-secondary">
-                <MapPin className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
-                {formatChipsArrow(chips)}
-              </span>
-            )
-          }
+          const actualChips = resolveDisplayLocations({
+            actual: card.actual_work_locations,
+            legacyWorkLocation: card.current_location,
+          })
           return (
-            <span className="inline-flex items-center gap-1 text-text-secondary">
-              <MapPin className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
-              {card.current_location ?? card.work_location ?? '-'}
-            </span>
+            <div className="space-y-0.5">
+              {plannedChips && plannedChips.length > 0 && (
+                <div className="text-[11px] text-text-muted">
+                  <span className="font-semibold mr-1">예정</span>
+                  {formatChipsArrow(plannedChips)}
+                </div>
+              )}
+              {card.is_self ? (
+                <LocationSelect
+                  current={card.current_location ?? card.work_location}
+                  date={date}
+                  onChange={onAction}
+                />
+              ) : (
+                <div className="text-[12px] text-text-primary font-medium inline-flex items-center gap-1">
+                  <MapPin className="h-3 w-3 text-primary-600 shrink-0" aria-hidden />
+                  {actualChips && actualChips.length > 0
+                    ? formatChipsArrow(actualChips)
+                    : (card.current_location ?? card.work_location ?? '-')}
+                </div>
+              )}
+            </div>
           )
         })()}
       </Td>

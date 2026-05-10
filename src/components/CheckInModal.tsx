@@ -6,6 +6,7 @@ import { X, Loader2, Calendar } from 'lucide-react'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
 import LeaveTimelineInput from '@/components/LeaveTimelineInput'
 import TimeSelect from '@/components/TimeSelect'
+import HalfHourTimeSelect from '@/components/HalfHourTimeSelect'
 import {
   defaultWorkLocations,
   type WorkLocations,
@@ -296,23 +297,19 @@ export default function CheckInModal({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">출근시간 *</label>
-                  <TimeSelect
+                  <HalfHourTimeSelect
                     value={startTime}
                     onChange={setStartTime}
-                    minuteStep={30}
-                    ariaLabelHour="출근 시"
-                    ariaLabelMinute="출근 분"
+                    ariaLabel="출근시간"
                   />
                 </div>
                 <div>
                   <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">퇴근예정시간 *</label>
-                  <TimeSelect
+                  <HalfHourTimeSelect
                     value={endTime}
                     onChange={setEndTime}
-                    minuteStep={30}
                     allowNextDay
-                    ariaLabelHour="퇴근예정 시"
-                    ariaLabelMinute="퇴근예정 분"
+                    ariaLabel="퇴근예정시간"
                   />
                 </div>
               </div>

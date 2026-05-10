@@ -4,16 +4,16 @@
  * 근무장소 칩 입력 컴포넌트 (v2).
  *
  * - 드롭다운: 사무실 / 외근 / 재택 / 기타
- * - 기타 선택 시 인라인 텍스트 input 노출 → "추가" 버튼으로 칩 누적
- * - 사용자가 선택한 순서대로 칩 누적 (중복 허용 — 사용자 요구)
- * - 각 칩: 라벨 + 좌/우 이동 + 삭제
- * - 시간 정보는 일절 다루지 않음 — 출퇴근 시간은 별도 input으로 분리
- *
- * 입력 검증은 부모에서 props.errors로 내려받아 인라인 표시.
+ *   * 사무실/외근/재택 선택 시 → 즉시 칩으로 추가, select는 default(사무실)로 리셋
+ *   * 기타 선택 시 → 텍스트 input + 추가 버튼 노출 (입력 후 추가)
+ * - 칩 누적 (중복 허용)
+ * - 칩 사이에 → 화살표 표시 (순서 강조)
+ * - 칩에 좌/우 이동 + 삭제 버튼
+ * - 시간 정보는 일절 다루지 않음
  */
 
 import { useState, useMemo } from 'react'
-import { Plus, X, MapPin, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowRight, X, MapPin, ArrowLeft, Plus } from 'lucide-react'
 import {
   WORK_LOCATION_KIND_LABELS,
   type WorkLocationChip,
@@ -25,10 +25,8 @@ import { chipLabel, type LocationsValidationError } from '@/lib/work-locations-v
 interface WorkLocationChipsInputProps {
   value: WorkLocations
   onChange: (next: WorkLocations) => void
-  /** 부모 검증 결과 — 인덱스 없는 일반 에러 + index 있는 항목별 에러 */
   errors?: LocationsValidationError[]
   disabled?: boolean
-  /** 라벨/안내 등 부가 helper UI 숨김 (간략 노출 모드) */
   compact?: boolean
 }
 
@@ -41,10 +39,10 @@ export default function WorkLocationChipsInput({
   disabled,
   compact,
 }: WorkLocationChipsInputProps) {
-  const [pendingKind, setPendingKind] = useState<WorkLocationKind>('office')
+  // 드롭다운 현재 선택값 — 즉시 추가 모드라 화면에는 안 보이지만 select를 위해 유지
+  const [selectedKind, setSelectedKind] = useState<WorkLocationKind | ''>('')
   const [pendingCustom, setPendingCustom] = useState('')
 
-  /** 인덱스별 에러 매핑 */
   const errorByIndex = useMemo(() => {
     const map = new Map<number, string[]>()
     const general: string[] = []
@@ -60,16 +58,26 @@ export default function WorkLocationChipsInput({
     return { byIndex: map, general }
   }, [errors])
 
-  const handleAdd = () => {
+  /** select onChange — custom이 아니면 즉시 추가, custom은 입력 모드로 진입 */
+  const handleKindSelect = (k: WorkLocationKind) => {
     if (disabled) return
-    if (pendingKind === 'custom') {
-      const trimmed = pendingCustom.trim()
-      if (!trimmed) return
-      onChange([...value, { kind: 'custom', customLabel: trimmed }])
-      setPendingCustom('')
+    if (k === 'custom') {
+      setSelectedKind('custom')
       return
     }
-    onChange([...value, { kind: pendingKind }])
+    // 즉시 추가
+    onChange([...value, { kind: k }])
+    setSelectedKind('')  // 다시 placeholder로
+  }
+
+  /** 기타 입력 추가 */
+  const handleCustomAdd = () => {
+    if (disabled) return
+    const trimmed = pendingCustom.trim()
+    if (!trimmed) return
+    onChange([...value, { kind: 'custom', customLabel: trimmed }])
+    setPendingCustom('')
+    setSelectedKind('')
   }
 
   const handleRemove = (i: number) => {
@@ -87,16 +95,17 @@ export default function WorkLocationChipsInput({
   }
 
   return (
-    <div className="space-y-2">
-      {/* 추가 영역 — 드롭다운 + (기타 시) 텍스트 input + 추가 버튼 */}
+    <div className="space-y-2.5">
+      {/* 추가 영역 */}
       <div className="flex flex-wrap items-center gap-2">
         <select
-          value={pendingKind}
-          onChange={e => setPendingKind(e.target.value as WorkLocationKind)}
+          value={selectedKind}
+          onChange={e => handleKindSelect(e.target.value as WorkLocationKind)}
           disabled={disabled}
-          aria-label="근무장소 종류"
+          aria-label="근무장소 종류 추가"
           className="select-tight rounded-[10px] border border-border-strong bg-surface h-9 px-3 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50"
         >
+          <option value="">+ 장소 추가...</option>
           {KIND_ORDER.map(k => (
             <option key={k} value={k}>
               {WORK_LOCATION_KIND_LABELS[k]}
@@ -104,89 +113,113 @@ export default function WorkLocationChipsInput({
           ))}
         </select>
 
-        {pendingKind === 'custom' && (
-          <input
-            type="text"
-            value={pendingCustom}
-            onChange={e => setPendingCustom(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                handleAdd()
-              }
-            }}
-            placeholder="상세 장소 (예: 카페, 거래처)"
-            disabled={disabled}
-            className="flex-1 min-w-[160px] h-9 rounded-[10px] border border-border-strong bg-surface px-3 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50"
-          />
+        {/* 기타 선택 시 텍스트 입력 + 추가 버튼 */}
+        {selectedKind === 'custom' && (
+          <>
+            <input
+              type="text"
+              value={pendingCustom}
+              onChange={e => setPendingCustom(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleCustomAdd()
+                }
+              }}
+              placeholder="상세 장소 (예: 카페, 거래처)"
+              disabled={disabled}
+              autoFocus
+              className="flex-1 min-w-[160px] h-9 rounded-[10px] border border-border-strong bg-surface px-3 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50"
+            />
+            <button
+              type="button"
+              onClick={handleCustomAdd}
+              disabled={disabled || !pendingCustom.trim()}
+              className="inline-flex items-center gap-1 h-9 px-3 rounded-[10px] text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              추가
+            </button>
+            <button
+              type="button"
+              onClick={() => { setPendingCustom(''); setSelectedKind('') }}
+              disabled={disabled}
+              className="inline-flex items-center justify-center h-9 w-9 rounded-[10px] text-text-muted hover:text-text-primary hover:bg-surface-muted transition-colors"
+              aria-label="취소"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </>
         )}
-
-        <button
-          type="button"
-          onClick={handleAdd}
-          disabled={disabled || (pendingKind === 'custom' && !pendingCustom.trim())}
-          className="inline-flex items-center gap-1 h-9 px-3 rounded-[10px] text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 transition-colors"
-        >
-          <Plus className="h-3.5 w-3.5" aria-hidden />
-          추가
-        </button>
       </div>
 
-      {/* 칩 목록 */}
+      {/* 칩 목록 — 사이에 → 화살표 */}
       {value.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {value.map((chip, i) => {
             const itemErrors = errorByIndex.byIndex.get(i) ?? []
             return (
-              <div
-                key={i}
-                className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[12px] ${
-                  itemErrors.length > 0
-                    ? 'border-danger-border bg-danger-bg text-danger-text'
-                    : 'border-border-strong bg-surface text-text-primary'
-                }`}
-              >
-                <span className="text-[10px] tabular-nums text-text-muted">
-                  {i + 1}.
-                </span>
-                <MapPin className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
-                <span className="font-medium px-0.5">{chipLabel(chip)}</span>
-
-                {!disabled && i > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => handleMove(i, -1)}
-                    aria-label={`${i + 1}번째 항목 앞으로 이동`}
-                    className="inline-flex items-center justify-center h-5 w-5 rounded-full text-text-muted hover:text-text-primary hover:bg-surface-muted transition-colors"
-                  >
-                    <ChevronLeft className="h-3 w-3" aria-hidden />
-                  </button>
-                )}
-                {!disabled && i < value.length - 1 && (
-                  <button
-                    type="button"
-                    onClick={() => handleMove(i, 1)}
-                    aria-label={`${i + 1}번째 항목 뒤로 이동`}
-                    className="inline-flex items-center justify-center h-5 w-5 rounded-full text-text-muted hover:text-text-primary hover:bg-surface-muted transition-colors"
-                  >
-                    <ChevronRight className="h-3 w-3" aria-hidden />
-                  </button>
-                )}
-                {!disabled && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemove(i)}
-                    aria-label={`${i + 1}번째 항목 삭제`}
-                    className="inline-flex items-center justify-center h-5 w-5 rounded-full text-text-muted hover:text-danger-text hover:bg-danger-bg transition-colors"
-                  >
-                    <X className="h-3 w-3" aria-hidden />
-                  </button>
-                )}
-
-                {itemErrors.length > 0 && (
-                  <span className="ml-1 text-[10px] text-danger-text">
-                    {itemErrors[0]}
+              <div key={i} className="inline-flex items-center gap-1">
+                <div
+                  className={`inline-flex items-center gap-1 rounded-full border-2 px-2.5 py-1 text-[13px] ${
+                    itemErrors.length > 0
+                      ? 'border-danger-border bg-danger-bg text-danger-text'
+                      : 'border-primary-200 bg-primary-50 text-primary-700'
+                  }`}
+                >
+                  <span className="text-[10px] tabular-nums font-semibold text-primary-600">
+                    {i + 1}
                   </span>
+                  <MapPin className="h-3 w-3 text-primary-600 shrink-0" aria-hidden />
+                  <span className="font-semibold px-0.5">{chipLabel(chip)}</span>
+
+                  {/* 좌 이동 */}
+                  {!disabled && i > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleMove(i, -1)}
+                      aria-label={`${i + 1}번째 항목 앞으로 이동`}
+                      title="앞으로"
+                      className="inline-flex items-center justify-center h-5 w-5 rounded-full text-primary-700 hover:text-white hover:bg-primary-600 transition-colors"
+                    >
+                      <ArrowLeft className="h-3 w-3" aria-hidden />
+                    </button>
+                  )}
+                  {/* 우 이동 */}
+                  {!disabled && i < value.length - 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleMove(i, 1)}
+                      aria-label={`${i + 1}번째 항목 뒤로 이동`}
+                      title="뒤로"
+                      className="inline-flex items-center justify-center h-5 w-5 rounded-full text-primary-700 hover:text-white hover:bg-primary-600 transition-colors"
+                    >
+                      <ArrowRight className="h-3 w-3" aria-hidden />
+                    </button>
+                  )}
+                  {/* 삭제 */}
+                  {!disabled && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemove(i)}
+                      aria-label={`${i + 1}번째 항목 삭제`}
+                      title="삭제"
+                      className="inline-flex items-center justify-center h-5 w-5 rounded-full text-primary-700 hover:text-white hover:bg-danger-text transition-colors"
+                    >
+                      <X className="h-3 w-3" aria-hidden />
+                    </button>
+                  )}
+
+                  {itemErrors.length > 0 && (
+                    <span className="ml-1 text-[10px] text-danger-text">
+                      {itemErrors[0]}
+                    </span>
+                  )}
+                </div>
+
+                {/* 칩 사이 화살표 */}
+                {i < value.length - 1 && (
+                  <ArrowRight className="h-4 w-4 text-text-muted shrink-0" aria-hidden />
                 )}
               </div>
             )
@@ -197,7 +230,7 @@ export default function WorkLocationChipsInput({
       {/* 빈 상태 안내 */}
       {value.length === 0 && !compact && (
         <p className="text-[12px] text-text-muted">
-          위에서 근무장소를 선택하고 <span className="font-medium">추가</span>를 눌러주세요.
+          위 드롭다운에서 장소를 선택하면 칩으로 추가됩니다.
         </p>
       )}
 

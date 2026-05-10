@@ -27,6 +27,7 @@ import { getKstTodayDateString, toKstDateString, dowKo } from '@/lib/utils/date'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
 import LeaveTimelineInput from '@/components/LeaveTimelineInput'
 import TimeSelect from '@/components/TimeSelect'
+import HalfHourTimeSelect from '@/components/HalfHourTimeSelect'
 import {
   defaultWorkLocations,
   type WorkLocations,
@@ -769,12 +770,10 @@ export default function WorkLogForm({
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">출근시간 *</label>
-              <TimeSelect
+              <HalfHourTimeSelect
                 value={formValues.startTime ?? ''}
                 onChange={(v) => setValue('startTime', v, { shouldValidate: true, shouldDirty: true })}
-                minuteStep={30}
-                ariaLabelHour="출근 시"
-                ariaLabelMinute="출근 분"
+                ariaLabel="출근시간"
               />
               {(errors as { startTime?: { message?: string } }).startTime?.message && (
                 <p className="mt-1 text-xs text-danger-text">
@@ -784,13 +783,11 @@ export default function WorkLogForm({
             </div>
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">실제 퇴근시간 *</label>
-              <TimeSelect
+              <HalfHourTimeSelect
                 value={formValues.endTime ?? ''}
                 onChange={(v) => setValue('endTime', v, { shouldValidate: true, shouldDirty: true })}
-                minuteStep={30}
                 allowNextDay
-                ariaLabelHour="퇴근 시"
-                ariaLabelMinute="퇴근 분"
+                ariaLabel="실제 퇴근시간"
               />
               {(errors as { endTime?: { message?: string } }).endTime?.message && (
                 <p className="mt-1 text-xs text-danger-text">
@@ -964,12 +961,10 @@ export default function WorkLogForm({
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-text-secondary">출근예정시간 *</label>
-                    <TimeSelect
+                    <HalfHourTimeSelect
                       value={formValues.expectedStartTime ?? ''}
                       onChange={(v) => setValue('expectedStartTime', v, { shouldValidate: true, shouldDirty: true })}
-                      minuteStep={30}
-                      ariaLabelHour="출근예정 시"
-                      ariaLabelMinute="출근예정 분"
+                      ariaLabel="출근예정시간"
                     />
                     {(errors as { expectedStartTime?: { message?: string } }).expectedStartTime?.message && (
                       <p className="mt-1 text-xs text-danger-text">
@@ -979,13 +974,11 @@ export default function WorkLogForm({
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-text-secondary">퇴근예정시간 *</label>
-                    <TimeSelect
+                    <HalfHourTimeSelect
                       value={formValues.expectedEndTime ?? ''}
                       onChange={(v) => setValue('expectedEndTime', v, { shouldValidate: true, shouldDirty: true })}
-                      minuteStep={30}
                       allowNextDay
-                      ariaLabelHour="퇴근예정 시"
-                      ariaLabelMinute="퇴근예정 분"
+                      ariaLabel="퇴근예정시간"
                     />
                     {(errors as { expectedEndTime?: { message?: string } }).expectedEndTime?.message && (
                       <p className="mt-1 text-xs text-danger-text">
