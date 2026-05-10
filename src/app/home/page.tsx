@@ -514,10 +514,10 @@ export default function HomePage() {
                 </Button>
               )}
 
-              {/* 퇴근보고 작성 (A/B/C/D 상태) */}
+              {/* 퇴근보고 작성 (A/B/C/D 상태) — 항상 primary로 강조 */}
               {buttons.showCheckOutCreate && (
                 <Button
-                  variant={state === 'C' || state === 'D' ? 'primary' : 'secondary'}
+                  variant="primary"
                   onClick={openCheckOutFlow}
                 >
                   <LogOut className="h-4 w-4" aria-hidden />

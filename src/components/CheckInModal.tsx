@@ -149,11 +149,12 @@ export default function CheckInModal({
 
         // actualCheckInTime prefill — 모드별 분기
         const explicitMode = mode
-        if (explicitMode === 'complete') {
-          // 출근 완료 모드 — 현재 시각 floor
+        if (explicitMode === 'complete' || explicitMode === 'create') {
+          // 출근 완료 모드 또는 신규 작성 모드 — 현재 시각 floor 자동 prefill
+          // (사용자가 [출근보고 작성]만 눌러도 출근 완료까지 한 번에 처리되도록)
           setActualCheckInTime(nowKstHHmmFloor())
         } else {
-          // create/edit — 서버에서 받은 daily.checked_in_at 값
+          // edit — 서버에서 받은 daily.checked_in_at 값
           if (data.checkedInAt) setActualCheckInTime(data.checkedInAt)
         }
 
@@ -379,8 +380,8 @@ export default function CheckInModal({
                 />
               </div>
 
-              {/* 실제 출근시간 — edit/complete 모드에서 노출 */}
-              {(effectiveMode === 'edit' || effectiveMode === 'complete') && (
+              {/* 실제 출근시간 — 모든 모드에서 노출 (create는 자동 prefill, 비우면 출근보고만 작성) */}
+              {(effectiveMode === 'create' || effectiveMode === 'edit' || effectiveMode === 'complete') && (
                 <div>
                   <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
                     실제 출근시간

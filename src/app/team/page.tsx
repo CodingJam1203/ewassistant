@@ -399,10 +399,10 @@ function MemberCard({
               </Button>
             )}
 
-            {/* 퇴근보고 작성 (A/B/C/D) */}
+            {/* 퇴근보고 작성 (A/B/C/D) — 항상 primary */}
             {buttons.showCheckOutCreate && (
               <Button
-                variant={state === 'C' || state === 'D' ? 'primary' : 'secondary'}
+                variant="primary"
                 size="sm"
                 onClick={() => onCheckOutNeeded(card)}
                 disabled={busy}
@@ -607,7 +607,7 @@ function MemberListRow({
                 </Button>
               )}
               {buttons.showCheckOutCreate && (
-                <Button variant={state === 'C' || state === 'D' ? 'primary' : 'secondary'} size="sm" onClick={() => onCheckOutNeeded(card)} disabled={busy} className="!h-7 !px-2 !text-[11px]">
+                <Button variant="primary" size="sm" onClick={() => onCheckOutNeeded(card)} disabled={busy} className="!h-7 !px-2 !text-[11px]">
                   <LogOut className="h-3 w-3" aria-hidden /> 퇴근
                 </Button>
               )}
