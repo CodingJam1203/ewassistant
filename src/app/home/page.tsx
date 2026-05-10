@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils/cn'
 import type { WorkLog } from '@/types/work-log'
 import type { MonthBaselines, UserMonthSummary } from '@/lib/utils/work-hours'
 import type { TeamMemberCard } from '@/app/api/team-status/route'
+import { computeWorkLogState, buttonsForState } from '@/lib/work-log-state'
 
 // 무거운 컴포넌트는 dynamic import — 초기 번들에서 빠지고 사용 시점에만 로드.
 //   - WorkLogModal: 퇴근보고/수정 클릭 시
