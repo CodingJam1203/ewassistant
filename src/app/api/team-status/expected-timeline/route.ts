@@ -1,10 +1,14 @@
 /**
  * GET /api/team-status/expected-timeline?date=YYYY-MM-DD
  *
- * D-day 출근보고 모달이 열릴 때 호출하여, D-1 퇴근보고에서 작성한
- * 다음 출근 예정 정보를 기본값으로 가져옵니다.
+ * D-day 출근보고 모달이 열릴 때 호출. prefill 우선순위:
+ *   1) D-day 본문 row (leave_date=D-day) — 이미 D-day에 출근보고 작성한 경우
+ *      → 그 값으로 prefill (수정 가능)
+ *   2) D-1 사전 보고 row (expected_start_date=D-day, leave_date < D-day)
+ *      → D-1 퇴근보고 시점에 입력한 다음날 예정값으로 prefill
+ *   3) 둘 다 없으면 빈 응답 (기본값 09:00 / 18:00 / 사무실)
  *
- * 응답 (v2 우선 + legacy fallback 동시 반환):
+ * 응답:
  * {
  *   plannedLocations:   WorkLocations | null,    // v2 — 칩 배열
  *   expectedStartTime:  string | null,           // 'HH:mm'
@@ -38,16 +42,6 @@ export async function GET(request: Request) {
 
     const adminClient = createAdminClient()
 
-    const { data: log, error } = await adminClient
-      .from('work_logs')
-      .select('expected_work_location_timeline, expected_work_location, expected_work_location_type, expected_work_time, expected_leave_timeline, planned_work_locations')
-      .eq('user_email', user.email!)
-      .eq('expected_start_date', date)
-      .eq('is_deleted', false)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
     const empty = {
       plannedLocations: null,
       expectedStartTime: null,
@@ -56,33 +50,91 @@ export async function GET(request: Request) {
       leaveTimeline: null,
     }
 
+    // ─── 1순위: D-day 본문 row ─────────────────────────────────────────────
+    // 이미 D-day에 출근보고를 작성한 적이 있다면 그 값으로 prefill (수정 가능)
+    const { data: bodyLog } = await adminClient
+      .from('work_logs')
+      .select('start_time, end_time, work_location, work_location_timeline, leave_timeline, planned_work_locations')
+      .eq('user_email', user.email!)
+      .eq('leave_date', date)
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (bodyLog) {
+      // 본문 row의 값으로 응답
+      const plannedLocations = normalizeWorkLocations(bodyLog.planned_work_locations)
+        ?? legacyTimelineToLocations(bodyLog.work_location_timeline ?? null)
+        ?? legacySingleToLocations(bodyLog.work_location ?? null)
+      const startHHmm = typeof bodyLog.start_time === 'string' ? bodyLog.start_time.slice(0, 5) : null
+      const endHHmm   = typeof bodyLog.end_time   === 'string' ? bodyLog.end_time.slice(0, 5)   : null
+
+      const leave = Array.isArray(bodyLog.leave_timeline) ? bodyLog.leave_timeline as LeaveTimeline : null
+      const leaveTimeline: LeaveTimeline | null = leave && leave.length > 0
+        ? leave.map(it => ({ ...it, source: it.source }))
+        : null
+
+      // legacy timeline 호환 응답
+      let timeline: WorkLocationTimeline | null = null
+      if (Array.isArray(bodyLog.work_location_timeline) && bodyLog.work_location_timeline.length > 0) {
+        timeline = bodyLog.work_location_timeline as WorkLocationTimeline
+      } else if (bodyLog.work_location || startHHmm || endHHmm) {
+        timeline = legacyToTimeline({
+          expectedWorkLocation: bodyLog.work_location ?? null,
+          expectedWorkLocationType: bodyLog.work_location ?? null,
+          expectedWorkTime: startHHmm,
+          fallbackCheckoutTime: endHHmm,
+          asExpected: true,
+        })
+      }
+
+      return NextResponse.json({
+        plannedLocations,
+        expectedStartTime: startHHmm,
+        expectedEndTime: endHHmm,
+        timeline,
+        leaveTimeline,
+      })
+    }
+
+    // ─── 2순위: D-1 사전 보고 row (expected_start_date 매칭) ────────────────
+    const { data: priorLog, error } = await adminClient
+      .from('work_logs')
+      .select('expected_work_location_timeline, expected_work_location, expected_work_location_type, expected_work_time, expected_leave_timeline, planned_work_locations')
+      .eq('user_email', user.email!)
+      .eq('expected_start_date', date)
+      .neq('leave_date', date)  // 본문 row는 위에서 처리 (혹시 양쪽 매칭되는 옛날 row 제외)
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
     if (error) {
       console.error('expected-timeline lookup error:', error)
       return NextResponse.json(empty)
     }
-    if (!log) {
+    if (!priorLog) {
       return NextResponse.json(empty)
     }
 
-    // ─── v2: plannedLocations 결정 ─────────────────────────────────────────
-    let plannedLocations: WorkLocations | null = normalizeWorkLocations(log.planned_work_locations)
+    let plannedLocations: WorkLocations | null = normalizeWorkLocations(priorLog.planned_work_locations)
     if (!plannedLocations || plannedLocations.length === 0) {
-      const fromTl = legacyTimelineToLocations(log.expected_work_location_timeline ?? null)
+      const fromTl = legacyTimelineToLocations(priorLog.expected_work_location_timeline ?? null)
       if (fromTl && fromTl.length > 0) plannedLocations = fromTl
       else {
-        const fromSingle = legacySingleToLocations(log.expected_work_location ?? null)
+        const fromSingle = legacySingleToLocations(priorLog.expected_work_location ?? null)
         if (fromSingle && fromSingle.length > 0) plannedLocations = fromSingle
       }
     }
 
-    // ─── 시간 (HH:mm) 추출 ──────────────────────────────────────────────────
-    const tlArr = Array.isArray(log.expected_work_location_timeline)
-      ? log.expected_work_location_timeline as WorkLocationTimeline
+    const tlArr = Array.isArray(priorLog.expected_work_location_timeline)
+      ? priorLog.expected_work_location_timeline as WorkLocationTimeline
       : null
     const tlFirst = tlArr?.find(e => e.kind === 'work_location') ?? null
     const tlLast = tlArr && tlArr.length > 0 ? tlArr[tlArr.length - 1] : null
     const expectedStartTime: string | null =
-      (typeof log.expected_work_time === 'string' ? log.expected_work_time.slice(0, 5) : null)
+      (typeof priorLog.expected_work_time === 'string' ? priorLog.expected_work_time.slice(0, 5) : null)
       ?? tlFirst?.startTime
       ?? null
     const expectedEndTime: string | null =
@@ -90,22 +142,20 @@ export async function GET(request: Request) {
         ? tlLast.startTime
         : null) ?? null
 
-    // ─── legacy timeline (호환 유지) ────────────────────────────────────────
     let timeline: WorkLocationTimeline | null = null
-    if (Array.isArray(log.expected_work_location_timeline) && log.expected_work_location_timeline.length > 0) {
-      timeline = prefillFromExpected(log.expected_work_location_timeline as WorkLocationTimeline)
-    } else if (log.expected_work_location || log.expected_work_time) {
+    if (Array.isArray(priorLog.expected_work_location_timeline) && priorLog.expected_work_location_timeline.length > 0) {
+      timeline = prefillFromExpected(priorLog.expected_work_location_timeline as WorkLocationTimeline)
+    } else if (priorLog.expected_work_location || priorLog.expected_work_time) {
       timeline = legacyToTimeline({
-        expectedWorkLocation: log.expected_work_location ?? null,
-        expectedWorkLocationType: (log as { expected_work_location_type?: string | null }).expected_work_location_type ?? null,
-        expectedWorkTime: log.expected_work_time ?? null,
+        expectedWorkLocation: priorLog.expected_work_location ?? null,
+        expectedWorkLocationType: (priorLog as { expected_work_location_type?: string | null }).expected_work_location_type ?? null,
+        expectedWorkTime: priorLog.expected_work_time ?? null,
         asExpected: true,
       })
     }
 
-    // 휴가는 그대로 (D-1에서 D-day로 source: 'expected')
-    const expectedLeave = Array.isArray(log.expected_leave_timeline)
-      ? (log.expected_leave_timeline as LeaveTimeline)
+    const expectedLeave = Array.isArray(priorLog.expected_leave_timeline)
+      ? (priorLog.expected_leave_timeline as LeaveTimeline)
       : null
     const leaveTimeline: LeaveTimeline | null = expectedLeave && expectedLeave.length > 0
       ? expectedLeave.map(it => ({ ...it, source: 'expected' as const }))
