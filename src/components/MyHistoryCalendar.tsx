@@ -554,11 +554,16 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
       title: '출근만 작성됨',
     })
   } else if (ci) {
-    // 3) 출근예정만 (사전 출근보고) — 시작/종료 모두 표시
-    //    아직 실제 출퇴근이 없는 상태라 점선 외곽선(planned tone)으로 시각 구분.
-    const eStart = trimToHHmm(ci.expected_work_time ?? '')
-    const eEnd   = trimToHHmm(extractCheckoutTime(ci.expected_work_location_timeline) ?? '')
-    const eLoc   = ci.expected_work_location ?? null
+    // 3) 출근보고만 있는 케이스 (D+1 사전 보고 또는 D-day 출근 전)
+    //    새 모델: ci.start_time/end_time/work_location 직접 사용
+    //    legacy fallback: expected_work_time/expected_work_location
+    const eStart = trimToHHmm(ci.start_time ?? '')
+                || trimToHHmm(ci.expected_work_time ?? '')
+    const eEnd   = trimToHHmm(ci.end_time ?? '')
+                || trimToHHmm(extractCheckoutTime(ci.expected_work_location_timeline) ?? '')
+    const eLoc   = extractWorkLocation(ci)
+                ?? ci.expected_work_location
+                ?? null
     if (eStart || eEnd || eLoc) {
       const range = eStart && eEnd
         ? `${eStart}~${eEnd}`
