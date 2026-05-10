@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { format, addDays, subDays, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
-import { ChevronLeft, ChevronRight, RefreshCw, MapPin, Clock, Coffee, LogIn, LogOut, X, LayoutGrid, List } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RefreshCw, MapPin, Clock, Coffee, LogIn, LogOut, X, LayoutGrid, List, Check } from 'lucide-react'
 import CheckInModal from '@/components/CheckInModal'
 import WorkLogModal from '@/components/WorkLogModal'
 import {
