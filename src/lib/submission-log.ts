@@ -36,6 +36,8 @@ export interface SubmissionLogInput {
   actual_work_time?: string | null
   work_location?: string | null
   work_location_timeline?: unknown
+  /** v2: 실제 근무장소 칩 배열. NULL = planned와 동일. */
+  actual_work_locations?: unknown
   leave_timeline?: unknown
   work_content?: string | null
   ew_value?: string | null
@@ -58,6 +60,8 @@ export interface SubmissionLogInput {
   expected_work_time?: string | null
   expected_work_location?: string | null
   expected_work_location_timeline?: unknown
+  /** v2: 예정 근무장소 칩 배열 */
+  planned_work_locations?: unknown
   expected_leave_timeline?: unknown
 
   // 수정일 때

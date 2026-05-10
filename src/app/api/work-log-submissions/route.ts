@@ -60,6 +60,7 @@ export async function GET(request: Request) {
         'break_manual_rounded_minutes, break_final_rounded_minutes, thanks_macaron, ' +
         'expected_start_date, expected_work_time, expected_work_location, ' +
         'expected_work_location_timeline, expected_leave_timeline, ' +
+        'planned_work_locations, actual_work_locations, ' +
         'changed_fields, work_type_label, work_type_code, attendance_record_type'
       )
       .order('submitted_at', { ascending: false })

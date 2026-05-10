@@ -6,42 +6,36 @@ import WorkLogForm from '@/components/WorkLogForm'
 import CalculationPreview from '@/components/CalculationPreview'
 import { EwCalculationResult } from '@/lib/ew-calculator'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+import type { WorkLocations } from '@/types/work-locations-v2'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 import type { WorkLog } from '@/types/work-log'
 
 interface WorkLogModalProps {
-  date: string           // YYYY-MM-DD — 퇴근 날짜, check-out API에 전달
+  date: string
   userName: string | null
-  /** 오늘의 실제 work_location_timeline (출근보고/근무지변경 누적분) */
+  /** Legacy: 오늘의 work_location_timeline (퇴근보고 prefill 호환용) */
   initialTimeline?: WorkLocationTimeline | null
-  /** 오늘의 leave_timeline (휴가/반차) */
+  /** v2: 오늘의 actual chips (있으면 initialTimeline보다 우선) */
+  initialActualLocations?: WorkLocations | null
+  /** v2: 오늘의 planned chips */
+  initialPlannedLocations?: WorkLocations | null
   initialLeaveTimeline?: LeaveTimeline | null
-  /** 휴게 시작/종료 로그 누적 실제 분 (휴게 자동 계산값) */
   initialBreakAutoActualMinutes?: number | null
-  initialStartTime?: string  // legacy fallback
-  initialEndTime?: string    // legacy fallback
-  resubmitWorkLogId?: string | null // 퇴근취소 후 재제출일 때 기존 로그 ID
-  /**
-   * 수정 모드 — 기존 work_log를 받아 모든 폼 필드를 prefill하고
-   * 제출 시 PATCH /api/work-logs/{id}를 호출. check-out API는 호출하지 않음.
-   * resubmitWorkLogId와 동시에 줄 수 없음.
-   */
+  initialStartTime?: string
+  initialEndTime?: string
+  resubmitWorkLogId?: string | null
   editingLog?: WorkLog | null
-  /**
-   * 수정 시 폼 영역 한정 표시:
-   *   'check_in'  : 출근보고(=expected_*) 영역만
-   *   'check_out' : 퇴근보고 영역만
-   *   undefined   : 전체 (기본)
-   */
   editScope?: 'check_in' | 'check_out'
   onClose: () => void
-  onSuccess: () => void  // 폼 제출 + check-out 완료 후 호출 (편집 모드에선 check-out 스킵)
+  onSuccess: () => void
 }
 
 export default function WorkLogModal({
   date,
   userName,
   initialTimeline,
+  initialActualLocations,
+  initialPlannedLocations,
   initialLeaveTimeline,
   initialBreakAutoActualMinutes,
   initialStartTime,
@@ -56,7 +50,6 @@ export default function WorkLogModal({
   const [calculationResult, setCalculationResult] = useState<EwCalculationResult | null>(null)
   const [calculationError, setCalculationError]   = useState<string | null>(null)
   const [checkingOut, setCheckingOut]             = useState(false)
-  // 폼 제출 진행 상태 — PC 외부 버튼(우측 컬럼) 표시용
   const [formSubmitting, setFormSubmitting]       = useState(false)
 
   const handleCalculate = useCallback(
@@ -78,7 +71,6 @@ export default function WorkLogModal({
     ? (formSubmitting ? '수정 중...' : '수정하기')
     : (formSubmitting ? '제출 중...' : '제출하고 복사하기')
 
-  /** PC 외부 제출 버튼 (form="work-log-form" attribute로 폼 submit 트리거) */
   const DesktopSubmitButton = (
     <button
       type="submit"
@@ -91,10 +83,8 @@ export default function WorkLogModal({
     </button>
   )
 
-  // WorkLogForm 제출 성공 → (신규 모드면) check-out API 호출 → 모달 닫기
   const handleSubmitSuccess = async () => {
     if (isEditing) {
-      // 수정 모드 — check-out 호출 안 함, 바로 종료
       onSuccess()
       return
     }
@@ -106,7 +96,7 @@ export default function WorkLogModal({
         body: JSON.stringify({ date }),
       })
     } catch {
-      // check-out 실패해도 보고서는 저장됐으므로 그냥 진행
+      // ignore
     } finally {
       setCheckingOut(false)
     }
@@ -122,40 +112,49 @@ export default function WorkLogModal({
     ? `${date} — 필요한 항목을 수정한 후 제출 및 복사하기`
     : `${date} — 퇴근보고를 작성하면 퇴근 처리됩니다`
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 overflow-y-auto py-6 px-4"
+  const MobileSubmitButton = (
+    <button
+      type="submit"
+      form="work-log-form"
+      disabled={formSubmitting}
+      className="w-full inline-flex justify-center items-center gap-2 h-12 px-5 rounded-[10px] text-base font-semibold text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-500 disabled:opacity-50 transition-colors"
     >
-      <div className="relative w-full max-w-5xl bg-surface rounded-[20px] shadow-[var(--shadow-popover)]">
-        {/* 헤더 */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <div>
-            <h3 className="text-base font-semibold text-text-primary">{headerTitle}</h3>
-            <p className="text-[12px] text-text-secondary mt-0.5">{headerSubtitle}</p>
+      {formSubmitting ? <Loader2 className="animate-spin h-5 w-5" aria-hidden /> : <Copy className="h-5 w-5" aria-hidden />}
+      {submitButtonLabel}
+    </button>
+  )
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-start justify-center bg-black/50 sm:py-6 sm:px-4">
+      <div className="relative w-full max-w-5xl bg-surface sm:rounded-[20px] shadow-[var(--shadow-popover)] flex flex-col h-[100dvh] sm:h-auto sm:max-h-[calc(100dvh-3rem)]">
+        <div className="shrink-0 flex items-center justify-between px-4 sm:px-6 py-4 border-b border-border">
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-text-primary truncate">{headerTitle}</h3>
+            <p className="text-[12px] text-text-secondary mt-0.5 truncate">{headerSubtitle}</p>
           </div>
           <button
             onClick={onClose}
-            className="inline-flex items-center justify-center h-9 w-9 rounded-[10px] text-text-muted hover:text-text-primary hover:bg-surface-muted transition-colors"
+            className="shrink-0 inline-flex items-center justify-center h-9 w-9 rounded-[10px] text-text-muted hover:text-text-primary hover:bg-surface-muted transition-colors"
             aria-label="닫기"
           >
             <X className="h-5 w-5" aria-hidden />
           </button>
         </div>
 
-        {/* 본문 */}
-        <div className="p-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
           {checkingOut ? (
             <div className="py-12 text-center">
               <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-border border-t-primary-600 mb-3" />
               <p className="text-sm text-text-secondary">퇴근 처리 중...</p>
             </div>
           ) : (
-            // 출근보고 수정 시에는 EW 계산 결과 패널 숨김 (출근 영역만 수정 — EW 무관)
             editScope === 'check_in' ? (
               <div className="max-w-3xl">
                 <WorkLogForm
                   userName={userName}
                   initialTimeline={initialTimeline}
+                  initialActualLocations={initialActualLocations}
+                  initialPlannedLocations={initialPlannedLocations}
                   initialLeaveTimeline={initialLeaveTimeline}
                   initialBreakAutoActualMinutes={initialBreakAutoActualMinutes}
                   initialStartTime={initialStartTime}
@@ -167,7 +166,6 @@ export default function WorkLogModal({
                   onSubmitSuccess={handleSubmitSuccess}
                   onSubmitStateChange={handleFormStateChange}
                 />
-                {/* PC: 폼 아래에 제출 버튼 (우측 컬럼이 없는 케이스). 모바일은 폼 내부 fixed 바. */}
                 <div className="hidden lg:block mt-4">{DesktopSubmitButton}</div>
               </div>
             ) : (
@@ -176,6 +174,8 @@ export default function WorkLogModal({
                   <WorkLogForm
                     userName={userName}
                     initialTimeline={initialTimeline}
+                    initialActualLocations={initialActualLocations}
+                    initialPlannedLocations={initialPlannedLocations}
                     initialLeaveTimeline={initialLeaveTimeline}
                     initialBreakAutoActualMinutes={initialBreakAutoActualMinutes}
                     initialStartTime={initialStartTime}
@@ -190,14 +190,18 @@ export default function WorkLogModal({
                 </div>
                 <div className="lg:col-span-1 space-y-4 lg:sticky lg:top-4 lg:self-start">
                   <CalculationPreview result={calculationResult} error={calculationError} />
-                  {/* PC: 계산 결과 패널 바로 아래에 제출 버튼. 모바일은 폼 내부 fixed 바.
-                      sticky로 우측 컬럼 전체를 viewport top에 고정 → 폼 스크롤해도 항상 보임 */}
                   <div className="hidden lg:block">{DesktopSubmitButton}</div>
                 </div>
               </div>
             )
           )}
         </div>
+
+        {!checkingOut && (
+          <div className="lg:hidden shrink-0 px-4 py-3 bg-surface border-t border-border">
+            {MobileSubmitButton}
+          </div>
+        )}
       </div>
     </div>
   )

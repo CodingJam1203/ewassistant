@@ -26,11 +26,20 @@ import {
   isHalfHour,
   isHalfHourHHmm,
 } from '@/lib/utils/half-hour'
+import {
+  normalizeWorkLocations,
+  legacyTimelineToLocations,
+  legacySingleToLocations,
+  validateWorkLocations,
+  firstChipLabel,
+  formatChipsArrow,
+  locationsEqual,
+} from '@/lib/work-locations-v2'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+import type { WorkLocations } from '@/types/work-locations-v2'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
 // ─── GET /api/work-logs/[id] ─────────────────────────────────────────────────
-// 단일 work_log 상세 조회 — 수정 모달이 일정 list 캐시에 없는 ID를 prefill할 때 사용
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -51,10 +60,6 @@ export async function GET(
       return NextResponse.json({ error: '기록을 찾을 수 없습니다.' }, { status: 404 })
     }
 
-    // soft-delete된 log 자동 대체:
-    //   퇴근보고 재제출 시 옛 work_log는 is_deleted=true로 soft-delete되고 새 row가 생성됨.
-    //   submission_log의 옛 row들이 deleted log_id를 가리키는 경우, 같은 사용자·날짜의
-    //   최신 활성 log로 silently 대체해서 사용자가 매끄럽게 수정 가능하게 함.
     let activeLog = log
     if (log.is_deleted) {
       const targetDate = (log.leave_date as string | null)
@@ -79,7 +84,6 @@ export async function GET(
       }
     }
 
-    // 권한: 본인이거나 admin/leader만 — RLS 우회 admin client 쓰니 여기서 가드
     const isOwner = activeLog.user_id === user.id
     const adminUser = await requireAdmin()
     if (!isOwner && !adminUser) {
@@ -107,7 +111,7 @@ export async function PATCH(
     const adminClient = createAdminClient()
     const { data: log, error: fetchError } = await adminClient
       .from('work_logs')
-      .select('user_id, user_email, name, is_deleted, division, team, leave_date, start_time, end_time, work_location, break_time, work_content, ew_value, work_type_label, attendance_record_type, expected_start_date, late_or_attendance_status, previous_report_time, current_report_time, late_reason, expected_work_time, expected_work_location, work_location_timeline, expected_work_location_timeline, expected_leave_timeline, leave_timeline, break_reason, thanks_macaron, work_type_code')
+      .select('user_id, user_email, name, is_deleted, division, team, leave_date, start_time, end_time, work_location, break_time, work_content, ew_value, work_type_label, attendance_record_type, expected_start_date, late_or_attendance_status, previous_report_time, current_report_time, late_reason, expected_work_time, expected_work_location, work_location_timeline, expected_work_location_timeline, expected_leave_timeline, leave_timeline, break_reason, thanks_macaron, work_type_code, planned_work_locations, actual_work_locations')
       .eq('id', id)
       .single()
 
@@ -126,7 +130,7 @@ export async function PATCH(
 
     const body = await request.json()
 
-    // ─── 휴가 타임라인 처리 (PATCH) ────────────────────────────────────────
+    // ─── 휴가 ────────────────────────────────────────────────────────────────
     let leaveTimelinePatch: LeaveTimeline | null | undefined = undefined
     if (body.leaveTimeline !== undefined) {
       if (Array.isArray(body.leaveTimeline) && body.leaveTimeline.length > 0) {
@@ -143,7 +147,6 @@ export async function PATCH(
       }
     }
 
-    // 다음 출근 예정 휴가
     let expectedLeaveTimelinePatch: LeaveTimeline | null | undefined = undefined
     if (body.expectedLeaveTimeline !== undefined) {
       if (Array.isArray(body.expectedLeaveTimeline) && body.expectedLeaveTimeline.length > 0) {
@@ -165,11 +168,49 @@ export async function PATCH(
       ?? []
     const leaveAllDay = isFullDayLeave(effectiveLeaveTimeline)
     const leaveMinutesEff = totalLeaveRoundedMinutes(effectiveLeaveTimeline)
-    // leaveIncludesLunch 자동 처리 제거 — 사용자가 차감시간 직접 조정
 
-    // ─── 본문 근무장소 타임라인 처리 (PATCH) ────────────────────────────────
-    // body.workLocationTimeline이 명시적으로 전달된 경우에만 업데이트.
-    // 미전달 시(EditLogModal 등 기존 호출) 기존 work_* 컬럼만 변경됨.
+    // ─── v2 chips PATCH ─────────────────────────────────────────────────────
+    let actualWorkLocationsPatch: WorkLocations | null | undefined = undefined
+    if (body.actualWorkLocations !== undefined) {
+      if (body.actualWorkLocations === null) {
+        actualWorkLocationsPatch = null
+      } else {
+        const norm = normalizeWorkLocations(body.actualWorkLocations)
+        if (norm) {
+          const errs = validateWorkLocations(norm)
+          if (errs.length > 0 && !leaveAllDay) {
+            return NextResponse.json(
+              { error: '실제 근무장소가 올바르지 않습니다: ' + errs.map(e => e.message).join(', ') },
+              { status: 400 }
+            )
+          }
+          actualWorkLocationsPatch = norm
+        } else {
+          actualWorkLocationsPatch = null
+        }
+      }
+    }
+
+    let plannedWorkLocationsPatch: WorkLocations | null | undefined = undefined
+    if (body.plannedWorkLocations !== undefined && body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)') {
+      if (body.plannedWorkLocations === null) {
+        plannedWorkLocationsPatch = null
+      } else {
+        const norm = normalizeWorkLocations(body.plannedWorkLocations)
+        if (norm) {
+          const errs = validateWorkLocations(norm)
+          if (errs.length > 0) {
+            return NextResponse.json(
+              { error: '다음 출근 예정 근무장소가 올바르지 않습니다: ' + errs.map(e => e.message).join(', ') },
+              { status: 400 }
+            )
+          }
+          plannedWorkLocationsPatch = norm
+        }
+      }
+    }
+
+    // ─── legacy timeline PATCH (호환) ───────────────────────────────────────
     let workLocationTimelinePatch: WorkLocationTimeline | null | undefined = undefined
     let workTimelineFirst: ReturnType<typeof firstWorkLocation> = null
     let workTimelineEnd: ReturnType<typeof endItemOf> = null
@@ -194,22 +235,35 @@ export async function PATCH(
       workTimelineEnd = endItemOf(workLocationTimelinePatch)
     }
 
-    // 최종 work_location/start/end: timeline 우선, 없으면 body의 단일 필드
-    const finalWorkLocation: string = workTimelineFirst
-      ? displayLocation(workTimelineFirst)
-      : (body.workLocationType === '기타'
-          ? (body.workLocationCustom ?? body.workLocation ?? '')
-          : (body.workLocationType ?? body.workLocation ?? ''))
-    const finalStartTime: string = workTimelineFirst?.startTime ?? body.startTime
-    const finalEndTime: string = workTimelineEnd?.startTime ?? body.endTime
-    const locationSummary: string = workLocationTimelinePatch
-      ? (buildLocationSummary(workLocationTimelinePatch) || finalWorkLocation)
-      : finalWorkLocation
+    // ─── 시간/장소 도출 ──────────────────────────────────────────────────────
+    const finalStartTime: string = body.startTime ?? workTimelineFirst?.startTime ?? log.start_time ?? '09:00'
+    const finalEndTime: string   = body.endTime   ?? workTimelineEnd?.startTime   ?? log.end_time   ?? '18:00'
 
-    // ─── 출근보고 (다음 출근 예정) 타임라인 처리 (PATCH) ──────────────────────
-    // body.expectedTimeline이 명시적으로 전달된 경우에만 timeline 업데이트.
-    // 미전달 시(EditLogModal 등 기존 호출) 기존 expected_* 컬럼만 변경되도록 유지.
-    let expectedTimelinePatch: WorkLocationTimeline | null | undefined = undefined  // undefined = 미변경
+    // 표시용 장소 — actual patch → planned patch → existing actual → existing planned → legacy
+    const effActual = actualWorkLocationsPatch !== undefined
+      ? actualWorkLocationsPatch
+      : normalizeWorkLocations(log.actual_work_locations)
+    const effPlanned = plannedWorkLocationsPatch !== undefined
+      ? plannedWorkLocationsPatch
+      : normalizeWorkLocations(log.planned_work_locations)
+    const displayLocs: WorkLocations | null =
+      effActual
+      ?? effPlanned
+      ?? legacyTimelineToLocations(workLocationTimelinePatch ?? log.work_location_timeline ?? null)
+      ?? legacySingleToLocations(body.workLocation ?? log.work_location ?? null)
+
+    const finalWorkLocation: string = firstChipLabel(displayLocs)
+      || (workTimelineFirst ? displayLocation(workTimelineFirst) : '')
+      || (body.workLocationType === '기타'
+            ? (body.workLocationCustom ?? body.workLocation ?? '')
+            : (body.workLocationType ?? body.workLocation ?? log.work_location ?? ''))
+      || ''
+    const locationSummary: string = formatChipsArrow(displayLocs)
+      || (workLocationTimelinePatch ? buildLocationSummary(workLocationTimelinePatch) : '')
+      || finalWorkLocation
+
+    // ─── expected timeline PATCH ────────────────────────────────────────────
+    let expectedTimelinePatch: WorkLocationTimeline | null | undefined = undefined
     let mirrorExpectedWorkLocation: string | null | undefined = undefined
     let mirrorExpectedWorkTime: string | null | undefined = undefined
 
@@ -227,16 +281,21 @@ export async function PATCH(
         mirrorExpectedWorkLocation = first ? displayLocation(first) : null
         mirrorExpectedWorkTime = first?.startTime ?? null
       } else if (body.expectedWorkLocationType !== undefined || body.expectedWorkLocation !== undefined || body.expectedWorkTime !== undefined) {
-        // legacy 단일 필드 변경
         mirrorExpectedWorkLocation =
           body.expectedWorkLocationType === '기타'
             ? (body.expectedWorkLocation ?? null)
             : (body.expectedWorkLocationType ?? body.expectedWorkLocation ?? null)
         mirrorExpectedWorkTime = body.expectedWorkTime ?? null
       }
+      if (typeof body.expectedStartTime === 'string' && /^(\d{1,2}):(\d{2})$/.test(body.expectedStartTime)) {
+        mirrorExpectedWorkTime = body.expectedStartTime
+      }
+      if (plannedWorkLocationsPatch && plannedWorkLocationsPatch.length > 0) {
+        mirrorExpectedWorkLocation = firstChipLabel(plannedWorkLocationsPatch) || mirrorExpectedWorkLocation
+      }
     }
 
-    // 휴게 4분리 (PATCH도 동일 규칙) + 30분 정책 강제
+    // 휴게 4분리 + 30분 정책
     const breakAutoActualMin: number = Number.isFinite(body.breakAutoActualMinutes)
       ? Math.max(0, Number(body.breakAutoActualMinutes)) : 0
     const breakAutoRoundedMinRaw: number = Number.isFinite(body.breakAutoRoundedMinutes)
@@ -253,7 +312,6 @@ export async function PATCH(
       : (breakManualRoundedMin ?? breakAutoRoundedMin)
     const breakFinalRoundedMin = snapMinutes(breakFinalRoundedMinRaw, 'round')
 
-    // body.breakTime / startTime / endTime 30분 단위 강제 (legacy 클라이언트 방어)
     if (body.breakTime && !isHalfHourHHmm(body.breakTime)) {
       return NextResponse.json(
         { error: '휴게시간은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
@@ -280,7 +338,6 @@ export async function PATCH(
       return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
     })()
 
-    // 명일(24+ HH) → DB의 PG `time` 컬럼은 0~24만 받으므로 mod 24 처리.
     const mod24HHmm = (hhmm: string): string => {
       if (!hhmm) return hhmm
       const [hStr, mStr] = hhmm.split(':')
@@ -300,11 +357,9 @@ export async function PATCH(
       workContent: body.workContent,
       breakReason: body.breakReason,
       leaveMinutes: leaveMinutesEff,
-      // 종일 휴가면 actual_work_time을 0으로
       isFullDayLeave: leaveAllDay,
     })
 
-    // ─── 30분 정책 — actual_work_time 스냅 ─────────────────────────────────
     const snappedActualMin = snapMinutes(calcResult.actualWorkMinutes, 'round')
     if (!isHalfHour(calcResult.actualWorkMinutes)) {
       console.warn(
@@ -335,20 +390,21 @@ export async function PATCH(
       updated_by: user.id,
     }
 
-    // 본문 work_location_timeline은 body가 명시적으로 보낸 경우에만 업데이트
     if (workLocationTimelinePatch !== undefined) {
       updates.work_location_timeline = workLocationTimelinePatch
     }
-
-    // leave_timeline / expected_leave_timeline은 body가 명시적으로 보낸 경우에만 업데이트
+    if (actualWorkLocationsPatch !== undefined) {
+      updates.actual_work_locations = actualWorkLocationsPatch
+    }
+    if (plannedWorkLocationsPatch !== undefined) {
+      updates.planned_work_locations = plannedWorkLocationsPatch
+    }
     if (leaveTimelinePatch !== undefined) {
       updates.leave_timeline = leaveTimelinePatch
     }
     if (expectedLeaveTimelinePatch !== undefined) {
       updates.expected_leave_timeline = expectedLeaveTimelinePatch
     }
-
-    // 휴게 4분리 — body가 명시적으로 보낸 경우에만 업데이트
     if (body.breakAutoActualMinutes !== undefined) {
       updates.break_auto_actual_minutes = breakAutoActualMin
     }
@@ -361,8 +417,6 @@ export async function PATCH(
     if (body.breakFinalRoundedMinutes !== undefined) {
       updates.break_final_rounded_minutes = breakFinalRoundedMin
     }
-
-    // 출근보고 timeline / mirror 값은 body가 명시적으로 보낸 경우에만 업데이트
     if (expectedTimelinePatch !== undefined) {
       updates.expected_work_location_timeline = expectedTimelinePatch
     }
@@ -390,10 +444,10 @@ export async function PATCH(
       return NextResponse.json({ error: '저장 중 오류가 발생했습니다.' }, { status: 500 })
     }
 
-    // ─── daily_work_status 동기화 (비동기, 실패 무관) ─────────────────────────
+    // daily_work_status 동기화
     try {
       const dailySyncUpdates: Record<string, unknown> = { updated_at: new Date().toISOString() }
-      if (body.workLocationType || body.workLocation) {
+      if (body.workLocationType || body.workLocation || actualWorkLocationsPatch !== undefined) {
         dailySyncUpdates.current_location = finalWorkLocation
       }
       if (Object.keys(dailySyncUpdates).length > 1) {
@@ -416,27 +470,33 @@ export async function PATCH(
           created_by: user.email ?? '',
         })
       }
-    } catch { /* 동기화 실패 무시 */ }
+    } catch { /* 무시 */ }
 
     // ─── Teams 수정 알림 ─────────────────────────────────────────────────────
     try {
-      // 변경된 필드 계산 (before → after)
       const isCheckin = log.attendance_record_type === '출근보고 진행 (주말출근, 휴가 포함)'
       const changedFields: ChangedField[] = []
 
       const strEq = (a: string | null | undefined, b: string | null | undefined) =>
         (a ?? '') === (b ?? '')
 
-      // ─── 분류 정책 (Phase 1) ─────────────────────────────────────────
-      // check_in  : expected_* (다음 출근 예정)
-      // check_out : start/end/break/실근무/근무장소/work_content/late_*
-      //             /thanks_macaron 등 — leave_date 당일 실근무 영역
-      // ─────────────────────────────────────────────────────────────────
       if (!strEq(log.work_type_label, body.workTypeLabel)) {
         changedFields.push({ kind: 'check_out', label: '근무유형', before: log.work_type_label || '미입력', after: body.workTypeLabel || '미입력' })
       }
       if (!strEq(log.work_location, finalWorkLocation)) {
         changedFields.push({ kind: 'check_out', label: '근무장소', before: log.work_location || '미입력', after: finalWorkLocation || '미입력' })
+      }
+      // actual chips 변경 비교 (별도 필드)
+      if (actualWorkLocationsPatch !== undefined) {
+        const prev = normalizeWorkLocations(log.actual_work_locations)
+        if (!locationsEqual(prev, actualWorkLocationsPatch)) {
+          changedFields.push({
+            kind: 'check_out',
+            label: '근무장소(실제)',
+            before: prev ? formatChipsArrow(prev) : '미입력',
+            after: actualWorkLocationsPatch ? formatChipsArrow(actualWorkLocationsPatch) : '미입력',
+          })
+        }
       }
       if (!strEq(log.start_time, body.startTime)) {
         changedFields.push({ kind: 'check_out', label: '출근시각', before: fmtTime(log.start_time || ''), after: fmtTime(body.startTime || '') })
@@ -467,7 +527,6 @@ export async function PATCH(
           changedFields.push({ kind: 'check_out', label: '지각사유', before: log.late_reason || '미입력', after: body.lateReason || '미입력' })
         }
       }
-      // 출근보고 영역 (expected_*) — leave_date 무관, 항상 출근으로 분류
       if (body.expectedStartDate !== undefined && !strEq(log.expected_start_date, body.expectedStartDate)) {
         changedFields.push({ kind: 'check_in', label: '출근예정일', before: log.expected_start_date || '미입력', after: body.expectedStartDate || '미입력' })
       }
@@ -477,11 +536,22 @@ export async function PATCH(
       if (mirrorExpectedWorkLocation !== undefined && !strEq(log.expected_work_location, mirrorExpectedWorkLocation)) {
         changedFields.push({ kind: 'check_in', label: '출근예정장소', before: log.expected_work_location || '미입력', after: mirrorExpectedWorkLocation || '미입력' })
       }
+      // planned chips 변경 비교
+      if (plannedWorkLocationsPatch !== undefined) {
+        const prev = normalizeWorkLocations(log.planned_work_locations)
+        if (!locationsEqual(prev, plannedWorkLocationsPatch)) {
+          changedFields.push({
+            kind: 'check_in',
+            label: '근무장소(예정)',
+            before: prev ? formatChipsArrow(prev) : '미입력',
+            after: plannedWorkLocationsPatch ? formatChipsArrow(plannedWorkLocationsPatch) : '미입력',
+          })
+        }
+      }
 
       const originalReportType = isCheckin ? '출근보고' : '퇴근보고'
       const scheduledWorkDate  = isCheckin ? (log.expected_start_date ?? null) : null
 
-      // 수정자 표시명 — 이메일 노출 금지. user_profiles.display_name 우선, 없으면 본인 여부에 따라 fallback.
       let updatedByName = ''
       try {
         const { data: actorProfile } = await adminClient
@@ -490,14 +560,11 @@ export async function PATCH(
           .eq('id', user.id)
           .maybeSingle()
         updatedByName = actorProfile?.display_name?.trim() || ''
-      } catch { /* 조회 실패 시 fallback */ }
+      } catch { /* 무시 */ }
       if (!updatedByName) {
-        // 본인이 본인 기록을 수정한 경우 → log.name 으로 안전하게 표시
-        // 그 외(관리자 등)에는 '관리자' 라벨로 표기 (이메일은 절대 노출하지 않음)
         updatedByName = isOwner ? (log.name ?? '본인') : '관리자'
       }
 
-      // 출근/퇴근 영역별 분리 발송 (changedFields의 kind로 자동 분기)
       notifyWorkLogUpdatedSplit({
         name: body.name ?? log.name ?? '',
         leaveDate: body.leaveDate ?? log.leave_date ?? '',
@@ -509,7 +576,6 @@ export async function PATCH(
         changedFields,
       })
 
-      // ─── submissions 로그: 출근/퇴근 영역별 분리 행 ───────────────
       const checkInChanges  = changedFields.filter(f => f.kind === 'check_in')
       const checkOutChanges = changedFields.filter(f => f.kind === 'check_out')
       const submittedNow2 = new Date().toISOString()
@@ -530,6 +596,9 @@ export async function PATCH(
           expected_work_location: mirrorExpectedWorkLocation ?? log.expected_work_location,
           expected_work_location_timeline: expectedTimelinePatch ?? log.expected_work_location_timeline,
           expected_leave_timeline: expectedLeaveTimelinePatch ?? log.expected_leave_timeline,
+          planned_work_locations: plannedWorkLocationsPatch !== undefined
+            ? plannedWorkLocationsPatch
+            : log.planned_work_locations,
           changed_fields: checkInChanges,
           work_type_label: body.workTypeLabel ?? log.work_type_label,
           attendance_record_type: body.attendanceRecordType ?? log.attendance_record_type,
@@ -553,6 +622,9 @@ export async function PATCH(
           actual_work_time: `${snappedActualMin} minutes`,
           work_location: finalWorkLocation,
           work_location_timeline: workLocationTimelinePatch ?? log.work_location_timeline,
+          actual_work_locations: actualWorkLocationsPatch !== undefined
+            ? actualWorkLocationsPatch
+            : log.actual_work_locations,
           leave_timeline: leaveTimelinePatch ?? log.leave_timeline,
           work_content: body.workContent ?? log.work_content,
           ew_value: calcResult.ewValue,
@@ -576,7 +648,6 @@ export async function PATCH(
         })
       }
 
-      // 감사 로그 — 수정자 + 변경된 필드 라벨만 기록 (값에는 PII 가능)
       const auditMeta = extractRequestMeta(request)
       recordAudit({
         actorId: user.id,
@@ -592,7 +663,7 @@ export async function PATCH(
         ipAddress: auditMeta.ipAddress,
         userAgent: auditMeta.userAgent,
       })
-    } catch { /* 알림/감사 실패 무시 */ }
+    } catch { /* 무시 */ }
 
     return NextResponse.json(data)
   } catch (err: unknown) {
@@ -602,7 +673,7 @@ export async function PATCH(
   }
 }
 
-// ─── DELETE /api/work-logs/[id] ──────────────────────────────────────────────
+// ─── DELETE ──────────────────────────────────────────────────────────────────
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -644,8 +715,6 @@ export async function DELETE(
 
     if (error) throw error
 
-    // ─── Teams 삭제 알림 ─────────────────────────────────────────────────────
-    // 삭제자 표시명 — 이메일 노출 금지. user_profiles.display_name 우선.
     let deletedByName = ''
     try {
       const { data: actorProfile } = await adminClient
@@ -654,7 +723,7 @@ export async function DELETE(
         .eq('id', user.id)
         .maybeSingle()
       deletedByName = actorProfile?.display_name?.trim() || ''
-    } catch { /* 조회 실패 시 fallback */ }
+    } catch { /* 무시 */ }
     if (!deletedByName) {
       deletedByName = isOwner ? (log.name ?? '본인') : '관리자'
     }
@@ -673,7 +742,6 @@ export async function DELETE(
       team: log.team ?? null,
     })
 
-    // 감사 로그
     try {
       const meta = extractRequestMeta(request)
       recordAudit({
@@ -686,7 +754,7 @@ export async function DELETE(
         ipAddress: meta.ipAddress,
         userAgent: meta.userAgent,
       })
-    } catch { /* audit 실패 무시 */ }
+    } catch { /* 무시 */ }
 
     return NextResponse.json({ success: true })
   } catch (err: unknown) {

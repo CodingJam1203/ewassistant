@@ -17,6 +17,7 @@ import type {
   MorningSummaryData,
 } from './types'
 import { formatTimelineForTeams, getWorkLocations } from '@/lib/work-location-timeline'
+import { formatChipsArrow, normalizeWorkLocations } from '@/lib/work-locations-v2'
 import {
   formatLeaveLines,
   isFullDayLeave,
@@ -164,12 +165,18 @@ function buildActualWorkLine(p: WorklogNotifyPayload): string | null {
 }
 
 /**
- * 본문 근무장소 라인 빌드
- * - timeline이 있고 work_location 1개: ['🔹근무장소 : 사무실 09:00~18:00']
- * - timeline이 있고 work_location 2개+: ['🔹근무장소', '1. 사무실 09:00~', '2. 재택 14:00~', '3. 퇴근 18:00']
- * - timeline 없음: legacy 단일 — ['🔹근무장소 : 사무실']
+ * 본문 근무장소 라인 빌드 (v2 chips 우선)
+ * - actualWorkLocations 있으면 칩 → "사무실 → 외근 → 재택" 한 줄
+ * - 없으면 timeline 사용 (legacy 호환)
+ * - 둘 다 없으면 단일 문자열 fallback
  */
 function buildWorkLocationLines(p: WorklogNotifyPayload): string[] {
+  // v2 chips 우선
+  const chips = normalizeWorkLocations(p.actualWorkLocations)
+  if (chips && chips.length > 0) {
+    return [`🔹근무장소 : ${formatChipsArrow(chips)}`]
+  }
+  // legacy timeline fallback
   const tl = p.workLocationTimeline
   const wlCount = tl ? getWorkLocations(tl).length : 0
   if (tl && wlCount >= 2) {
@@ -197,10 +204,17 @@ function buildNextCheckinLines(p: WorklogNotifyPayload): string[] {
     return ['🕛 출근보고 : 미작성']
   }
 
+  // v2 chips 우선
+  const chips = normalizeWorkLocations(p.plannedWorkLocations)
+  const st = p.expectedWorkTime ? fmtTime(p.expectedWorkTime) : '???'
+  if (chips && chips.length > 0) {
+    return [`🕛 출근보고 : ${p.expectedStartDate} / ${formatChipsArrow(chips)} ${st}~`]
+  }
+
+  // legacy timeline fallback
   const timeline = p.expectedTimeline
   const wlCount = timeline ? getWorkLocations(timeline).length : 0
 
-  // 멀티라인: work_location 2개 이상
   if (timeline && wlCount >= 2) {
     const formatted = formatTimelineForTeams(timeline)
     return [
@@ -209,15 +223,13 @@ function buildNextCheckinLines(p: WorklogNotifyPayload): string[] {
     ]
   }
 
-  // 단일라인 (timeline 1개): "사무실 09:00~18:00" 형식
   if (timeline && wlCount === 1) {
     const formatted = formatTimelineForTeams(timeline)
     return [`🕛 출근보고 : ${p.expectedStartDate} / ${formatted.lines[0]}`]
   }
 
-  // legacy fallback (timeline 미전송): 기존 포맷 유지
+  // legacy 단일 fallback
   const loc = p.expectedWorkLocation || '미입력'
-  const st  = p.expectedWorkTime ? fmtTime(p.expectedWorkTime) : '???'
   return [`🕛 출근보고 : ${p.expectedStartDate} / ${loc} ${st}~???`]
 }
 
@@ -343,9 +355,8 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
         ].join('\n')
       }
 
-      // 휴가 + 출근 (반차)
-      const tl = p.timeline
-      const hasMultiLoc = !!(tl && getWorkLocations(tl).length >= 2)
+      // v2 chips 우선
+      const chips = normalizeWorkLocations(p.plannedWorkLocations)
       const lines: string[] = []
       lines.push(`${p.name} : ${shortKoreanDate(p.date)} ${kstHHmm(p.checkedInAt)} 출근`)
       if (leaveLines.length > 0) {
@@ -353,19 +364,26 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
             ? [`🔹휴가/반차 : ${leaveLines[0]}`]
             : ['🔹휴가/반차', ...leaveLines]))
       }
+      if (chips && chips.length > 0) {
+        lines.push(`🔹근무장소 : ${formatChipsArrow(chips)}`)
+        lines.push(cta())
+        return lines.join('\n')
+      }
+
+      // legacy timeline fallback
+      const tl = p.timeline
+      const hasMultiLoc = !!(tl && getWorkLocations(tl).length >= 2)
       if (hasMultiLoc && tl) {
         const formatted = formatTimelineForTeams(tl)
         lines.push('🔹근무장소', ...formatted.lines)
         lines.push(cta())
         return lines.join('\n')
       }
-      // 단일 근무장소: 한 줄로 합쳐서 압축 (휴가 라인이 있으면 별도, 없으면 기존 형식)
       if (leaveLines.length > 0) {
         lines.push(`🔹근무장소 : ${p.workLocation || '미입력'}`)
         lines.push(cta())
         return lines.join('\n')
       }
-      // 휴가 없고 단일 — 기존 한 줄 형식
       return `${p.name} : ${shortKoreanDate(p.date)} ${kstHHmm(p.checkedInAt)} ${p.workLocation || '미입력'} 출근`
     }
 
@@ -377,6 +395,16 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
         `🔹변경 근무지 : ${p.newLocation || '미입력'}`,
         `🔹변경 시각 : ${kstHHmm(p.changedAt)}`,
       ]
+      // v2 chips 우선
+      const chips = normalizeWorkLocations(p.actualWorkLocations)
+      if (chips && chips.length > 0) {
+        return [
+          ...baseLines,
+          `🔹근무장소 : ${formatChipsArrow(chips)}`,
+          cta(),
+        ].join('\n')
+      }
+
       const tl = p.timeline
       if (tl && getWorkLocations(tl).length >= 2) {
         const formatted = formatTimelineForTeams(tl)

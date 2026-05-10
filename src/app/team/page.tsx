@@ -13,6 +13,8 @@ import {
 import type { BadgeVariant } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
 import type { TeamMemberCard } from '@/app/api/team-status/route'
+import { resolveDisplayLocations, chipLabel, formatChipsArrow } from '@/lib/work-locations-v2'
+import type { WorkLocations } from '@/types/work-locations-v2'
 
 type ViewMode = 'card' | 'list'
 
@@ -261,7 +263,7 @@ function MemberCard({
         </div>
       )}
 
-      {/* 근무지 */}
+      {/* 근무지 (v2 chips 우선, 없으면 단일 라벨 fallback) */}
       {card.is_self ? (
         <LocationSelect
           current={card.current_location ?? card.work_location}
@@ -269,10 +271,33 @@ function MemberCard({
           onChange={onAction}
         />
       ) : (
-        <div className="flex items-center gap-1 text-[12px] text-text-secondary">
-          <MapPin className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
-          <span>{card.current_location ?? card.work_location ?? '-'}</span>
-        </div>
+        (() => {
+          const chips = resolveDisplayLocations({
+            actual: card.actual_work_locations,
+            planned: card.planned_work_locations,
+            legacyActualTimeline: card.work_location_timeline,
+            legacyWorkLocation: card.current_location ?? card.work_location,
+          })
+          if (chips && chips.length > 0) {
+            return (
+              <div className="flex items-center gap-1 flex-wrap">
+                <MapPin className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
+                {chips.map((chip, i) => (
+                  <span key={i} className="inline-flex items-center text-[12px] text-text-secondary">
+                    {i > 0 && <span className="mx-1 text-text-muted">→</span>}
+                    {chipLabel(chip)}
+                  </span>
+                ))}
+              </div>
+            )
+          }
+          return (
+            <div className="flex items-center gap-1 text-[12px] text-text-secondary">
+              <MapPin className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
+              <span>{card.current_location ?? card.work_location ?? '-'}</span>
+            </div>
+          )
+        })()
       )}
 
       {/* 출퇴근 액션 (본인만) */}
@@ -435,7 +460,7 @@ function MemberListRow({
         )}
       </Td>
 
-      {/* 근무지 */}
+      {/* 근무지 (v2 chips 우선) */}
       <Td>
         {card.is_self ? (
           <LocationSelect
@@ -443,12 +468,28 @@ function MemberListRow({
             date={date}
             onChange={onAction}
           />
-        ) : (
-          <span className="inline-flex items-center gap-1 text-text-secondary">
-            <MapPin className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
-            {card.current_location ?? card.work_location ?? '-'}
-          </span>
-        )}
+        ) : (() => {
+          const chips = resolveDisplayLocations({
+            actual: card.actual_work_locations,
+            planned: card.planned_work_locations,
+            legacyActualTimeline: card.work_location_timeline,
+            legacyWorkLocation: card.current_location ?? card.work_location,
+          })
+          if (chips && chips.length > 0) {
+            return (
+              <span className="inline-flex items-center gap-1 text-text-secondary">
+                <MapPin className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
+                {formatChipsArrow(chips)}
+              </span>
+            )
+          }
+          return (
+            <span className="inline-flex items-center gap-1 text-text-secondary">
+              <MapPin className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
+              {card.current_location ?? card.work_location ?? '-'}
+            </span>
+          )
+        })()}
       </Td>
 
       {/* 액션 (본인만) */}
@@ -803,6 +844,8 @@ export default function TeamPage() {
           date={date}
           userName={myProfile?.display_name ?? null}
           initialTimeline={checkOutTarget.work_location_timeline ?? null}
+          initialActualLocations={checkOutTarget.actual_work_locations ?? null}
+          initialPlannedLocations={checkOutTarget.planned_work_locations ?? null}
           initialLeaveTimeline={checkOutTarget.leave_timeline ?? null}
           initialBreakAutoActualMinutes={checkOutTarget.break_auto_actual_minutes ?? null}
           initialStartTime={

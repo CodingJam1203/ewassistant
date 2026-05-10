@@ -39,6 +39,8 @@ import type { BadgeVariant } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
 import { pickLatestPerDay } from '@/lib/submissions/finalize-by-day'
 import type { LeaveTimeline } from '@/types/leave-timeline'
+import type { WorkLocations } from '@/types/work-locations-v2'
+import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 
 function CopyButton({ text }: { text: string | null }) {
   const [copied, setCopied] = useState(false)
@@ -107,6 +109,10 @@ export interface SubmissionRow {
   expected_work_location_timeline?: Array<{ kind?: string; startTime?: string }> | null
   /** 사전 보고 있는 상태에서 출근만 누른 경우 actual timeline (퇴근예정시각 fallback용) */
   work_location_timeline?: Array<{ kind?: string; startTime?: string }> | null
+  /** v2: 실제 근무장소 칩 배열 (NULL = planned와 동일) */
+  actual_work_locations?: WorkLocations | null
+  /** v2: 예정 근무장소 칩 배열 */
+  planned_work_locations?: WorkLocations | null
 
   /** 휴가/반차 타임라인 — 캘린더뷰 / CalendarDayDetailModal에서 사용. */
   leave_timeline?: LeaveTimeline | null
@@ -394,9 +400,18 @@ export default function SubmissionsRawTable({
                       ?? extractExpectedCheckoutTime(r.work_location_timeline)
                       ?? extractExpectedCheckoutTime(r.expected_work_location_timeline)
                     )
-                const locVal = isCheckOut
-                  ? (r.work_location ?? '-')
-                  : (r.work_location ?? r.expected_work_location ?? '-')
+                const chips = resolveDisplayLocations({
+                  actual: isCheckOut ? r.actual_work_locations : null,
+                  planned: r.planned_work_locations,
+                  legacyActualTimeline: isCheckOut ? (r.work_location_timeline as unknown as never) : null,
+                  legacyExpectedTimeline: r.expected_work_location_timeline as unknown as never,
+                  legacyWorkLocation: isCheckOut ? r.work_location : (r.work_location ?? r.expected_work_location),
+                })
+                const locVal = chips && chips.length > 0
+                  ? formatChipsArrow(chips)
+                  : (isCheckOut
+                      ? (r.work_location ?? '-')
+                      : (r.work_location ?? r.expected_work_location ?? '-'))
 
                 return (
                   <tr key={r.id} className={TR_HOVER}>

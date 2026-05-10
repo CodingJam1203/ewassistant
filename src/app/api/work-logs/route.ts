@@ -19,11 +19,19 @@ import {
 } from '@/lib/leave-timeline'
 import {
   snapMinutes,
-  snapHHmm,
   isHalfHour,
   isHalfHourHHmm,
 } from '@/lib/utils/half-hour'
+import {
+  normalizeWorkLocations,
+  legacyTimelineToLocations,
+  legacySingleToLocations,
+  validateWorkLocations,
+  firstChipLabel,
+  formatChipsArrow,
+} from '@/lib/work-locations-v2'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+import type { WorkLocations } from '@/types/work-locations-v2'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
 export async function POST(request: Request) {
@@ -35,7 +43,7 @@ export async function POST(request: Request) {
 
     const body = await request.json()
 
-    // ─── 휴가 타임라인 처리 ─────────────────────────────────────────────────
+    // ─── 휴가 ────────────────────────────────────────────────────────────────
     let leaveTimeline: LeaveTimeline | null = null
     if (Array.isArray(body.leaveTimeline) && body.leaveTimeline.length > 0) {
       const leErrors = validateLeaveTimeline(body.leaveTimeline as LeaveTimeline)
@@ -49,9 +57,8 @@ export async function POST(request: Request) {
     }
     const leaveAllDay = isFullDayLeave(leaveTimeline ?? [])
     const leaveMinutes = totalLeaveRoundedMinutes(leaveTimeline ?? [])
-    // leaveIncludesLunch 자동 처리 제거 — 사용자가 차감시간 직접 조정
 
-    // ─── 다음 출근 예정 휴가 타임라인 처리 ─────────────────────────────────────
+    // 다음 출근 예정 휴가
     let expectedLeaveTimeline: LeaveTimeline | null = null
     if (Array.isArray(body.expectedLeaveTimeline) && body.expectedLeaveTimeline.length > 0) {
       const exLeErrors = validateLeaveTimeline(body.expectedLeaveTimeline as LeaveTimeline)
@@ -64,9 +71,39 @@ export async function POST(request: Request) {
       expectedLeaveTimeline = body.expectedLeaveTimeline as LeaveTimeline
     }
 
-    // ─── 본문 근무장소 타임라인 처리 (퇴근보고용) ────────────────────────────
-    // 신규: body.workLocationTimeline 우선
-    // legacy: body.workLocationType / workLocationCustom / startTime / endTime
+    // ─── v2: 본문 actual chips ──────────────────────────────────────────────
+    let actualWorkLocations: WorkLocations | null = null
+    if (body.actualWorkLocations !== undefined && body.actualWorkLocations !== null) {
+      const norm = normalizeWorkLocations(body.actualWorkLocations)
+      if (norm) {
+        const errs = validateWorkLocations(norm)
+        if (errs.length > 0 && !leaveAllDay) {
+          return NextResponse.json(
+            { error: '실제 근무장소가 올바르지 않습니다: ' + errs.map(e => e.message).join(', ') },
+            { status: 400 }
+          )
+        }
+        actualWorkLocations = norm
+      }
+    }
+
+    // ─── v2: 다음 출근 예정 planned chips ──────────────────────────────────
+    let plannedWorkLocations: WorkLocations | null = null
+    if (body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' && body.plannedWorkLocations !== undefined && body.plannedWorkLocations !== null) {
+      const norm = normalizeWorkLocations(body.plannedWorkLocations)
+      if (norm) {
+        const errs = validateWorkLocations(norm)
+        if (errs.length > 0) {
+          return NextResponse.json(
+            { error: '다음 출근 예정 근무장소가 올바르지 않습니다: ' + errs.map(e => e.message).join(', ') },
+            { status: 400 }
+          )
+        }
+        plannedWorkLocations = norm
+      }
+    }
+
+    // ─── legacy timeline 처리 (호환용) ──────────────────────────────────────
     let workLocationTimeline: WorkLocationTimeline | null = null
     let workTimelineFirst: ReturnType<typeof firstWorkLocation> = null
     let workTimelineEnd: ReturnType<typeof endItemOf> = null
@@ -80,7 +117,6 @@ export async function POST(request: Request) {
         )
       }
       workLocationTimeline = body.workLocationTimeline as WorkLocationTimeline
-      // 퇴근보고는 마지막 항목이 'checkout' (실제 퇴근)이어야 함 (단, 종일 휴가 예외)
       const last = workLocationTimeline[workLocationTimeline.length - 1]
       if (last.kind !== 'checkout') {
         return NextResponse.json(
@@ -90,76 +126,8 @@ export async function POST(request: Request) {
       }
       workTimelineFirst = firstWorkLocation(workLocationTimeline)
       workTimelineEnd = endItemOf(workLocationTimeline)
-    } else if (leaveAllDay) {
-      // 종일 휴가는 work_location_timeline 비어도 OK
-      workLocationTimeline = null
     }
 
-    // 폼 클라이언트에서 workLocationType/Custom/Time도 timeline으로부터 도출해 보내옴.
-    // timeline이 없는 (legacy) 클라이언트의 경우만 body 단일 필드를 그대로 사용.
-    // 종일 휴가는 09:00~18:00 가정 + workLocation = '휴가'
-    const finalWorkLocation: string = leaveAllDay
-      ? '휴가'
-      : (workTimelineFirst
-          ? displayLocation(workTimelineFirst)
-          : (body.workLocationType === '기타'
-              ? (body.workLocationCustom ?? '')
-              : (body.workLocationType ?? '')))
-    const finalStartTime: string = leaveAllDay
-      ? '09:00'
-      : (workTimelineFirst?.startTime ?? body.startTime ?? '09:00')
-    const finalEndTime: string = leaveAllDay
-      ? '18:00'
-      : (workTimelineEnd?.startTime ?? body.endTime ?? '18:00')
-    const locationSummary: string = leaveAllDay
-      ? '휴가'
-      : (workLocationTimeline
-          ? (buildLocationSummary(workLocationTimeline) || finalWorkLocation)
-          : finalWorkLocation)
-
-    // ─── 휴게 4분리 + 30분 정책 강제 (round) ────────────────────────────────
-    // breakAutoActualMin은 raw(보존), 나머지 _roundedMinutes는 30분 배수여야 함.
-    const breakAutoActualMin: number = Number.isFinite(body.breakAutoActualMinutes)
-      ? Math.max(0, Number(body.breakAutoActualMinutes)) : 0
-    const breakAutoRoundedMinRaw: number = Number.isFinite(body.breakAutoRoundedMinutes)
-      ? Math.max(0, Number(body.breakAutoRoundedMinutes)) : ceilTo30Min(breakAutoActualMin)
-    const breakAutoRoundedMin = snapMinutes(breakAutoRoundedMinRaw, 'round')
-    const breakManualRoundedMinRaw: number | null = (
-      body.breakManualRoundedMinutes !== undefined && body.breakManualRoundedMinutes !== null
-    ) ? Math.max(0, Number(body.breakManualRoundedMinutes)) : null
-    const breakManualRoundedMin = breakManualRoundedMinRaw === null
-      ? null
-      : snapMinutes(breakManualRoundedMinRaw, 'round')
-    const breakFinalRoundedMinRaw: number = Number.isFinite(body.breakFinalRoundedMinutes)
-      ? Math.max(0, Number(body.breakFinalRoundedMinutes))
-      : (breakManualRoundedMin ?? breakAutoRoundedMin)
-    const breakFinalRoundedMin = snapMinutes(breakFinalRoundedMinRaw, 'round')
-
-    // body.breakTime("HH:MM") 도 30분 단위만 허용
-    if (body.breakTime && !isHalfHourHHmm(body.breakTime)) {
-      return NextResponse.json(
-        { error: '휴게시간은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
-        { status: 400 }
-      )
-    }
-    // start/end fallback (timeline 없는 legacy 클라이언트) 도 30분만
-    if (body.startTime && !isHalfHourHHmm(body.startTime)) {
-      return NextResponse.json(
-        { error: '출근 시각은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
-        { status: 400 }
-      )
-    }
-    if (body.endTime && !isHalfHourHHmm(body.endTime)) {
-      return NextResponse.json(
-        { error: '퇴근 시각은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
-        { status: 400 }
-      )
-    }
-
-    // ─── 출근보고 (다음 출근 예정) 타임라인 처리 ──────────────────────────────
-    // 신규: body.expectedTimeline (배열) — 우선 사용
-    // 구버전 fallback: body.expectedWorkLocationType / expectedWorkLocation / expectedWorkTime
-    //   → timeline이 없을 때만 단일 항목으로 간주
     let expectedTimeline: WorkLocationTimeline | null = null
     let mirrorExpectedWorkLocation: string | null = null
     let mirrorExpectedWorkTime: string | null = null
@@ -178,17 +146,88 @@ export async function POST(request: Request) {
         mirrorExpectedWorkLocation = first ? displayLocation(first) : null
         mirrorExpectedWorkTime = first?.startTime ?? null
       } else {
-        // legacy body — timeline 없이 단일 필드로 들어온 경우
         mirrorExpectedWorkLocation =
           body.expectedWorkLocationType === '기타'
             ? (body.expectedWorkLocation ?? null)
             : (body.expectedWorkLocationType ?? body.expectedWorkLocation ?? null)
         mirrorExpectedWorkTime = body.expectedWorkTime ?? null
       }
+      // v2 expectedStartTime이 있으면 mirror에 반영 (HH:mm)
+      if (typeof body.expectedStartTime === 'string' && /^(\d{1,2}):(\d{2})$/.test(body.expectedStartTime)) {
+        mirrorExpectedWorkTime = body.expectedStartTime
+      }
+      // planned chip의 첫 라벨이 있으면 location mirror 보강
+      if (plannedWorkLocations && plannedWorkLocations.length > 0) {
+        mirrorExpectedWorkLocation = firstChipLabel(plannedWorkLocations) || mirrorExpectedWorkLocation
+      }
     }
-    const finalExpectedWorkLocation: string | null = mirrorExpectedWorkLocation
 
-    // EW 계산 시 휴게는 break_final_rounded_minutes를 'HH:mm'으로 환산해 사용
+    // ─── 시간/장소 도출 — v2 우선, legacy fallback ─────────────────────────
+    // 시간: body.startTime/endTime (HH:mm) 우선 → workTimeline → 기본
+    const finalStartTime: string = leaveAllDay
+      ? '09:00'
+      : (body.startTime ?? workTimelineFirst?.startTime ?? '09:00')
+    const finalEndTime: string = leaveAllDay
+      ? '18:00'
+      : (body.endTime ?? workTimelineEnd?.startTime ?? '18:00')
+
+    // 장소 요약 — actual chips 우선, 없으면 planned, 없으면 legacy timeline, 없으면 단일
+    const displayLocs: WorkLocations | null =
+      actualWorkLocations
+      ?? plannedWorkLocations
+      ?? legacyTimelineToLocations(workLocationTimeline)
+      ?? legacySingleToLocations(body.workLocation ?? null)
+
+    const finalWorkLocation: string = leaveAllDay
+      ? '휴가'
+      : (firstChipLabel(displayLocs)
+          || (workTimelineFirst ? displayLocation(workTimelineFirst) : '')
+          || (body.workLocationType === '기타'
+                ? (body.workLocationCustom ?? '')
+                : (body.workLocationType ?? ''))
+          || '사무실')
+    const locationSummary: string = leaveAllDay
+      ? '휴가'
+      : (formatChipsArrow(displayLocs)
+          || (workLocationTimeline ? buildLocationSummary(workLocationTimeline) : '')
+          || finalWorkLocation)
+
+    // ─── 휴게 4분리 + 30분 정책 ─────────────────────────────────────────────
+    const breakAutoActualMin: number = Number.isFinite(body.breakAutoActualMinutes)
+      ? Math.max(0, Number(body.breakAutoActualMinutes)) : 0
+    const breakAutoRoundedMinRaw: number = Number.isFinite(body.breakAutoRoundedMinutes)
+      ? Math.max(0, Number(body.breakAutoRoundedMinutes)) : ceilTo30Min(breakAutoActualMin)
+    const breakAutoRoundedMin = snapMinutes(breakAutoRoundedMinRaw, 'round')
+    const breakManualRoundedMinRaw: number | null = (
+      body.breakManualRoundedMinutes !== undefined && body.breakManualRoundedMinutes !== null
+    ) ? Math.max(0, Number(body.breakManualRoundedMinutes)) : null
+    const breakManualRoundedMin = breakManualRoundedMinRaw === null
+      ? null
+      : snapMinutes(breakManualRoundedMinRaw, 'round')
+    const breakFinalRoundedMinRaw: number = Number.isFinite(body.breakFinalRoundedMinutes)
+      ? Math.max(0, Number(body.breakFinalRoundedMinutes))
+      : (breakManualRoundedMin ?? breakAutoRoundedMin)
+    const breakFinalRoundedMin = snapMinutes(breakFinalRoundedMinRaw, 'round')
+
+    if (body.breakTime && !isHalfHourHHmm(body.breakTime)) {
+      return NextResponse.json(
+        { error: '휴게시간은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
+        { status: 400 }
+      )
+    }
+    if (body.startTime && !isHalfHourHHmm(body.startTime)) {
+      return NextResponse.json(
+        { error: '출근 시각은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
+        { status: 400 }
+      )
+    }
+    if (body.endTime && !isHalfHourHHmm(body.endTime)) {
+      return NextResponse.json(
+        { error: '퇴근 시각은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
+        { status: 400 }
+      )
+    }
+
     const breakHHForCalc: string = (() => {
       const m = breakFinalRoundedMin
       const h = Math.floor(m / 60)
@@ -196,8 +235,6 @@ export async function POST(request: Request) {
       return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
     })()
 
-    // 명일 시각(24+ HH) → DB의 PG `time` 컬럼은 0~24만 받으므로 mod 24 처리.
-    // EW 계산기와 timeline JSONB는 raw 24+ 값을 그대로 사용해야 정확함.
     const mod24HHmm = (hhmm: string): string => {
       if (!hhmm) return hhmm
       const [hStr, mStr] = hhmm.split(':')
@@ -219,15 +256,11 @@ export async function POST(request: Request) {
       workContent: body.workContent,
       breakReason: body.breakReason,
       leaveMinutes,
-      // 종일 휴가면 actual_work_time을 0으로 (default 09-18 - 480 = 60 잔여 버그 방지)
       isFullDayLeave: leaveAllDay,
     })
 
-    // ─── 30분 정책 최종 강제 — actual_work_time을 30분 단위로 스냅 ──────────
-    // 입력값이 모두 30분 단위면 결과도 자연히 30분 단위가 됨. 그래도 방어적으로 round 적용.
     const snappedActualMin = snapMinutes(calcResult.actualWorkMinutes, 'round')
     if (!isHalfHour(calcResult.actualWorkMinutes)) {
-      // 비30분 결과가 나오면 입력 어딘가가 비30분 → 사후 보정 + 경고 로그
       console.warn(
         '[/api/work-logs POST] non-30min actual_work_time auto-snapped',
         { raw: calcResult.actualWorkMinutes, snapped: snappedActualMin,
@@ -247,8 +280,15 @@ export async function POST(request: Request) {
       userDivision = profileSnap?.division ?? null
       userTeam = profileSnap?.team ?? null
     } catch {
-      // 프로필 조회 실패 시 null로 진행
+      // 무시
     }
+
+    // 다음 출근 예정 시간 mirror — v2 expectedStartTime 우선
+    const finalExpectedStartDate = body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
+      ? body.expectedStartDate ?? null
+      : null
+    const finalExpectedWorkTime = mirrorExpectedWorkTime
+    const finalExpectedWorkLocation = mirrorExpectedWorkLocation
 
     const insertData = {
       user_id: user.id,
@@ -264,21 +304,24 @@ export async function POST(request: Request) {
       break_time: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
       break_reason: body.breakReason || null,
       work_content: body.workContent || null,
+      // legacy 단일 mirror
       work_location: finalWorkLocation,
       work_location_type: body.workLocationType || null,
       work_location_custom: body.workLocationType === '기타' ? body.workLocationCustom : null,
       work_location_timeline: workLocationTimeline,
+      // v2 chips
+      planned_work_locations: plannedWorkLocations,
+      actual_work_locations: actualWorkLocations,
       late_or_attendance_status: body.lateOrAttendanceStatus || null,
       previous_report_time: body.lateOrAttendanceStatus === '예' ? body.previousReportTime : null,
       current_report_time: body.lateOrAttendanceStatus === '예' ? body.currentReportTime : null,
       late_reason: body.lateOrAttendanceStatus === '예' ? body.lateReason : null,
       attendance_record_type: body.attendanceRecordType || null,
-      expected_start_date: body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' ? body.expectedStartDate : null,
-      expected_work_time: mirrorExpectedWorkTime,
+      expected_start_date: finalExpectedStartDate,
+      expected_work_time: finalExpectedWorkTime,
       expected_work_location: finalExpectedWorkLocation,
       expected_work_location_timeline: expectedTimeline,
       expected_leave_timeline: expectedLeaveTimeline,
-      // 휴가/휴게 분리 — 휴게는 점심 외 추가만 저장 (점심은 deduction_time/워크타입 기반 자동)
       leave_timeline: leaveTimeline,
       break_auto_actual_minutes:    breakAutoActualMin,
       break_auto_rounded_minutes:   breakAutoRoundedMin,
@@ -330,7 +373,7 @@ export async function POST(request: Request) {
         .update(profileUpdates)
         .eq('id', user.id)
     } catch {
-      // 비핵심 처리 — 실패 무시
+      // 무시
     }
 
     const notifyPayload = {
@@ -339,6 +382,9 @@ export async function POST(request: Request) {
       workTypeLabel: body.workTypeLabel ?? '',
       workLocation: finalWorkLocation,
       workLocationTimeline,
+      // v2 — 알림 빌더가 chips 우선 사용 (Phase 4에서 messages.ts 처리)
+      actualWorkLocations,
+      plannedWorkLocations,
       leaveTimeline,
       breakAutoActualMinutes: breakAutoActualMin,
       breakAutoRoundedMinutes: breakAutoRoundedMin,
@@ -355,8 +401,8 @@ export async function POST(request: Request) {
       lateReason:         body.lateOrAttendanceStatus === '예' ? (body.lateReason ?? null) : null,
       workContent: body.workContent || null,
       attendanceRecordType: body.attendanceRecordType || null,
-      expectedStartDate:    body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' ? (body.expectedStartDate ?? null) : null,
-      expectedWorkTime:     mirrorExpectedWorkTime,
+      expectedStartDate:    finalExpectedStartDate,
+      expectedWorkTime:     finalExpectedWorkTime,
       expectedWorkLocation: finalExpectedWorkLocation,
       expectedTimeline,
       division: userDivision,
@@ -369,8 +415,7 @@ export async function POST(request: Request) {
       notifyWorkLogSubmitted(notifyPayload)
     }
 
-    // ─── submissions 로그 기록 ─────────────────────────────────────
-    // 1) 퇴근보고 (check_out) — leave_date 대상
+    // ─── submissions 로그 ─────────────────────────────────────────
     const submittedNow = new Date().toISOString()
     void recordSubmission({
       user_id: user.id,
@@ -382,13 +427,13 @@ export async function POST(request: Request) {
       target_date: body.leaveDate ?? '',
       submitted_at: submittedNow,
       work_log_id: data?.id ?? null,
-      // 퇴근보고 영역
       start_time: dbStartTime,
       end_time: dbEndTime,
       break_time: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
       actual_work_time: `${snappedActualMin} minutes`,
       work_location: finalWorkLocation,
       work_location_timeline: workLocationTimeline ?? null,
+      actual_work_locations: actualWorkLocations ?? null,
       leave_timeline: leaveTimeline ?? null,
       work_content: body.workContent || null,
       ew_value: calcResult.ewValue,
@@ -410,9 +455,6 @@ export async function POST(request: Request) {
       attendance_record_type: body.attendanceRecordType || null,
     })
 
-    // 2) (선택) 사전 출근보고 (check_in) — expected_start_date 대상
-    //    퇴근보고와 같은 trip에 입력된 다음날 출근 예정 정보를 별도 row로 분리 보관.
-    //    attendanceRecordType이 '출근보고 진행'일 때만.
     if (
       body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
       && body.expectedStartDate
@@ -427,12 +469,12 @@ export async function POST(request: Request) {
         target_date: body.expectedStartDate,
         submitted_at: submittedNow,
         work_log_id: data?.id ?? null,
-        // 출근보고 영역만 채움
         expected_start_date:    body.expectedStartDate,
-        expected_work_time:     mirrorExpectedWorkTime,
+        expected_work_time:     finalExpectedWorkTime,
         expected_work_location: finalExpectedWorkLocation,
         expected_work_location_timeline: expectedTimeline ?? null,
         expected_leave_timeline: expectedLeaveTimeline ?? null,
+        planned_work_locations: plannedWorkLocations ?? null,
         work_type_label: body.workTypeLabel,
         attendance_record_type: body.attendanceRecordType,
       })
@@ -453,16 +495,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized or Inactive account' }, { status: 403 })
     }
 
-    // 조회 정책: 모든 active user가 조직 전체 work_logs 조회 가능.
-    // RLS 우회를 위해 adminClient 사용 (편집/삭제는 별도 엔드포인트에서 본인/admin 검증).
     const adminClient = createAdminClient()
-
     const { searchParams } = new URL(request.url)
     const mine = searchParams.get('mine') === 'true'
     const filterDivision = searchParams.get('division') ?? ''
     const filterTeam = searchParams.get('team') ?? ''
-    // 기본 200건. 명시적 limit 요청 시 최대 500까지 (이전 1000은 페이로드 과대).
-    // UI는 my-logs(100), history는 별도 limit 안 줘도 200이면 충분.
     const limitParam = searchParams.get('limit')
     const limit = limitParam ? Math.min(Math.max(Number(limitParam) || 0, 1), 500) : 200
 
@@ -494,7 +531,7 @@ export async function GET(request: Request) {
         }
         query = query.in('user_email', matchedEmails)
       } catch {
-        // 필터 조회 실패 시 필터 없이 전체 반환
+        // 무시
       }
     }
 

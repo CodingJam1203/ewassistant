@@ -14,8 +14,16 @@ import {
   type WorkLocationTimeline,
   type WorkLocationType,
 } from '@/types/work-location-timeline'
+import {
+  appendChipIfChanged,
+  locationStringToChip,
+  normalizeWorkLocations,
+  legacyTimelineToLocations,
+  legacySingleToLocations,
+} from '@/lib/work-locations-v2'
+import type { WorkLocations } from '@/types/work-locations-v2'
 
-/** 사용자가 입력한 location 문자열을 work_location 항목으로 변환 */
+/** 사용자가 입력한 location 문자열을 legacy work_location 항목으로 변환 */
 function locationStringToItem(location: string, startTime: string): Omit<WorkLocationItem, 'kind'> {
   const trimmed = location.trim()
   if (KOREAN_LABEL_TO_TYPE[trimmed]) {
@@ -27,7 +35,6 @@ function locationStringToItem(location: string, startTime: string): Omit<WorkLoc
       startTime,
     }
   }
-  // 알려진 한글 라벨이 아니면 custom
   return {
     type: 'custom',
     label: WORK_LOCATION_TYPE_LABELS.custom,
@@ -50,7 +57,7 @@ export async function POST(request: Request) {
     }
 
     const now     = new Date().toISOString()
-    const flooredTime = nowKstHHmmFloor()  // KST 현재 시각 30분 단위 내림
+    const flooredTime = nowKstHHmmFloor()
     const adminClient = createAdminClient()
 
     const { data: profile } = await adminClient
@@ -83,11 +90,13 @@ export async function POST(request: Request) {
 
     let updatedTimeline: WorkLocationTimeline | null = null
     let timelineChanged = false
+    let updatedActualLocs: WorkLocations | null = null
+    let actualLocsChanged = false
 
     if (daily?.work_log_id) {
       const { data: wLog } = await adminClient
         .from('work_logs')
-        .select('work_location_timeline, location_history')
+        .select('work_location_timeline, location_history, actual_work_locations, planned_work_locations, work_location')
         .eq('id', daily.work_log_id)
         .single()
 
@@ -101,10 +110,10 @@ export async function POST(request: Request) {
 
       const updates: Record<string, unknown> = {
         location_history: history,
-        work_location: location, // legacy mirror
+        work_location: location, // legacy mirror (단일 문자열)
       }
 
-      // timeline이 있으면 누적 시도
+      // legacy timeline이 있으면 누적 시도
       if (currentTimeline) {
         const newItem = locationStringToItem(location, flooredTime)
         const result = appendWorkLocationToTimeline(currentTimeline, newItem)
@@ -113,6 +122,22 @@ export async function POST(request: Request) {
         if (result.changed) {
           updates.work_location_timeline = result.next
         }
+      }
+
+      // ─── v2: actual_work_locations 칩 누적 ─────────────────────────────
+      // 베이스: 기존 actual → planned → legacy timeline → legacy 단일
+      // 맨 마지막 칩이 같으면 noop, 다르면 append.
+      const baseActual: WorkLocations | null =
+        normalizeWorkLocations(wLog?.actual_work_locations)
+        ?? normalizeWorkLocations(wLog?.planned_work_locations)
+        ?? legacyTimelineToLocations(currentTimeline)
+        ?? legacySingleToLocations(typeof wLog?.work_location === 'string' ? wLog?.work_location : null)
+      const newChip = locationStringToChip(location)
+      const result2 = appendChipIfChanged(baseActual, newChip)
+      updatedActualLocs = result2.next
+      actualLocsChanged = result2.changed
+      if (result2.changed) {
+        updates.actual_work_locations = result2.next
       }
 
       await adminClient
@@ -127,12 +152,17 @@ export async function POST(request: Request) {
       user_profile_id: profile?.id ?? null,
       work_log_id:     daily?.work_log_id ?? null,
       event_type:      'location_change',
-      event_value:     { location, time: flooredTime, timeline_changed: timelineChanged },
+      event_value:     {
+        location,
+        time: flooredTime,
+        timeline_changed: timelineChanged,
+        actual_locs_changed: actualLocsChanged,
+      },
       event_at:        now,
       created_by:      user.email!,
     })
 
-    // Teams 근무지 변경 알림
+    // Teams 근무지 변경 알림 (legacy timeline 그대로 전달, 알림 빌더가 v2 처리는 별도로)
     notifyLocationChanged({
       name: profile?.display_name || user.email!,
       date,
@@ -140,11 +170,15 @@ export async function POST(request: Request) {
       newLocation: location,
       changedAt: now,
       timeline: updatedTimeline ?? undefined,
+      actualWorkLocations: updatedActualLocs ?? undefined,
       division: profile?.division ?? null,
       team: profile?.team ?? null,
     })
 
-    return NextResponse.json(daily)
+    return NextResponse.json({
+      ...daily,
+      actual_work_locations: updatedActualLocs,
+    })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     return NextResponse.json({ error: message }, { status: 500 })

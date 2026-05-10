@@ -25,6 +25,7 @@ import { format, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { X, Pencil, CalendarPlus, Copy, Check, Plane, Clock, MapPin, Plus, LogIn, LogOut } from 'lucide-react'
 import { Badge, Button } from '@/components/ui'
+import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import { cn } from '@/lib/utils/cn'
 import type { SubmissionRow } from '@/components/SubmissionsRawTable'
 import type { UserCalendarLookup } from '@/types/leave-calendar'
@@ -147,7 +148,14 @@ export default function CalendarDayDetailModal({
             <KvRow label="출근예정" value={trimToHHmm(ci?.expected_work_time)} />
             <KvRow
               label="예정 장소"
-              value={ci?.expected_work_location ?? '-'}
+              value={(() => {
+                const chips = resolveDisplayLocations({
+                  planned: ci?.planned_work_locations,
+                  legacyExpectedTimeline: ci?.expected_work_location_timeline as unknown as never,
+                  legacyExpectedWorkLocation: ci?.expected_work_location,
+                })
+                return chips && chips.length > 0 ? formatChipsArrow(chips) : (ci?.expected_work_location ?? '-')
+              })()}
               icon={<MapPin className="h-3.5 w-3.5 text-text-muted" aria-hidden />}
             />
             <KvRow
@@ -182,7 +190,15 @@ export default function CalendarDayDetailModal({
             }
           >
             <KvRow label="실제 퇴근" value={trimToHHmm(co?.end_time)} />
-            <KvRow label="근무장소" value={co?.work_location ?? '-'} />
+            <KvRow label="근무장소" value={(() => {
+              const chips = resolveDisplayLocations({
+                actual: co?.actual_work_locations,
+                planned: co?.planned_work_locations,
+                legacyActualTimeline: co?.work_location_timeline as unknown as never,
+                legacyWorkLocation: co?.work_location,
+              })
+              return chips && chips.length > 0 ? formatChipsArrow(chips) : (co?.work_location ?? '-')
+            })()} />
             <KvRow label="휴게" value={fmtIntervalShort(co?.break_time)} />
             <KvRow label="실근무" value={fmtIntervalShort(co?.actual_work_time)} />
             <KvRow

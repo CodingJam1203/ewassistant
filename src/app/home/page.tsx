@@ -362,6 +362,8 @@ export default function HomePage() {
           date={today}
           userName={userName}
           initialTimeline={checkOutTarget.work_location_timeline ?? null}
+          initialActualLocations={checkOutTarget.actual_work_locations ?? null}
+          initialPlannedLocations={checkOutTarget.planned_work_locations ?? null}
           initialLeaveTimeline={checkOutTarget.leave_timeline ?? null}
           initialBreakAutoActualMinutes={checkOutTarget.break_auto_actual_minutes ?? null}
           initialStartTime={

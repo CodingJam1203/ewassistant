@@ -1,24 +1,46 @@
 'use client'
 
+/**
+ * WorkLogForm — v2 (근무장소-시간 분리)
+ *
+ * 변경:
+ * - 근무장소: 시간과 무관한 칩 배열 (planned_work_locations / actual_work_locations).
+ *   퇴근보고 본문에서는 actual chips(planned로 prefill, 변경 없으면 NULL 저장).
+ *   "다음 출근 예정" 영역에서는 planned chips.
+ * - 시간: 출근시간 / 실제퇴근시간 / 출근예정시간 / 퇴근예정시간 — 별도 TimeSelect input으로 분리.
+ * - EW 계산은 startTime/endTime/breakTime/leaveMinutes/workLocationLabel(표시용) 기반으로 유지.
+ *
+ * Legacy 호환:
+ * - initialTimeline (work_location_timeline) — 첫 항목 시각=출근, 마지막 시각=퇴근, work_location 라벨들=actual chips
+ * - editingLog의 work_location_timeline / expected_work_location_timeline — 위와 동일하게 변환해 prefill
+ * - 제출 시 신규 컬럼만 보냄 (legacy 단일 컬럼은 서버에서 첫 chip 라벨로 mirror)
+ */
+
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { calculateEw, EwCalculationResult } from '@/lib/ew-calculator'
-import { Loader2, Copy } from 'lucide-react'
-import { format, addDays } from 'date-fns'
+import { Copy, Loader2 } from 'lucide-react'
+import { addDays } from 'date-fns'
 import { getKstTodayDateString, toKstDateString, dowKo } from '@/lib/utils/date'
-import WorkLocationTimelineInput, { defaultTimeline, defaultCheckoutTimeline } from '@/components/WorkLocationTimelineInput'
+import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
 import LeaveTimelineInput from '@/components/LeaveTimelineInput'
 import TimeSelect from '@/components/TimeSelect'
 import {
-  validateTimeline,
-  firstWorkLocation,
-  endItemOf,
-  displayLocation,
-  buildLocationSummary,
-  legacyToTimeline,
-} from '@/lib/work-location-timeline'
+  defaultWorkLocations,
+  type WorkLocations,
+  type WorkLocationChip,
+} from '@/types/work-locations-v2'
+import {
+  validateWorkLocations,
+  legacyTimelineToLocations,
+  legacySingleToLocations,
+  formatChipsArrow,
+  firstChipLabel,
+  locationsEqual,
+  normalizeWorkLocations,
+} from '@/lib/work-locations-v2'
 import {
   validateLeaveTimeline,
   totalLeaveRoundedMinutes,
@@ -26,28 +48,17 @@ import {
   ceilTo30Min,
   minutesToDisplay,
 } from '@/lib/leave-timeline'
-import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 import type { WorkLog } from '@/types/work-log'
+import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 
-const workLocationItemZ = z.object({
-  kind: z.literal('work_location'),
-  type: z.enum(['office', 'remote', 'field', 'custom']),
-  label: z.string(),
-  customLabel: z.string().nullable(),
-  startTime: z.string(),
-})
-const expectedCheckoutZ = z.object({
-  kind: z.literal('expected_checkout'),
-  startTime: z.string(),
-})
-const checkoutZ = z.object({
-  kind: z.literal('checkout'),
-  startTime: z.string(),
-})
-const timelineEntryZ = z.discriminatedUnion('kind', [workLocationItemZ, expectedCheckoutZ, checkoutZ])
+// ─── zod ─────────────────────────────────────────────────────────────────────
 
-// 휴가 항목 zod 스키마
+const chipZ = z.object({
+  kind: z.enum(['office', 'remote', 'field', 'custom']),
+  customLabel: z.string().nullable().optional(),
+})
+
 const leaveItemZ = z.object({
   kind: z.literal('leave'),
   leaveType: z.enum(['full_day', 'morning_half', 'afternoon_half']),
@@ -63,24 +74,37 @@ const formSchema = z.object({
   name: z.string().min(1, '이름을 입력해주세요'),
   workTypeLabel: z.enum(['기본근무 등록', '간주근로 등록', '공휴일근로 등록']),
   leaveDate: z.string().min(1, '퇴근일자를 입력해주세요'),
-  // 본문 근무장소 타임라인 (마지막은 'checkout' = 실제 퇴근)
-  workLocationTimeline: z.array(timelineEntryZ).optional(),
-  // 본문 휴가/반차 타임라인
+
+  // 본문 시간 (퇴근보고)
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
+
+  // 본문 근무장소 — actual chips (planned로 prefill, 변경 없으면 null로 저장됨)
+  actualWorkLocations: z.array(chipZ).optional(),
+  /** 사용자가 actual을 명시적으로 수정했는지 (변경 없으면 NULL 저장) */
+  actualWorkLocationsTouched: z.boolean().optional(),
+
+  // 본문 휴가/반차
   leaveTimeline: z.array(leaveItemZ).optional(),
-  /** 휴게시간 (= 점심 외 추가 휴게). 점심 1h는 근무유형에 따라 자동 차감 + EW range 자동 포함. */
+
+  /** 휴게시간 (= 점심 외 추가 휴게). 점심 1h는 워크타입에 따라 자동 차감. */
   breakTime: z.string().min(1, '휴게시간을 선택해주세요'),
   breakReason: z.string().optional(),
   workContent: z.string().min(1, '근무내용을 입력해주세요'),
+
   lateOrAttendanceStatus: z.enum(['아니오', '예']),
   previousReportTime: z.string().optional(),
   currentReportTime: z.string().optional(),
   lateReason: z.string().optional(),
+
+  // 다음 출근 예정 (출근보고 진행)
   attendanceRecordType: z.enum(['출근보고 진행 (주말출근, 휴가 포함)', '스킵(누락퇴근보고, 퇴근보고 수정)']),
   expectedStartDate: z.string().optional(),
-  // 다음 출근 예정 타임라인 (마지막은 'expected_checkout' = 퇴근예정)
-  expectedTimeline: z.array(timelineEntryZ).optional(),
-  // 다음 출근 예정 휴가/반차
+  expectedStartTime: z.string().optional(),
+  expectedEndTime: z.string().optional(),
+  plannedWorkLocations: z.array(chipZ).optional(),
   expectedLeaveTimeline: z.array(leaveItemZ).optional(),
+
   thanksMacaron: z.string().optional(),
   sendTeams: z.boolean().optional(),
 }).superRefine((data, ctx) => {
@@ -99,26 +123,26 @@ const formSchema = z.object({
     })
   })
 
-  // 본문 근무장소 타임라인 검증 — 종일 휴가일 때는 비어있어도 OK
-  const wlTl = (data.workLocationTimeline ?? []) as WorkLocationTimeline
+  // 본문 — 종일 휴가 아닐 때 시간 + 칩 검증
   if (!isAllDay) {
-    const wlTimelineErrors = validateTimeline(wlTl)
-    wlTimelineErrors.forEach(err => {
+    if (!data.startTime || !/^(\d{1,2}):(00|30)$/.test(data.startTime)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '출근시간을 30분 단위로 선택해주세요.', path: ['startTime'] })
+    }
+    if (!data.endTime || !/^(\d{1,2}):(00|30)$/.test(data.endTime)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '퇴근시간을 30분 단위로 선택해주세요.', path: ['endTime'] })
+    }
+
+    const actual = (data.actualWorkLocations ?? []) as WorkLocations
+    const locErrors = validateWorkLocations(actual)
+    locErrors.forEach(err => {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: err.message,
         path: typeof err.index === 'number'
-          ? ['workLocationTimeline', err.index]
-          : ['workLocationTimeline'],
+          ? ['actualWorkLocations', err.index]
+          : ['actualWorkLocations'],
       })
     })
-    if (wlTl.length > 0 && wlTl[wlTl.length - 1].kind !== 'checkout') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: '퇴근보고의 마지막 항목은 퇴근(실제) 시간이어야 합니다.',
-        path: ['workLocationTimeline'],
-      })
-    }
   }
 
   if (data.lateOrAttendanceStatus === '예') {
@@ -126,27 +150,26 @@ const formSchema = z.object({
     if (!data.currentReportTime) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '필수 입력', path: ['currentReportTime'] })
     if (!data.lateReason) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '필수 입력', path: ['lateReason'] })
   }
+
   if (data.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)') {
     if (!data.expectedStartDate) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '필수 입력', path: ['expectedStartDate'] })
-    const tlErrors = validateTimeline((data.expectedTimeline ?? []) as WorkLocationTimeline)
-    tlErrors.forEach(err => {
+    if (!data.expectedStartTime || !/^(\d{1,2}):(00|30)$/.test(data.expectedStartTime)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '출근예정시간을 30분 단위로 선택해주세요.', path: ['expectedStartTime'] })
+    }
+    if (!data.expectedEndTime || !/^(\d{1,2}):(00|30)$/.test(data.expectedEndTime)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '퇴근예정시간을 30분 단위로 선택해주세요.', path: ['expectedEndTime'] })
+    }
+    const planned = (data.plannedWorkLocations ?? []) as WorkLocations
+    const plErrors = validateWorkLocations(planned)
+    plErrors.forEach(err => {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: err.message,
         path: typeof err.index === 'number'
-          ? ['expectedTimeline', err.index]
-          : ['expectedTimeline'],
+          ? ['plannedWorkLocations', err.index]
+          : ['plannedWorkLocations'],
       })
     })
-    // 다음 출근 예정의 마지막은 'expected_checkout'
-    const exTl = (data.expectedTimeline ?? []) as WorkLocationTimeline
-    if (exTl.length > 0 && exTl[exTl.length - 1].kind !== 'expected_checkout') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: '다음 출근 예정의 마지막 항목은 퇴근예정 시간이어야 합니다.',
-        path: ['expectedTimeline'],
-      })
-    }
   }
 })
 
@@ -154,106 +177,106 @@ export type WorkLogFormData = z.infer<typeof formSchema>
 
 interface WorkLogFormProps {
   userName: string | null
-  /** 퇴근보고 모달 진입 시 미리 받아온 오늘의 work_location_timeline (마지막은 'checkout') */
+  /**
+   * Legacy: 오늘의 work_location_timeline (퇴근보고 모달 prefill용).
+   * 제공되면 첫 항목 시각=출근, 마지막 시각=퇴근으로 추출하고,
+   * work_location 라벨들은 actual chips로 변환해 prefill.
+   */
   initialTimeline?: WorkLocationTimeline | null
-  /** 오늘의 leave_timeline (휴가/반차) — WorkLogModal hydration */
+  /** 신규: 오늘의 actual chips. (있으면 initialTimeline보다 우선) */
+  initialActualLocations?: WorkLocations | null
+  /** 신규: 오늘의 planned chips (없으면 actual로 대체 노출). */
+  initialPlannedLocations?: WorkLocations | null
+  /** 오늘의 leave_timeline */
   initialLeaveTimeline?: LeaveTimeline | null
-  /** 휴게 시작/종료 로그 누적 실제 분 */
   initialBreakAutoActualMinutes?: number | null
-  /** legacy: timeline이 없을 때만 사용. 첫 work_location.startTime으로 prefill */
+  /** Legacy fallback: timeline 없을 때 사용할 출근시각 ('HH:mm') */
   initialStartTime?: string
-  /** legacy: timeline이 없을 때만 사용. checkout.startTime으로 prefill */
+  /** Legacy fallback: timeline 없을 때 사용할 퇴근시각 ('HH:mm') */
   initialEndTime?: string
   resubmitLogId?: string | null
-  /**
-   * 수정 모드 — 기존 work_log를 받아 모든 폼 필드를 prefill하고
-   * 제출 시 PATCH /api/work-logs/{id}를 호출.
-   * resubmitLogId와 동시에 줄 수 없음 (편집은 별도 흐름).
-   */
+  /** 수정 모드 */
   editingLog?: WorkLog | null
-  /**
-   * 수정 모드에서 어떤 영역만 보여줄지 — 보고유형 단위 분리 편집.
-   *   'check_in'  : 출근보고 영역만 (출근예정일/시각/장소/휴가, attendanceRecordType)
-   *   'check_out' : 퇴근보고 영역만 (근무장소 timeline, leave timeline, 휴게/근무내용, 지각수정)
-   *   undefined   : 전체 (기존 동작)
-   */
   editScope?: 'check_in' | 'check_out'
   onCalculate: (result: EwCalculationResult | null, error: string | null) => void
   onSubmitSuccess: () => void
-  /**
-   * 폼 제출 진행/에러 상태를 부모에 전달 — 외부 제출 버튼(모달 우측·하단 플로팅)에서 spinner/에러 표시용.
-   * 미설정 시에도 폼은 정상 동작.
-   */
   onSubmitStateChange?: (state: { isSubmitting: boolean; submitError: string | null }) => void
 }
 
-/** 'HH:mm[:ss]' → 'HH:mm' (5자) */
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
 function trimToHHmm(t: string | undefined | null): string {
   if (!t) return ''
   return t.slice(0, 5)
 }
 
-
-/** initial props로 본문 timeline 기본값 결정 */
-function buildInitialTimeline(
-  initialTimeline?: WorkLocationTimeline | null,
-  initialStartTime?: string,
-  initialEndTime?: string,
-): WorkLocationTimeline {
-  if (Array.isArray(initialTimeline) && initialTimeline.length > 0) {
-    const arr = [...initialTimeline]
-    // 첫 항목 시각을 initialStartTime로 override — 사전 보고의 expected_work_time(09:00)이 아닌
-    // 실제 출근 시각(checked_in_at HH:MM = 09:30)을 퇴근보고 시작으로 사용.
-    // initialStartTime이 timeline 첫 항목과 다를 때만 (= 사전 보고 + 실제 출근 시각이 다른 케이스)
-    const overrideStart = trimToHHmm(initialStartTime)
-    if (overrideStart && arr[0] && arr[0].kind === 'work_location' && arr[0].startTime !== overrideStart) {
-      arr[0] = { ...arr[0], startTime: overrideStart }
-    }
-    // 마지막 항목이 expected_checkout이면 checkout으로 변환
-    const last = arr[arr.length - 1]
-    if (last.kind === 'expected_checkout') {
-      arr[arr.length - 1] = { kind: 'checkout', startTime: last.startTime }
-    }
-    return arr
+/** initialTimeline (legacy)에서 첫 work_location 시각 추출 */
+function timelineFirstStartTime(tl: WorkLocationTimeline | null | undefined): string | null {
+  if (!Array.isArray(tl)) return null
+  for (const e of tl) {
+    if (e.kind === 'work_location') return e.startTime
   }
-  // legacy: 단일 항목 timeline 합성
-  const start = trimToHHmm(initialStartTime) || '09:00'
-  const end   = trimToHHmm(initialEndTime)   || '18:00'
-  const synth = legacyToTimeline({
-    expectedWorkLocation: '사무실',
-    expectedWorkLocationType: '사무실',
-    expectedWorkTime: start,
-    fallbackCheckoutTime: end,
-    asExpected: false, // 퇴근보고 모드 → checkout
-  })
-  return synth ?? defaultCheckoutTimeline()
+  return null
+}
+/** initialTimeline에서 마지막 종료 항목(checkout/expected_checkout) 시각 추출 */
+function timelineEndTime(tl: WorkLocationTimeline | null | undefined): string | null {
+  if (!Array.isArray(tl) || tl.length === 0) return null
+  const last = tl[tl.length - 1]
+  if (last.kind === 'expected_checkout' || last.kind === 'checkout') {
+    return last.startTime
+  }
+  return null
 }
 
-/** editingLog → 본문 timeline (legacy 데이터에서 work_location_type/_custom 활용) */
-function buildEditTimeline(log: WorkLog): WorkLocationTimeline {
-  if (Array.isArray(log.work_location_timeline) && log.work_location_timeline.length > 0) {
-    const arr = [...log.work_location_timeline]
-    const last = arr[arr.length - 1]
-    if (last.kind === 'expected_checkout') {
-      arr[arr.length - 1] = { kind: 'checkout', startTime: last.startTime }
-    }
-    return arr
-  }
-  const start = trimToHHmm(log.start_time) || '09:00'
-  const end   = trimToHHmm(log.end_time)   || '18:00'
-  const synth = legacyToTimeline({
-    expectedWorkLocation:     log.work_location_custom ?? log.work_location ?? null,
-    expectedWorkLocationType: log.work_location_type ?? log.work_location ?? null,
-    expectedWorkTime:         start,
-    fallbackCheckoutTime:     end,
-    asExpected: false,
-  })
-  return synth ?? defaultCheckoutTimeline()
+/**
+ * 초기 actualWorkLocations 결정.
+ * 우선순위: initialActualLocations → initialTimeline에서 변환 → initialPlannedLocations → 기본([사무실])
+ */
+function buildInitialActualLocations(
+  initialActualLocations: WorkLocations | null | undefined,
+  initialTimeline: WorkLocationTimeline | null | undefined,
+  initialPlannedLocations: WorkLocations | null | undefined,
+): WorkLocations {
+  const v2 = normalizeWorkLocations(initialActualLocations)
+  if (v2 && v2.length > 0) return v2
+  const fromLegacy = legacyTimelineToLocations(initialTimeline ?? null)
+  if (fromLegacy && fromLegacy.length > 0) return fromLegacy
+  const planned = normalizeWorkLocations(initialPlannedLocations)
+  if (planned && planned.length > 0) return planned
+  return defaultWorkLocations()
 }
+
+/** 수정 모드의 editingLog → actual chips */
+function buildEditActualLocations(log: WorkLog): WorkLocations {
+  const v2 = normalizeWorkLocations(log.actual_work_locations)
+  if (v2 && v2.length > 0) return v2
+  const fromTl = legacyTimelineToLocations(log.work_location_timeline ?? null)
+  if (fromTl && fromTl.length > 0) return fromTl
+  const planned = normalizeWorkLocations(log.planned_work_locations)
+  if (planned && planned.length > 0) return planned
+  const fromSingle = legacySingleToLocations(log.work_location ?? null)
+  if (fromSingle && fromSingle.length > 0) return fromSingle
+  return defaultWorkLocations()
+}
+
+/** 수정 모드의 editingLog → planned chips */
+function buildEditPlannedLocations(log: WorkLog): WorkLocations {
+  const v2 = normalizeWorkLocations(log.planned_work_locations)
+  if (v2 && v2.length > 0) return v2
+  const fromTl = legacyTimelineToLocations(log.expected_work_location_timeline ?? null)
+  if (fromTl && fromTl.length > 0) return fromTl
+  const fromSingle = legacySingleToLocations(log.expected_work_location ?? null)
+  if (fromSingle && fromSingle.length > 0) return fromSingle
+  return defaultWorkLocations()
+}
+
+// ─── component ───────────────────────────────────────────────────────────────
 
 export default function WorkLogForm({
   userName,
   initialTimeline,
+  initialActualLocations,
+  initialPlannedLocations,
   initialLeaveTimeline,
   initialBreakAutoActualMinutes,
   initialStartTime,
@@ -266,45 +289,86 @@ export default function WorkLogForm({
   onSubmitStateChange,
 }: WorkLogFormProps) {
   const isEditing = !!editingLog
-  // 영역별 표시 분기 — undefined면 전부 표시
   const showCheckOutSections = editScope === undefined || editScope === 'check_out'
   const showCheckInSections  = editScope === undefined || editScope === 'check_in'
 
-  // 휴게 자동값 — 수정 모드면 editingLog의 값 우선
+  // 휴게 자동값
   const breakAutoActualMinutes = isEditing
     ? (editingLog?.break_auto_actual_minutes ?? 0)
     : (initialBreakAutoActualMinutes ?? 0)
   const breakAutoRoundedMinutes = ceilTo30Min(breakAutoActualMinutes)
-  /** 자동 계산값을 'HH:mm'으로 표현 (폼 default용) */
   const breakAutoHHmm = (() => {
     const m = breakAutoRoundedMinutes
     const h = Math.floor(m / 60)
     const mm = m % 60
     return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
   })()
-
-  /**
-   * 신규 모드 휴게시간 default — 시트 정책: K는 점심 외 추가 휴게라서 보통 0:00.
-   *   1) 휴게 시작/종료 버튼 누적값(>0)이 있으면 그것 우선 (= 추가 휴게 버튼을 눌렀던 케이스)
-   *   2) 그 외 → 00:00 default
-   */
   const defaultBreakHHmm = (() => {
     if (breakAutoRoundedMinutes > 0) return breakAutoHHmm
     return '00:00'
   })()
+
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [showEwPopup, setShowEwPopup] = useState(false)
-  // 마지막 제출의 EW 계산 결과 — 복사 완료 팝업에서 점심시간 안내 노출 판정용
   const [lastSubmitResult, setLastSubmitResult] = useState<EwCalculationResult | null>(null)
 
-  // 외부(모달 우측 컬럼·하단 플로팅) 제출 버튼이 spinner/에러를 표시할 수 있도록 부모에 통지
   useEffect(() => {
     onSubmitStateChange?.({ isSubmitting, submitError })
   }, [isSubmitting, submitError, onSubmitStateChange])
+
   const nameDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // 최초 자동완성 여부 추적 (userName prop이 로드되면 한 번만 setValue)
   const nameInitialized = useRef(false)
+
+  // 시간 default 계산
+  const defaultStartTime = (() => {
+    if (isEditing && editingLog) {
+      return trimToHHmm(editingLog.start_time)
+        || timelineFirstStartTime(editingLog.work_location_timeline ?? null)
+        || '09:00'
+    }
+    return trimToHHmm(initialStartTime)
+      || timelineFirstStartTime(initialTimeline ?? null)
+      || '09:00'
+  })()
+  const defaultEndTime = (() => {
+    if (isEditing && editingLog) {
+      return trimToHHmm(editingLog.end_time)
+        || timelineEndTime(editingLog.work_location_timeline ?? null)
+        || '18:00'
+    }
+    return trimToHHmm(initialEndTime)
+      || timelineEndTime(initialTimeline ?? null)
+      || '18:00'
+  })()
+  const defaultExpectedStartTime = (() => {
+    if (isEditing && editingLog) {
+      return trimToHHmm(editingLog.expected_work_time)
+        || timelineFirstStartTime(editingLog.expected_work_location_timeline ?? null)
+        || '09:00'
+    }
+    return '09:00'
+  })()
+  const defaultExpectedEndTime = (() => {
+    if (isEditing && editingLog) {
+      return timelineEndTime(editingLog.expected_work_location_timeline ?? null) || '18:00'
+    }
+    return '18:00'
+  })()
+
+  // chips defaults
+  const defaultActualLocations: WorkLocations = isEditing && editingLog
+    ? buildEditActualLocations(editingLog)
+    : buildInitialActualLocations(
+        initialActualLocations ?? null,
+        initialTimeline ?? null,
+        initialPlannedLocations ?? null,
+      )
+  const defaultPlannedLocations: WorkLocations = isEditing && editingLog
+    ? buildEditPlannedLocations(editingLog)
+    : defaultWorkLocations()
+  // actual의 baseline (사용자가 변경했는지 비교용)
+  const baselineActualRef = useRef<WorkLocations>(defaultActualLocations)
 
   const {
     register,
@@ -316,7 +380,6 @@ export default function WorkLogForm({
     resolver: zodResolver(formSchema),
     defaultValues: isEditing && editingLog
       ? {
-          // 수정 모드 — editingLog의 모든 필드 prefill
           name: editingLog.name,
           workTypeLabel: (
             editingLog.work_type_label === '간주근로 등록' || editingLog.work_type_label === '공휴일근로 등록'
@@ -324,7 +387,12 @@ export default function WorkLogForm({
               : '기본근무 등록'
           ) as '기본근무 등록' | '간주근로 등록' | '공휴일근로 등록',
           leaveDate: editingLog.leave_date,
-          workLocationTimeline: buildEditTimeline(editingLog),
+          startTime: defaultStartTime,
+          endTime: defaultEndTime,
+          actualWorkLocations: defaultActualLocations,
+          // 수정 모드에서 actual_work_locations가 NULL이었으면 (planned로 노출돼있던 상태)
+          // baseline = planned, touched = false. 사용자가 변경하면 touched=true가 됨.
+          actualWorkLocationsTouched: editingLog.actual_work_locations != null,
           leaveTimeline: (editingLog.leave_timeline ?? []) as LeaveTimeline,
           breakTime: trimToHHmm(editingLog.break_time) || '00:00',
           breakReason: editingLog.break_reason ?? '',
@@ -338,28 +406,30 @@ export default function WorkLogForm({
               ? '스킵(누락퇴근보고, 퇴근보고 수정)'
               : '출근보고 진행 (주말출근, 휴가 포함)'),
           expectedStartDate: editingLog.expected_start_date ?? toKstDateString(addDays(new Date(editingLog.leave_date), 1)),
-          expectedTimeline: (editingLog.expected_work_location_timeline ?? defaultTimeline()) as WorkLocationTimeline,
+          expectedStartTime: defaultExpectedStartTime,
+          expectedEndTime: defaultExpectedEndTime,
+          plannedWorkLocations: defaultPlannedLocations,
           expectedLeaveTimeline: (editingLog.expected_leave_timeline ?? []) as LeaveTimeline,
           thanksMacaron: (editingLog.thanks_macaron as string | null) ?? '',
           sendTeams: true,
         }
       : {
-          // 신규 작성 모드
           name: userName || '',
           workTypeLabel: '기본근무 등록',
           leaveDate: getKstTodayDateString(),
-          workLocationTimeline: buildInitialTimeline(initialTimeline, initialStartTime, initialEndTime),
+          startTime: defaultStartTime,
+          endTime: defaultEndTime,
+          actualWorkLocations: defaultActualLocations,
+          actualWorkLocationsTouched: false,
           leaveTimeline: (initialLeaveTimeline ?? []) as LeaveTimeline,
-          // 휴게시간 default — 0:00 (= 점심 외 추가 휴게. 점심 1h는 워크타입 기반 자동 차감)
           breakTime: defaultBreakHHmm,
           workContent: '',
           lateOrAttendanceStatus: '아니오',
-          // 퇴근보고 모달 default — '출근보고 진행' + 명일을 출근 예정일로 자동 채움.
-          // 사용자가 다음날 출근 안 할 거면 attendanceRecordType을 '스킵'으로 변경.
-          // (출근 경로/CheckInModal에서 만들어진 record는 서버에서 '스킵'으로 저장됨)
           attendanceRecordType: '출근보고 진행 (주말출근, 휴가 포함)',
           expectedStartDate: toKstDateString(addDays(new Date(), 1)),
-          expectedTimeline: defaultTimeline(),
+          expectedStartTime: '09:00',
+          expectedEndTime: '18:00',
+          plannedWorkLocations: defaultPlannedLocations,
           expectedLeaveTimeline: [] as LeaveTimeline,
           sendTeams: true,
         },
@@ -367,33 +437,26 @@ export default function WorkLogForm({
 
   const formValues = watch()
 
-  // 본문 timeline에서 출근/퇴근 시간 / 근무장소 도출
-  const workTimeline = (formValues.workLocationTimeline ?? []) as WorkLocationTimeline
-  const firstWL = firstWorkLocation(workTimeline)
-  const endIt = endItemOf(workTimeline)
-  const derivedStartTime = firstWL?.startTime ?? ''
-  const derivedEndTime = endIt?.startTime ?? ''
-  const derivedWorkLocationSummary = buildLocationSummary(workTimeline)
+  // 도출값
+  const actualLocs = (formValues.actualWorkLocations ?? []) as WorkLocations
+  const plannedLocs = (formValues.plannedWorkLocations ?? []) as WorkLocations
+  const startTime = formValues.startTime ?? ''
+  const endTime = formValues.endTime ?? ''
+  const derivedLocationLabel = formatChipsArrow(actualLocs)
 
-  // 휴가 관련 도출값 — 점심 중복 방지는 사용자가 차감시간을 직접 조정하므로 자동 처리 안 함
+  // 휴가 도출값
   const leaveTl = (formValues.leaveTimeline ?? []) as LeaveTimeline
   const leaveMinutesTotal = totalLeaveRoundedMinutes(leaveTl)
   const isAllDay = isFullDayLeave(leaveTl)
-  // 반차(오전/오후) 사용 여부 — 회사 EW 표준대로 폭은 09:00~18:00로 강제 처리
   const hasReducedLeave = leaveTl.some(it =>
     it.leaveType === 'morning_half' || it.leaveType === 'afternoon_half'
   )
-  // 회사 EW 시트 표준: 휴가/반차 row는 09:00~18:00 폭에서 차감 계산
   const forceStandardSpan = isAllDay || hasReducedLeave
 
-  // 휴게사유 표시 여부: 점심 외 추가 휴게가 30분 이상일 때만
   const showBreakReason = formValues.breakTime && formValues.breakTime !== '00:00'
-
-  // 휴게 사용자 수정 여부 — 자동 계산값과 다르면 manual로 간주
   const breakUserChanged = (formValues.breakTime ?? '00:00') !== breakAutoHHmm && breakAutoRoundedMinutes > 0
 
-  // ── userName prop이 비동기로 로드되면 이름 필드에 자동완성 (최초 1회) ───────
-  // 수정 모드에서는 editingLog.name이 이미 prefill됐으므로 덮어쓰지 않음
+  // userName prop 자동완성
   useEffect(() => {
     if (isEditing) {
       nameInitialized.current = true
@@ -405,36 +468,28 @@ export default function WorkLogForm({
     }
   }, [userName, setValue, isEditing])
 
-  // ── 공휴일근로 선택 시 휴게시간 default 0:00으로 — 점심 자동 가정 안 함 ───────
-  // (수정 모드는 editingLog의 break_time을 그대로 보존, 사용자가 명시적으로 변경할 때만)
+  // 워크타입 변경 시 휴게 default 보정
   const prevWorkTypeRef = useRef<string | undefined>(undefined)
   useEffect(() => {
     const wt = formValues.workTypeLabel
     if (isEditing) {
-      // 수정 모드는 첫 진입 시 editingLog 값으로 prefill되어 있고,
-      // 사용자가 직접 work type을 바꾸기 전엔 break도 건드리지 않음.
       if (prevWorkTypeRef.current === undefined) {
         prevWorkTypeRef.current = wt
         return
       }
     }
     if (prevWorkTypeRef.current !== wt) {
-      // 시트 정책: 점심은 워크타입 기반 자동 (X). 사용자 입력 휴게(K)는 항상 추가 휴게.
-      // 공휴일/기본 전환 시 K는 자동 누적값 우선, 없으면 0:00 default.
       setValue('breakTime', breakAutoRoundedMinutes > 0 ? breakAutoHHmm : '00:00')
       prevWorkTypeRef.current = wt
     }
   }, [formValues.workTypeLabel, setValue, breakAutoRoundedMinutes, breakAutoHHmm, isEditing])
 
-  // ── 이름 필드 변경 시 debounce로 display_name 자동 업데이트 (800ms) ────────
-  // 수정 모드에서는 historical record 이름을 바꾼다고 사용자 프로필을 갱신하면 안 되므로 스킵
+  // display_name 자동 업데이트 (debounce)
   useEffect(() => {
     if (isEditing) return
     const currentName = formValues.name
     if (!currentName || !nameInitialized.current) return
-
     if (nameDebounceRef.current) clearTimeout(nameDebounceRef.current)
-
     nameDebounceRef.current = setTimeout(async () => {
       try {
         await fetch('/api/auth/profile', {
@@ -443,24 +498,21 @@ export default function WorkLogForm({
           body: JSON.stringify({ display_name: currentName }),
         })
       } catch {
-        // 실패해도 무시 (폼 입력에 영향 없음)
+        // ignore
       }
     }, 800)
-
     return () => {
       if (nameDebounceRef.current) clearTimeout(nameDebounceRef.current)
     }
   }, [formValues.name, isEditing]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // EW 계산
   useEffect(() => {
     try {
-      // 24+ 시간(명일 00:00 ~ 36:00 = 명일 12:00)도 인식
       const timeRegex = /^([01]\d|2\d|3[0-6]):([0-5]\d)$/
-      // 종일 휴가 또는 반차일 땐 work_location 시간 검증 스킵하고 09:00~18:00 폭 강제
-      // (회사 EW 시트 표준: 모든 휴가성 row는 표준 폭에서 차감 처리)
-      const calcStart = forceStandardSpan ? '09:00' : derivedStartTime
-      const calcEnd   = forceStandardSpan ? '18:00' : derivedEndTime
-      const calcLocation = isAllDay ? '휴가' : (derivedWorkLocationSummary || '사무실')
+      const calcStart = forceStandardSpan ? '09:00' : startTime
+      const calcEnd   = forceStandardSpan ? '18:00' : endTime
+      const calcLocation = isAllDay ? '휴가' : (derivedLocationLabel || '사무실')
 
       if (
         formValues.name &&
@@ -491,7 +543,7 @@ export default function WorkLogForm({
     }
   }, [
     formValues.name, formValues.workTypeLabel, formValues.leaveDate,
-    derivedStartTime, derivedEndTime, derivedWorkLocationSummary,
+    startTime, endTime, derivedLocationLabel,
     formValues.breakTime, formValues.workContent, formValues.breakReason,
     leaveMinutesTotal, isAllDay, forceStandardSpan,
     onCalculate, showBreakReason
@@ -510,27 +562,28 @@ export default function WorkLogForm({
       const submittedForceStandardSpan = submittedIsAllDay || submittedHasReducedLeave
       const submittedLeaveMinutes = totalLeaveRoundedMinutes(submittedLeave)
 
-      const submittedTimeline = (data.workLocationTimeline ?? []) as WorkLocationTimeline
-      const submittedFirst = firstWorkLocation(submittedTimeline)
-      const submittedEnd = endItemOf(submittedTimeline)
-      // 종일 휴가/반차일 때는 09:00~18:00 강제 (회사 EW 시트 표준)
-      const submittedStartTime = submittedForceStandardSpan ? '09:00' : (submittedFirst?.startTime ?? '09:00')
-      const submittedEndTime   = submittedForceStandardSpan ? '18:00' : (submittedEnd?.startTime ?? '18:00')
+      const submittedActual = (data.actualWorkLocations ?? []) as WorkLocations
+      const submittedPlanned = (data.plannedWorkLocations ?? []) as WorkLocations
+      const actualWasTouched = !!data.actualWorkLocationsTouched
+        || !locationsEqual(submittedActual, baselineActualRef.current)
+
+      const submittedStartTime = submittedForceStandardSpan ? '09:00' : (data.startTime || '09:00')
+      const submittedEndTime   = submittedForceStandardSpan ? '18:00' : (data.endTime   || '18:00')
       const submittedWorkLocation = submittedIsAllDay
         ? '휴가'
-        : (submittedFirst ? displayLocation(submittedFirst) : '사무실')
+        : (firstChipLabel(submittedActual) || '사무실')
       const submittedLocationSummary = submittedIsAllDay
         ? '휴가'
-        : (buildLocationSummary(submittedTimeline) || submittedWorkLocation)
+        : (formatChipsArrow(submittedActual) || submittedWorkLocation)
 
-      // 휴게(= 점심 외 추가): manual = breakTime, auto = breakAutoRoundedMinutes
+      // 휴게
       const breakManualHHmm = data.breakTime || '00:00'
       const [bH, bM] = breakManualHHmm.split(':').map(Number)
       const breakManualMinutes = (Number.isFinite(bH) ? bH : 0) * 60 + (Number.isFinite(bM) ? bM : 0)
       const breakIsManual = breakManualMinutes !== breakAutoRoundedMinutes
-      const breakFinalRoundedMinutes = breakManualMinutes  // 화면값이 곧 최종 반영값
+      const breakFinalRoundedMinutes = breakManualMinutes
 
-      // 브라우저 포커스 유실을 방지하기 위해 비동기 API 통신 전 클립보드 복사를 먼저 실행합니다.
+      // EW 계산 + 클립보드
       const result = calculateEw({
         name: data.name,
         workTypeLabel: data.workTypeLabel,
@@ -544,14 +597,12 @@ export default function WorkLogForm({
         leaveMinutes: submittedLeaveMinutes,
         isFullDayLeave: submittedIsAllDay,
       })
-
       try {
         await navigator.clipboard.writeText(result.copyText)
       } catch (err) {
         console.warn('Clipboard write failed:', err)
       }
 
-      // 수정 모드 vs 신규 작성 모드 분기
       const url = isEditing && editingLog
         ? `/api/work-logs/${editingLog.id}`
         : '/api/work-logs'
@@ -562,38 +613,47 @@ export default function WorkLogForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...data,
-          // 서버 호환: timeline에서 도출된 값을 함께 전달
-          workLocationTimeline: submittedTimeline,
-          leaveTimeline: submittedLeave,
+          // 신규 v2 필드
+          actualWorkLocations: actualWasTouched ? submittedActual : null,
+          plannedWorkLocations: data.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
+            ? submittedPlanned
+            : null,
+          // 시간 (HH:mm)
           startTime: submittedStartTime,
           endTime: submittedEndTime,
-          workLocationType: submittedFirst?.type === 'custom' ? '기타' : (submittedFirst?.label ?? '사무실'),
-          workLocationCustom: submittedFirst?.type === 'custom' ? (submittedFirst.customLabel ?? '') : '',
+          expectedStartTime: data.expectedStartTime,
+          expectedEndTime: data.expectedEndTime,
+          // legacy 단일 mirror (서버 호환)
           finalWorkLocation: submittedWorkLocation,
-          workLocation: submittedWorkLocation, // PATCH legacy fallback 호환
-          // 휴게 분리 값 (= 점심 외 추가 휴게. 점심은 워크타입 자동 차감)
+          workLocation: submittedWorkLocation,
+          leaveTimeline: submittedLeave,
           breakAutoActualMinutes: breakAutoActualMinutes,
           breakAutoRoundedMinutes: breakAutoRoundedMinutes,
           breakManualRoundedMinutes: breakIsManual ? breakManualMinutes : null,
           breakFinalRoundedMinutes: breakFinalRoundedMinutes,
-          // 수정 모드에서는 resubmitLogId 안 씀 (별도 흐름)
           resubmitLogId: isEditing ? null : resubmitLogId,
         }),
       })
 
       const resData = await res.json()
-
       if (!res.ok) {
         throw new Error(resData.error || '제출에 실패했습니다.')
       }
 
       setLastSubmitResult(result)
       setShowEwPopup(true)
-      // onSubmitSuccess는 팝업 버튼 클릭 후 호출 (팝업이 닫히면서 호출)
     } catch (err: any) {
       setSubmitError(err.message)
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  // chips 변경 핸들러
+  const onActualLocsChange = (next: WorkLocations) => {
+    setValue('actualWorkLocations', next, { shouldValidate: false, shouldDirty: true })
+    if (!locationsEqual(next, baselineActualRef.current)) {
+      setValue('actualWorkLocationsTouched', true, { shouldValidate: false, shouldDirty: true })
     }
   }
 
@@ -606,14 +666,12 @@ export default function WorkLogForm({
             <p className="text-sm text-text-secondary mb-3">
               복사한 내용을 EW(Enjoy Working) 또는 NPM(휴가 상신)에 붙여 넣어 등록할 수 있습니다.
             </p>
-            {/* 4시간 이하 또는 공휴일근로 — 점심시간 자동 처리가 어색한 케이스에 안내 */}
             {lastSubmitResult && (lastSubmitResult.actualWorkMinutes <= 4 * 60 || lastSubmitResult.workTypeCode === 3) && (
               <div className="mb-5 rounded-[10px] border border-warning-border bg-warning-bg px-3 py-2 text-[12px] text-warning-text">
                 * 점심시간 진행 여부에 따라 근무시간을 별도 계산하여 EW에 상신해주세요.
               </div>
             )}
             <div className="flex flex-col gap-2">
-              {/* 1. EW 상신 */}
               <a
                 href="https://working.univ.me/Home"
                 target="_blank"
@@ -623,7 +681,6 @@ export default function WorkLogForm({
               >
                 EW 상신하기 (EW)
               </a>
-              {/* 2. 휴가 상신 (NPM) */}
               <a
                 href="https://intra.univ.me/Approval/AprCreateDoc"
                 target="_blank"
@@ -633,7 +690,6 @@ export default function WorkLogForm({
               >
                 휴가 상신하기 (NPM)
               </a>
-              {/* 3. 닫기 */}
               <button
                 onClick={() => { setShowEwPopup(false); onSubmitSuccess() }}
                 className="w-full px-4 py-2.5 text-sm font-medium text-text-primary bg-surface-muted hover:bg-border rounded-lg transition-colors"
@@ -646,7 +702,7 @@ export default function WorkLogForm({
       )}
       <form id="work-log-form" onSubmit={handleSubmit(onSubmit)} className="space-y-8 bg-surface p-6 sm:p-8 rounded-lg border border-border shadow-sm">
 
-      {/* 1. 기본 정보 섹션 */}
+      {/* 1. 기본 정보 */}
       <div>
         <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">기본 정보</h3>
         <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-2">
@@ -703,38 +759,68 @@ export default function WorkLogForm({
           value={(formValues.leaveTimeline ?? []) as LeaveTimeline}
           onChange={next => setValue('leaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
         />
-        {(errors as { leaveTimeline?: { message?: string } }).leaveTimeline?.message && (
-          <p className="mt-1 text-xs text-danger-text">
-            {(errors as { leaveTimeline?: { message?: string } }).leaveTimeline?.message}
-          </p>
-        )}
       </div>
       )}
 
-      {/* 3. 근무장소 타임라인 — 종일 휴가가 아닐 때만 노출 (퇴근보고 영역) */}
+      {/* 3. 출퇴근 시간 + 근무장소 (퇴근보고 영역) — 종일 휴가 아닐 때만 */}
       {showCheckOutSections && !isAllDay && (
         <div>
-          <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">근무장소 타임라인</h3>
-          <p className="text-xs text-text-secondary mb-3">
-            하루 안에 여러 장소에서 근무한 경우 <span className="font-medium">근무장소 추가</span>로 행을 늘리고, 마지막 항목에 <span className="font-medium">실제 퇴근 시간</span>을 입력하세요. 시간은 30분 단위입니다.
-          </p>
-          <p className="text-xs text-text-muted mb-3">
-            ※ 첫 항목 시각이 출근시간, 마지막 <span className="font-medium">퇴근</span> 항목 시각이 퇴근시간으로 EW 계산에 사용됩니다.
-          </p>
-          <WorkLocationTimelineInput
-            value={(formValues.workLocationTimeline ?? []) as WorkLocationTimeline}
-            onChange={next => setValue('workLocationTimeline', next, { shouldValidate: false, shouldDirty: true })}
-            errors={validateTimeline((formValues.workLocationTimeline ?? []) as WorkLocationTimeline)}
-          />
-          {(errors as { workLocationTimeline?: { message?: string } }).workLocationTimeline?.message && (
-            <p className="mt-1 text-xs text-danger-text">
-              {(errors as { workLocationTimeline?: { message?: string } }).workLocationTimeline?.message}
+          <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">출퇴근 시간 / 근무장소</h3>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">출근시간 *</label>
+              <TimeSelect
+                value={formValues.startTime ?? ''}
+                onChange={(v) => setValue('startTime', v, { shouldValidate: true, shouldDirty: true })}
+                minuteStep={30}
+                ariaLabelHour="출근 시"
+                ariaLabelMinute="출근 분"
+              />
+              {(errors as { startTime?: { message?: string } }).startTime?.message && (
+                <p className="mt-1 text-xs text-danger-text">
+                  {(errors as { startTime?: { message?: string } }).startTime?.message}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">실제 퇴근시간 *</label>
+              <TimeSelect
+                value={formValues.endTime ?? ''}
+                onChange={(v) => setValue('endTime', v, { shouldValidate: true, shouldDirty: true })}
+                minuteStep={30}
+                allowNextDay
+                ariaLabelHour="퇴근 시"
+                ariaLabelMinute="퇴근 분"
+              />
+              {(errors as { endTime?: { message?: string } }).endTime?.message && (
+                <p className="mt-1 text-xs text-danger-text">
+                  {(errors as { endTime?: { message?: string } }).endTime?.message}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">근무장소 *</label>
+            <p className="text-xs text-text-secondary mb-2">
+              하루 중 들른 장소를 순서대로 추가하세요. 시간과 무관합니다.
+              {!isEditing && ' (출근보고에서 입력한 예정 장소가 미리 채워집니다.)'}
             </p>
-          )}
+            <WorkLocationChipsInput
+              value={(formValues.actualWorkLocations ?? []) as WorkLocations}
+              onChange={onActualLocsChange}
+              errors={validateWorkLocations((formValues.actualWorkLocations ?? []) as WorkLocations)}
+            />
+            {!formValues.actualWorkLocationsTouched && (
+              <p className="mt-1 text-[12px] text-text-muted">
+                ※ 그대로 제출하면 출근 예정 장소와 동일하게 저장됩니다.
+              </p>
+            )}
+          </div>
         </div>
       )}
 
-      {/* 3. 휴게/근무내용 섹션 (퇴근보고 영역) */}
+      {/* 4. 휴게/근무내용 (퇴근보고 영역) */}
       {showCheckOutSections && (
       <div>
         <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">휴게 및 근무내용</h3>
@@ -768,7 +854,6 @@ export default function WorkLogForm({
             {errors.breakTime && <p className="mt-1 text-sm text-danger-text">{errors.breakTime.message as string}</p>}
           </div>
 
-          {/* 휴게사유: 휴게시간 30분 이상일 때만 표시 */}
           {showBreakReason && (
             <div>
               <label className="block text-sm font-medium text-text-primary">휴게사유</label>
@@ -795,12 +880,11 @@ export default function WorkLogForm({
       </div>
       )}
 
-      {/* 4. 추가 확인 섹션 (조건부) */}
+      {/* 5. 출근보고 / 지각수정 */}
       <div>
         <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">출근보고</h3>
 
         <div className="space-y-6">
-          {/* 지각 / 출근시간 수정 여부 (퇴근보고 영역) */}
           {showCheckOutSections && (
           <div className="p-4 bg-surface-muted rounded-lg border border-border">
             <label className="block text-sm font-medium text-text-primary mb-1">지각 or 출근 시간 입력 수정 여부</label>
@@ -849,7 +933,6 @@ export default function WorkLogForm({
           </div>
           )}
 
-          {/* 출근기록 선택 (출근보고 영역) */}
           {showCheckInSections && (
           <div className="p-4 bg-surface-muted rounded-lg border border-border">
             <label className="block text-sm font-medium text-text-primary mb-1">출근보고 진행 여부</label>
@@ -878,6 +961,40 @@ export default function WorkLogForm({
                   {errors.expectedStartDate && <p className="mt-1 text-xs text-danger-text">{errors.expectedStartDate.message as string}</p>}
                 </div>
 
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-text-secondary">출근예정시간 *</label>
+                    <TimeSelect
+                      value={formValues.expectedStartTime ?? ''}
+                      onChange={(v) => setValue('expectedStartTime', v, { shouldValidate: true, shouldDirty: true })}
+                      minuteStep={30}
+                      ariaLabelHour="출근예정 시"
+                      ariaLabelMinute="출근예정 분"
+                    />
+                    {(errors as { expectedStartTime?: { message?: string } }).expectedStartTime?.message && (
+                      <p className="mt-1 text-xs text-danger-text">
+                        {(errors as { expectedStartTime?: { message?: string } }).expectedStartTime?.message}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-text-secondary">퇴근예정시간 *</label>
+                    <TimeSelect
+                      value={formValues.expectedEndTime ?? ''}
+                      onChange={(v) => setValue('expectedEndTime', v, { shouldValidate: true, shouldDirty: true })}
+                      minuteStep={30}
+                      allowNextDay
+                      ariaLabelHour="퇴근예정 시"
+                      ariaLabelMinute="퇴근예정 분"
+                    />
+                    {(errors as { expectedEndTime?: { message?: string } }).expectedEndTime?.message && (
+                      <p className="mt-1 text-xs text-danger-text">
+                        {(errors as { expectedEndTime?: { message?: string } }).expectedEndTime?.message}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-xs font-medium text-text-secondary mb-1">다음 출근일 휴가/반차</label>
                   <LeaveTimelineInput
@@ -887,21 +1004,15 @@ export default function WorkLogForm({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-text-secondary mb-1">근무장소 타임라인 *</label>
-                  <p className="text-xs text-text-muted mb-2">
-                    하루 안에 여러 장소에서 근무하는 경우 <span className="font-medium">근무장소 추가</span>로 행을 늘리고, 마지막에 <span className="font-medium">퇴근예정</span> 시간을 입력하세요.
+                  <label className="block text-xs font-medium text-text-secondary mb-1">근무장소 *</label>
+                  <p className="text-[12px] text-text-muted mb-2">
+                    내일 들를 장소를 순서대로 추가하세요. 시간과 무관합니다.
                   </p>
-                  <WorkLocationTimelineInput
-                    value={(formValues.expectedTimeline ?? defaultTimeline()) as WorkLocationTimeline}
-                    onChange={next => setValue('expectedTimeline', next, { shouldValidate: false, shouldDirty: true })}
-                    errors={validateTimeline((formValues.expectedTimeline ?? []) as WorkLocationTimeline)}
+                  <WorkLocationChipsInput
+                    value={(formValues.plannedWorkLocations ?? []) as WorkLocations}
+                    onChange={next => setValue('plannedWorkLocations', next, { shouldValidate: false, shouldDirty: true })}
+                    errors={validateWorkLocations((formValues.plannedWorkLocations ?? []) as WorkLocations)}
                   />
-                  {/* zod 단계의 array 레벨 에러 (제출 시점) */}
-                  {(errors as { expectedTimeline?: { message?: string } }).expectedTimeline?.message && (
-                    <p className="mt-1 text-xs text-danger-text">
-                      {(errors as { expectedTimeline?: { message?: string } }).expectedTimeline?.message}
-                    </p>
-                  )}
                 </div>
               </div>
             )}
@@ -920,31 +1031,12 @@ export default function WorkLogForm({
         </div>
       </div>
 
-      {/* 4. 제출 옵션 — TODO: Teams 연동 권한 확보 후 주석 해제 */}
-      {/* <div className="relative flex items-start pt-4 border-t border-border">
-        <div className="flex h-5 items-center">
-          <input
-            id="sendTeams"
-            type="checkbox"
-            {...register('sendTeams')}
-            className="h-4 w-4 rounded border-border-strong text-primary-600 focus:ring-blue-500"
-          />
-        </div>
-        <div className="ml-3 text-sm">
-          <label htmlFor="sendTeams" className="font-medium text-text-primary">
-            제출 후 Teams 발송
-          </label>
-          <p className="text-text-secondary">기록 제출과 함께 Teams 채널로 메시지를 발송합니다.</p>
-        </div>
-      </div> */}
-
       {submitError && (
         <div className="rounded-md bg-danger-bg p-4">
           <h3 className="text-sm font-medium text-danger-text">{submitError}</h3>
         </div>
       )}
 
-      {/* 제출 버튼은 WorkLogModal에서 footer/우측컬럼으로 렌더 — form="work-log-form" attribute로 submit 트리거. */}
     </form>
     </>
   )

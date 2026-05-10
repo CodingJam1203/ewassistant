@@ -2,7 +2,7 @@
 
 /**
  * TimeSelect
- * - HH:MM (24h) 문자열을 시(00~23) / 분(00~59) 두 개의 native <select>로 입력
+ * - HH:MM (24h, optionally 36h) 문자열을 시 / 분 두 개의 native <select>로 입력
  * - mobile에서는 native scroll picker, desktop에서는 native dropdown으로 렌더되어
  *   브라우저 종속 시계 UI(아날로그 다이얼) 대신 일관된 dropdown UX 제공
  *
@@ -10,6 +10,7 @@
  * onChange: (v: string) => void   "HH:MM" 또는 ""
  *
  * 분 단위(minuteStep, 기본 1)로 옵션 생성. 30분 단위로 제한하려면 30 전달.
+ * allowNextDay=true 이면 hour 옵션이 24~36까지 확장되며 24+는 "(명일) HH"로 표기.
  */
 
 import { useMemo } from 'react'
@@ -27,6 +28,11 @@ interface TimeSelectProps {
   ariaLabelHour?: string
   /** 분 select에 적용할 aria-label */
   ariaLabelMinute?: string
+  /**
+   * 명일(24+ 시) 시간 옵션 허용. 야간 근무자가 새벽까지 일하는 케이스용.
+   * true 시 hour 옵션에 24~36이 추가되며, 24+는 "(명일) HH"로 표기.
+   */
+  allowNextDay?: boolean
 }
 
 function pad2(n: number): string {
@@ -41,8 +47,10 @@ export default function TimeSelect({
   className,
   ariaLabelHour = '시',
   ariaLabelMinute = '분',
+  allowNextDay = false,
 }: TimeSelectProps) {
   const safeStep = Math.max(1, Math.min(60, Math.floor(minuteStep || 1)))
+  const maxHour = allowNextDay ? 36 : 23
 
   const [hourStr, minuteStr] = useMemo(() => {
     const v = (value ?? '').trim()
@@ -50,19 +58,18 @@ export default function TimeSelect({
     if (!m) return ['', '']
     const h = parseInt(m[1], 10)
     const mi = parseInt(m[2], 10)
-    if (!Number.isFinite(h) || h < 0 || h > 23) return ['', '']
+    if (!Number.isFinite(h) || h < 0 || h > maxHour) return ['', '']
     if (!Number.isFinite(mi) || mi < 0 || mi > 59) return ['', '']
     return [pad2(h), pad2(mi)]
-  }, [value])
+  }, [value, maxHour])
 
   const hourOptions = useMemo(
-    () => Array.from({ length: 24 }, (_, i) => pad2(i)),
-    []
+    () => Array.from({ length: maxHour + 1 }, (_, i) => pad2(i)),
+    [maxHour]
   )
   const minuteOptions = useMemo(() => {
     const arr: string[] = []
     for (let i = 0; i < 60; i += safeStep) arr.push(pad2(i))
-    // 현재 분 값이 step에 안 맞아도 옵션에 포함시켜 깨짐 방지
     if (minuteStr && !arr.includes(minuteStr)) {
       arr.push(minuteStr)
       arr.sort()
@@ -95,9 +102,11 @@ export default function TimeSelect({
         className={`${baseSelectCls} flex-1 min-w-0`}
       >
         <option value="">시</option>
-        {hourOptions.map(h => (
-          <option key={h} value={h}>{h}</option>
-        ))}
+        {hourOptions.map(h => {
+          const hn = parseInt(h, 10)
+          const display = hn >= 24 ? `(명일) ${pad2(hn - 24)}` : h
+          return <option key={h} value={h}>{display}</option>
+        })}
       </select>
       <span className="text-text-muted text-sm select-none">:</span>
       <select

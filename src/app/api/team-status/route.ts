@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import { getCalendarForDate, parseCell, isCalendarEnabled } from '@/lib/leave-calendar'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+import type { WorkLocations } from '@/types/work-locations-v2'
+import { normalizeWorkLocations } from '@/lib/work-locations-v2'
 import type { LeaveTimeline, LeaveType } from '@/types/leave-timeline'
 import type { CalendarBatchResponse, CalendarEventChunk } from '@/types/leave-calendar'
 
@@ -48,6 +50,10 @@ export interface TeamMemberCard {
   location_history: LocationHistoryEntry[]
   /** 오늘 실제 근무장소 타임라인 (퇴근보고 모달 prefill용) */
   work_location_timeline: WorkLocationTimeline | null
+  /** v2: 실제 근무장소 칩 배열 (NULL = planned와 동일) */
+  actual_work_locations: WorkLocations | null
+  /** v2: 예정 근무장소 칩 배열 */
+  planned_work_locations: WorkLocations | null
   /** 오늘 휴가/반차 타임라인 */
   leave_timeline: LeaveTimeline | null
   /** 휴게 자동 누적 — 퇴근보고 폼 prefill용 */
@@ -160,7 +166,7 @@ export async function GET(request: Request) {
     // ── 모든 부수 데이터를 병렬로 조회 (profiles 이후 emails만 의존) ─────────
     //   work_logs(leave/expected), daily_work_status, work_status_events, calendarBatch
     //   직렬 5번 → Promise.all 1번 ≈ 단일 가장 느린 쿼리 시간 ≈ 80%↓
-    const SELECT_COLS = 'id, user_email, start_time, end_time, work_location, work_content, location_history, work_location_timeline, leave_timeline, expected_work_location_timeline, expected_leave_timeline, break_auto_actual_minutes, break_auto_rounded_minutes, leave_date, expected_start_date, expected_work_time, expected_work_location'
+    const SELECT_COLS = 'id, user_email, start_time, end_time, work_location, work_content, location_history, work_location_timeline, leave_timeline, expected_work_location_timeline, expected_leave_timeline, break_auto_actual_minutes, break_auto_rounded_minutes, leave_date, expected_start_date, expected_work_time, expected_work_location, planned_work_locations, actual_work_locations'
 
     const [
       workLogsLeaveRes,
@@ -334,6 +340,8 @@ export async function GET(request: Request) {
         work_content:     workLog && !isExpectedOnly ? (workLog.work_content as string | null) : null,
         location_history: (workLog?.location_history as LocationHistoryEntry[]) ?? [],
         work_location_timeline: workLocationTimeline,
+        actual_work_locations: workLog ? normalizeWorkLocations(workLog.actual_work_locations) : null,
+        planned_work_locations: workLog ? normalizeWorkLocations(workLog.planned_work_locations) : null,
         leave_timeline:         leaveTimeline,
         break_auto_actual_minutes:
           (workLog?.break_auto_actual_minutes as number | null | undefined) ?? null,

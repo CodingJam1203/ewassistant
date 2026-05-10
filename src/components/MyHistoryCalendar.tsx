@@ -37,6 +37,7 @@ import VacationRegisterModal from '@/components/VacationRegisterModal'
 import CalendarDayDetailModal from '@/components/CalendarDayDetailModal'
 import type { SubmissionRow } from '@/components/SubmissionsRawTable'
 import type { UserCalendarLookup } from '@/types/leave-calendar'
+import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import type { LeaveTimeline, LeaveTimelineItem } from '@/types/leave-timeline'
 
 interface MyHistoryCalendarProps {
@@ -73,9 +74,18 @@ function trimToHHmm(s: string | null | undefined): string {
   return s.slice(0, 5)
 }
 
-/** SubmissionRow의 첫 work_location 항목에서 라벨 추출 */
+/** SubmissionRow에서 표시용 근무장소 (v2 chips 우선, fallback 단일) */
 function extractWorkLocation(row: SubmissionRow | null): string | null {
   if (!row) return null
+  const chips = resolveDisplayLocations({
+    actual: row.actual_work_locations,
+    planned: row.planned_work_locations,
+    legacyActualTimeline: row.work_location_timeline as unknown as never,
+    legacyExpectedTimeline: row.expected_work_location_timeline as unknown as never,
+    legacyWorkLocation: row.work_location,
+    legacyExpectedWorkLocation: row.expected_work_location,
+  })
+  if (chips && chips.length > 0) return formatChipsArrow(chips)
   if (row.work_location) return row.work_location
   if (row.expected_work_location) return row.expected_work_location
   return null

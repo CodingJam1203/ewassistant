@@ -1,4 +1,5 @@
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
+import type { WorkLocations } from '@/types/work-locations-v2'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
 // ─── 이벤트 타입 ─────────────────────────────────────────────────────────────
@@ -29,6 +30,8 @@ export interface WorklogNotifyPayload {
   workLocation: string
   /** 본문 근무장소 타임라인 (퇴근보고 — 마지막은 'checkout' kind). null이면 단일 workLocation으로 fallback. */
   workLocationTimeline?: WorkLocationTimeline | null
+  /** v2: 본문 실제 근무장소 칩 배열. 메시지 표시는 이쪽이 최우선. */
+  actualWorkLocations?: WorkLocations | null
   /** 본문 휴가/반차 타임라인 */
   leaveTimeline?: LeaveTimeline | null
   /** 휴게 자동 누적 실제 분 */
@@ -60,6 +63,8 @@ export interface WorklogNotifyPayload {
    * undefined/null이면 기존 expectedWorkLocation/expectedWorkTime로 fallback.
    */
   expectedTimeline?: WorkLocationTimeline | null
+  /** v2: 다음 출근 예정 근무장소 칩 배열. 메시지 표시는 이쪽이 최우선. */
+  plannedWorkLocations?: WorkLocations | null
   division?: string | null
   team?: string | null
 }
@@ -114,6 +119,8 @@ export interface CheckinNotifyPayload {
   workLocation: string
   /** 출근 시점의 work_location_timeline (멀티라인 메시지 표시용) */
   timeline?: WorkLocationTimeline | null
+  /** v2: 출근 시점의 예정 근무장소 칩 배열 (메시지 표시 최우선) */
+  plannedWorkLocations?: WorkLocations | null
   /** 출근 시점의 leave_timeline (휴가/반차) */
   leaveTimeline?: LeaveTimeline | null
   division?: string | null
@@ -128,6 +135,8 @@ export interface LocationChangedNotifyPayload {
   changedAt: string
   /** 변경 후 work_location_timeline (멀티라인 메시지 표시용) */
   timeline?: WorkLocationTimeline | null
+  /** v2: 변경 후 actual chips 배열 (메시지 표시 최우선) */
+  actualWorkLocations?: WorkLocations | null
   division?: string | null
   team?: string | null
 }
