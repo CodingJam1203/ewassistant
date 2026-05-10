@@ -107,10 +107,10 @@ export default function WorkLogModal({
     ? (editScope === 'check_in'  ? '출근보고 수정'
       : editScope === 'check_out' ? '퇴근보고 수정'
       : '제출 내역 수정')
-    : '출퇴근보고 입력'
+    : '퇴근보고 작성'
   const headerSubtitle = isEditing
-    ? `${date} — 필요한 항목을 수정한 후 제출 및 복사하기`
-    : `${date} — 퇴근보고를 작성하면 퇴근 처리됩니다`
+    ? `${date} — 필요한 항목을 자유롭게 수정`
+    : `${date} — 실제 퇴근시간/근무지를 입력해 퇴근 처리`
 
   const MobileSubmitButton = (
     <button

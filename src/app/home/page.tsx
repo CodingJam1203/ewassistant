@@ -225,6 +225,7 @@ export default function HomePage() {
 
   // CheckInModal / WorkLogModal 트리거 (헤더용)
   const [showCheckIn, setShowCheckIn] = useState(false)
+  const [checkInMode, setCheckInMode] = useState<'create' | 'edit' | 'complete' | undefined>(undefined)
   const [checkOutTarget, setCheckOutTarget] = useState<TeamMemberCard | null>(null)
 
   // 캘린더뷰 → 상세 모달 → 작성 버튼 — 임의 날짜로 신규 작성
@@ -346,13 +347,14 @@ export default function HomePage() {
         />
       )}
 
-      {/* 출근보고 작성 모달 */}
+      {/* 출근보고 작성/수정/출근완료 모달 */}
       {showCheckIn && (
         <CheckInModal
           date={today}
           userName={userName}
-          onClose={() => setShowCheckIn(false)}
-          onSuccess={() => { setShowCheckIn(false); fetchMyCard() }}
+          mode={checkInMode}
+          onClose={() => { setShowCheckIn(false); setCheckInMode(undefined) }}
+          onSuccess={() => { setShowCheckIn(false); setCheckInMode(undefined); fetchMyCard() }}
         />
       )}
 
@@ -456,66 +458,120 @@ export default function HomePage() {
           />
         </div>
 
-        {/* 3행: 액션 버튼 + 근무지 */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* 출근보고 — 완료 시 secondary, 미완료 시 secondary (퇴근보고만 primary) */}
-          <Button
-            variant="secondary"
-            onClick={openCheckInFlow}
-            title={checkInDone ? '이미 작성됨 — 재제출/수정 가능' : undefined}
-          >
-            {checkInDone ? <Check className="h-4 w-4" aria-hidden /> : <LogIn className="h-4 w-4" aria-hidden />}
-            출근보고 작성
-            {checkInDone && (
-              <span className="text-[12px] font-normal text-text-muted">(완료)</span>
-            )}
-          </Button>
+        {/* 3행: 액션 버튼 + 근무지 — 5상태 분기 */}
+        {(() => {
+          const state = computeWorkLogState({
+            hasWorkLog: !!myCard?.work_log_id,
+            checkedInAt: myCard?.checked_in_at ?? null,
+            checkedOutAt: myCard?.checked_out_at ?? null,
+            isOnBreak: !!myCard?.is_on_break,
+          })
+          const buttons = buttonsForState(state)
+          return (
+            <div className="flex flex-wrap items-center gap-2">
+              {/* 출근보고 작성 (A 상태) */}
+              {buttons.showCheckInCreate && (
+                <Button
+                  variant="primary"
+                  onClick={() => { setCheckInMode('create'); setShowCheckIn(true) }}
+                >
+                  <LogIn className="h-4 w-4" aria-hidden />
+                  출근보고 작성
+                </Button>
+              )}
 
-          {/* 퇴근보고 — 1차 액션. 완료 시 secondary로 강등 */}
-          <Button
-            variant={checkOutDone ? 'secondary' : 'primary'}
-            onClick={openCheckOutFlow}
-            title={checkOutDone ? '이미 작성됨 — 재제출/수정 가능' : undefined}
-          >
-            {checkOutDone ? <Check className="h-4 w-4" aria-hidden /> : <LogOut className="h-4 w-4" aria-hidden />}
-            퇴근보고 작성
-            {checkOutDone && (
-              <span className="text-[12px] font-normal text-text-muted">(완료)</span>
-            )}
-          </Button>
+              {/* 출근보고 수정 + 출근 완료 (B 상태에서 이어진 디자인) */}
+              {buttons.showCheckInEdit && buttons.showCheckInComplete && (
+                <div className="inline-flex rounded-[10px] overflow-hidden border border-border-strong shadow-[var(--shadow-card)]">
+                  <button
+                    type="button"
+                    onClick={() => { setCheckInMode('edit'); setShowCheckIn(true) }}
+                    className="inline-flex items-center gap-1.5 h-10 px-4 text-sm font-medium text-text-primary bg-surface hover:bg-surface-muted transition-colors border-r border-border-strong"
+                  >
+                    <Check className="h-4 w-4 text-success-text" aria-hidden />
+                    출근보고 수정
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setCheckInMode('complete'); setShowCheckIn(true) }}
+                    className="inline-flex items-center gap-1.5 h-10 px-4 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 transition-colors"
+                  >
+                    <LogIn className="h-4 w-4" aria-hidden />
+                    출근 완료
+                  </button>
+                </div>
+              )}
 
-          {showBreakBtn && (
-            myCard?.is_on_break ? (
-              <Button
-                variant="warning-soft"
-                onClick={() => triggerBreak('break-end')}
-                disabled={breakBusy}
-              >
-                <Coffee className="h-4 w-4" aria-hidden />
-                휴게 종료
-              </Button>
-            ) : (
-              <Button
-                variant="secondary"
-                onClick={() => triggerBreak('break-start')}
-                disabled={breakBusy}
-              >
-                <Coffee className="h-4 w-4" aria-hidden />
-                휴게 시작
-              </Button>
-            )
-          )}
+              {/* 출근보고 수정만 (C/D/E 상태) */}
+              {buttons.showCheckInEdit && !buttons.showCheckInComplete && (
+                <Button
+                  variant="secondary"
+                  onClick={() => { setCheckInMode('edit'); setShowCheckIn(true) }}
+                >
+                  <Check className="h-4 w-4" aria-hidden />
+                  출근보고 수정
+                </Button>
+              )}
 
-          {showLocationSelect && (
-            <div className="ml-auto">
-              <LocationSelectInline
-                current={myCard?.current_location ?? null}
-                date={today}
-                onChange={fetchMyCard}
-              />
+              {/* 퇴근보고 작성 (A/B/C/D 상태) */}
+              {buttons.showCheckOutCreate && (
+                <Button
+                  variant={state === 'C' || state === 'D' ? 'primary' : 'secondary'}
+                  onClick={openCheckOutFlow}
+                >
+                  <LogOut className="h-4 w-4" aria-hidden />
+                  퇴근보고 작성
+                </Button>
+              )}
+
+              {/* 퇴근보고 수정 (E 상태) */}
+              {buttons.showCheckOutEdit && (
+                <Button
+                  variant="secondary"
+                  onClick={openCheckOutFlow}
+                >
+                  <Check className="h-4 w-4" aria-hidden />
+                  퇴근보고 수정
+                </Button>
+              )}
+
+              {/* 휴게 시작 (C 상태) */}
+              {buttons.showBreakStart && (
+                <Button
+                  variant="secondary"
+                  onClick={() => triggerBreak('break-start')}
+                  disabled={breakBusy}
+                >
+                  <Coffee className="h-4 w-4" aria-hidden />
+                  휴게 시작
+                </Button>
+              )}
+
+              {/* 휴게 종료 (D 상태) */}
+              {buttons.showBreakEnd && (
+                <Button
+                  variant="warning-soft"
+                  onClick={() => triggerBreak('break-end')}
+                  disabled={breakBusy}
+                >
+                  <Coffee className="h-4 w-4" aria-hidden />
+                  휴게 종료
+                </Button>
+              )}
+
+              {/* 근무지 드롭다운 (출근 후) */}
+              {(state === 'C' || state === 'D') && (
+                <div className="ml-auto">
+                  <LocationSelectInline
+                    current={myCard?.current_location ?? null}
+                    date={today}
+                    onChange={fetchMyCard}
+                  />
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          )
+        })()}
 
         {/* 휴게 중일 때 안내 라인 */}
         {myCard?.is_on_break && (

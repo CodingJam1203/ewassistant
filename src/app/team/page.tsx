@@ -13,6 +13,7 @@ import {
 import type { BadgeVariant } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
 import type { TeamMemberCard } from '@/app/api/team-status/route'
+import { computeWorkLogState, buttonsForState } from '@/lib/work-log-state'
 import { resolveDisplayLocations, resolvePlannedLocations, chipLabel, formatChipsArrow } from '@/lib/work-locations-v2'
 import type { WorkLocations } from '@/types/work-locations-v2'
 
@@ -151,13 +152,13 @@ function MemberCard({
   card,
   date,
   onAction,
-  onOpenCheckInTime,
+  onOpenCheckIn,
   onCheckOutNeeded,
 }: {
   card: TeamMemberCard
   date: string
   onAction: () => void
-  onOpenCheckInTime: (card: TeamMemberCard) => void
+  onOpenCheckIn: (card: TeamMemberCard, mode: 'create' | 'edit' | 'complete') => void
   onCheckOutNeeded: (card: TeamMemberCard) => void
 }) {
   const [busy, setBusy] = useState(false)
@@ -339,56 +340,93 @@ function MemberCard({
         )
       })()}
 
-      {/* 출퇴근 액션 (본인만) */}
-      {card.is_self && (
-        <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border">
-          {!card.checked_in_at ? (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => onOpenCheckInTime(card)}
-              disabled={busy}
-            >
-              <LogIn className="h-3.5 w-3.5" aria-hidden />
-              출근
-            </Button>
-          ) : (
-            <Button
-              variant="danger-soft"
-              size="sm"
-              onClick={() => action('check-in-cancel')}
-              disabled={busy}
-            >
-              <X className="h-3.5 w-3.5" aria-hidden />
-              출근취소
-            </Button>
-          )}
+      {/* 출퇴근 액션 (본인만) — 5상태 분기 */}
+      {card.is_self && (() => {
+        const state = computeWorkLogState({
+          hasWorkLog: !!card.work_log_id,
+          checkedInAt: card.checked_in_at,
+          checkedOutAt: card.checked_out_at,
+          isOnBreak: !!card.is_on_break,
+        })
+        const buttons = buttonsForState(state)
+        return (
+          <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border">
+            {/* 출근보고 작성 (A) */}
+            {buttons.showCheckInCreate && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => onOpenCheckIn(card, 'create')}
+                disabled={busy}
+              >
+                <LogIn className="h-3.5 w-3.5" aria-hidden />
+                출근보고 작성
+              </Button>
+            )}
 
-          {!card.checked_out_at && (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => onCheckOutNeeded(card)}
-              disabled={busy}
-            >
-              <LogOut className="h-3.5 w-3.5" aria-hidden />
-              퇴근
-            </Button>
-          )}
-          {card.checked_out_at && (
-            <Button
-              variant="danger-soft"
-              size="sm"
-              onClick={() => action('check-out-cancel')}
-              disabled={busy}
-            >
-              <X className="h-3.5 w-3.5" aria-hidden />
-              퇴근취소
-            </Button>
-          )}
+            {/* 출근보고 수정 + 출근 완료 (B) */}
+            {buttons.showCheckInEdit && buttons.showCheckInComplete && (
+              <div className="inline-flex rounded-[8px] overflow-hidden border border-border-strong">
+                <button
+                  type="button"
+                  onClick={() => onOpenCheckIn(card, 'edit')}
+                  className="inline-flex items-center gap-1 h-8 px-2 text-[12px] font-medium text-text-primary bg-surface hover:bg-surface-muted transition-colors border-r border-border-strong"
+                >
+                  <Check className="h-3 w-3 text-success-text" aria-hidden />
+                  수정
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenCheckIn(card, 'complete')}
+                  className="inline-flex items-center gap-1 h-8 px-2 text-[12px] font-semibold text-white bg-primary-600 hover:bg-primary-700 transition-colors"
+                >
+                  <LogIn className="h-3 w-3" aria-hidden />
+                  출근 완료
+                </button>
+              </div>
+            )}
 
-          {card.checked_in_at && !card.checked_out_at && (
-            !card.is_on_break ? (
+            {/* 출근보고 수정만 (C/D/E) */}
+            {buttons.showCheckInEdit && !buttons.showCheckInComplete && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onOpenCheckIn(card, 'edit')}
+                disabled={busy}
+              >
+                <Check className="h-3.5 w-3.5" aria-hidden />
+                출근보고 수정
+              </Button>
+            )}
+
+            {/* 퇴근보고 작성 (A/B/C/D) */}
+            {buttons.showCheckOutCreate && (
+              <Button
+                variant={state === 'C' || state === 'D' ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => onCheckOutNeeded(card)}
+                disabled={busy}
+              >
+                <LogOut className="h-3.5 w-3.5" aria-hidden />
+                퇴근보고 작성
+              </Button>
+            )}
+
+            {/* 퇴근보고 수정 (E) */}
+            {buttons.showCheckOutEdit && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onCheckOutNeeded(card)}
+                disabled={busy}
+              >
+                <Check className="h-3.5 w-3.5" aria-hidden />
+                퇴근보고 수정
+              </Button>
+            )}
+
+            {/* 휴게 시작/종료 */}
+            {buttons.showBreakStart && (
               <Button
                 variant="warning-soft"
                 size="sm"
@@ -396,9 +434,10 @@ function MemberCard({
                 disabled={busy}
               >
                 <Coffee className="h-3.5 w-3.5" aria-hidden />
-                휴게시작
+                휴게 시작
               </Button>
-            ) : (
+            )}
+            {buttons.showBreakEnd && (
               <Button
                 variant="warning-soft"
                 size="sm"
@@ -407,12 +446,12 @@ function MemberCard({
                 className="!bg-warning-text !text-white !border-warning-text hover:!bg-warning-text/90"
               >
                 <Coffee className="h-3.5 w-3.5" aria-hidden />
-                휴게종료
+                휴게 종료
               </Button>
-            )
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -422,13 +461,13 @@ function MemberListRow({
   card,
   date,
   onAction,
-  onOpenCheckInTime,
+  onOpenCheckIn,
   onCheckOutNeeded,
 }: {
   card: TeamMemberCard
   date: string
   onAction: () => void
-  onOpenCheckInTime: (card: TeamMemberCard) => void
+  onOpenCheckIn: (card: TeamMemberCard, mode: 'create' | 'edit' | 'complete') => void
   onCheckOutNeeded: (card: TeamMemberCard) => void
 }) {
   const [busy, setBusy] = useState(false)
@@ -539,84 +578,57 @@ function MemberListRow({
         })()}
       </Td>
 
-      {/* 액션 (본인만) */}
+      {/* 액션 (본인만) — 5상태 분기 */}
       <Td>
-        {card.is_self ? (
-          <div className="flex flex-wrap gap-1">
-            {!card.checked_in_at ? (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => onOpenCheckInTime(card)}
-                disabled={busy}
-                className="!h-7 !px-2 !text-[11px]"
-              >
-                <LogIn className="h-3 w-3" aria-hidden />
-                출근
-              </Button>
-            ) : (
-              <Button
-                variant="danger-soft"
-                size="sm"
-                onClick={() => action('check-in-cancel')}
-                disabled={busy}
-                className="!h-7 !px-2 !text-[11px]"
-              >
-                <X className="h-3 w-3" aria-hidden />
-                출근취소
-              </Button>
-            )}
-            {!card.checked_out_at && (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => onCheckOutNeeded(card)}
-                disabled={busy}
-                className="!h-7 !px-2 !text-[11px]"
-              >
-                <LogOut className="h-3 w-3" aria-hidden />
-                퇴근
-              </Button>
-            )}
-            {card.checked_out_at && (
-              <Button
-                variant="danger-soft"
-                size="sm"
-                onClick={() => action('check-out-cancel')}
-                disabled={busy}
-                className="!h-7 !px-2 !text-[11px]"
-              >
-                <X className="h-3 w-3" aria-hidden />
-                퇴근취소
-              </Button>
-            )}
-            {card.checked_in_at && !card.checked_out_at && (
-              !card.is_on_break ? (
-                <Button
-                  variant="warning-soft"
-                  size="sm"
-                  onClick={() => action('break-start')}
-                  disabled={busy}
-                  className="!h-7 !px-2 !text-[11px]"
-                >
-                  <Coffee className="h-3 w-3" aria-hidden />
-                  휴게
+        {card.is_self ? (() => {
+          const state = computeWorkLogState({
+            hasWorkLog: !!card.work_log_id,
+            checkedInAt: card.checked_in_at,
+            checkedOutAt: card.checked_out_at,
+            isOnBreak: !!card.is_on_break,
+          })
+          const buttons = buttonsForState(state)
+          return (
+            <div className="flex flex-wrap gap-1">
+              {buttons.showCheckInCreate && (
+                <Button variant="primary" size="sm" onClick={() => onOpenCheckIn(card, 'create')} disabled={busy} className="!h-7 !px-2 !text-[11px]">
+                  <LogIn className="h-3 w-3" aria-hidden /> 출근보고
                 </Button>
-              ) : (
-                <Button
-                  variant="warning-soft"
-                  size="sm"
-                  onClick={() => action('break-end')}
-                  disabled={busy}
-                  className="!h-7 !px-2 !text-[11px] !bg-warning-text !text-white !border-warning-text hover:!bg-warning-text/90"
-                >
-                  <Coffee className="h-3 w-3" aria-hidden />
-                  종료
+              )}
+              {buttons.showCheckInEdit && buttons.showCheckInComplete && (
+                <div className="inline-flex rounded-[6px] overflow-hidden border border-border-strong">
+                  <button onClick={() => onOpenCheckIn(card, 'edit')} className="h-7 px-2 text-[11px] font-medium text-text-primary bg-surface hover:bg-surface-muted border-r border-border-strong">수정</button>
+                  <button onClick={() => onOpenCheckIn(card, 'complete')} className="h-7 px-2 text-[11px] font-semibold text-white bg-primary-600 hover:bg-primary-700">출근 완료</button>
+                </div>
+              )}
+              {buttons.showCheckInEdit && !buttons.showCheckInComplete && (
+                <Button variant="secondary" size="sm" onClick={() => onOpenCheckIn(card, 'edit')} disabled={busy} className="!h-7 !px-2 !text-[11px]">
+                  <Check className="h-3 w-3" aria-hidden /> 수정
                 </Button>
-              )
-            )}
-          </div>
-        ) : (
+              )}
+              {buttons.showCheckOutCreate && (
+                <Button variant={state === 'C' || state === 'D' ? 'primary' : 'secondary'} size="sm" onClick={() => onCheckOutNeeded(card)} disabled={busy} className="!h-7 !px-2 !text-[11px]">
+                  <LogOut className="h-3 w-3" aria-hidden /> 퇴근
+                </Button>
+              )}
+              {buttons.showCheckOutEdit && (
+                <Button variant="secondary" size="sm" onClick={() => onCheckOutNeeded(card)} disabled={busy} className="!h-7 !px-2 !text-[11px]">
+                  <Check className="h-3 w-3" aria-hidden /> 퇴근수정
+                </Button>
+              )}
+              {buttons.showBreakStart && (
+                <Button variant="warning-soft" size="sm" onClick={() => action('break-start')} disabled={busy} className="!h-7 !px-2 !text-[11px]">
+                  <Coffee className="h-3 w-3" aria-hidden /> 휴게
+                </Button>
+              )}
+              {buttons.showBreakEnd && (
+                <Button variant="warning-soft" size="sm" onClick={() => action('break-end')} disabled={busy} className="!h-7 !px-2 !text-[11px] !bg-warning-text !text-white !border-warning-text hover:!bg-warning-text/90">
+                  <Coffee className="h-3 w-3" aria-hidden /> 종료
+                </Button>
+              )}
+            </div>
+          )
+        })() : (
           <span className="text-text-muted text-[11px]">-</span>
         )}
       </Td>
@@ -633,7 +645,7 @@ export default function TeamPage() {
   const [filterDiv, setFilterDiv] = useState('')
   const [filterTeam, setFilterTeam] = useState('')
   const [orgDivisions, setOrgDivisions] = useState<{ id: string; name: string; teams: { id: string; name: string }[] }[]>([])
-  const [checkInTarget, setCheckInTarget] = useState<{ card: TeamMemberCard; startTime: string } | null>(null)
+  const [checkInTarget, setCheckInTarget] = useState<{ card: TeamMemberCard; mode: 'create' | 'edit' | 'complete' } | null>(null)
   const [checkOutTarget,    setCheckOutTarget]    = useState<TeamMemberCard | null>(null)
   const [showHeaderCheckIn, setShowHeaderCheckIn] = useState(false)
   const [myProfile, setMyProfile] = useState<{ display_name: string | null; division: string | null; team: string | null } | null>(null)
@@ -835,7 +847,7 @@ export default function TeamPage() {
               card={card}
               date={date}
               onAction={fetchCards}
-              onOpenCheckInTime={(c) => setCheckInTarget({ card: c, startTime: nowRoundedTo30() })}
+              onOpenCheckIn={(c, mode) => setCheckInTarget({ card: c, mode })}
               onCheckOutNeeded={setCheckOutTarget}
             />
           ))}
@@ -864,7 +876,7 @@ export default function TeamPage() {
                     card={card}
                     date={date}
                     onAction={fetchCards}
-                    onOpenCheckInTime={(c) => setCheckInTarget({ card: c, startTime: nowRoundedTo30() })}
+                    onOpenCheckIn={(c, mode) => setCheckInTarget({ card: c, mode })}
                     onCheckOutNeeded={setCheckOutTarget}
                   />
                 ))}
@@ -874,12 +886,12 @@ export default function TeamPage() {
         </TableContainer>
       )}
 
-      {/* 출근보고 작성 모달 */}
+      {/* 출근보고 작성/수정/출근완료 모달 */}
       {(checkInTarget || showHeaderCheckIn) && (
         <CheckInModal
           date={date}
           userName={myProfile?.display_name ?? null}
-          initialStartTime={checkInTarget?.startTime}
+          mode={checkInTarget?.mode}
           onClose={() => { setCheckInTarget(null); setShowHeaderCheckIn(false) }}
           onSuccess={() => { setCheckInTarget(null); setShowHeaderCheckIn(false); fetchCards() }}
         />

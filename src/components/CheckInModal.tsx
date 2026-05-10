@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react'
 import { X, Loader2, Calendar } from 'lucide-react'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
 import LeaveTimelineInput from '@/components/LeaveTimelineInput'
-import TimeSelect from '@/components/TimeSelect'
 import HalfHourTimeSelect from '@/components/HalfHourTimeSelect'
 import {
   defaultWorkLocations,
@@ -21,28 +20,39 @@ import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 import type { UserCalendarLookup, CalendarEventChunk } from '@/types/leave-calendar'
 
+/**
+ * CheckInModal — 출근보고 작성/수정/출근완료 통합.
+ *
+ * 모드 (props.mode):
+ *   - 'create'   : 신규 출근보고 (D-day row 없음)
+ *   - 'edit'     : 출근보고 수정 (B/C/D/E 상태)
+ *   - 'complete' : 출근 완료 (B 상태에서 실제 출근 확정)
+ *
+ * 모드별 차이:
+ *   - 헤더 제목
+ *   - actualCheckInTime prefill: complete 시 현재 시각 floor
+ *
+ * 폼 필드 (모든 모드 공통, 모두 활성):
+ *   - 출근예정시간 / 퇴근예정시간 / 근무지예정 / 휴가
+ *   - 실제 출근시간 (비어있을 수도 있음 — 비우면 출근 안 한 상태로 되돌림)
+ */
+
 interface CheckInModalProps {
-  /** 초기 날짜 (사용자가 모달 안에서 자유롭게 변경 가능) */
   date: string
   userName: string | null
-  /** 출근 버튼에서 시각이 결정된 경우 출근시간 prefill */
   initialStartTime?: string
+  /** 모드 — 호출자가 명시 */
+  mode?: 'create' | 'edit' | 'complete'
   onClose: () => void
   onSuccess: () => void
 }
 
-/** 일정 1줄 포매터 */
 function formatEventLine(ev: CalendarEventChunk): string {
-  if (ev.startTime && ev.endTime) {
-    return `${ev.startTime}~${ev.endTime} ${ev.title}`
-  }
-  if (ev.startTime) {
-    return `${ev.startTime}~ ${ev.title}`
-  }
+  if (ev.startTime && ev.endTime) return `${ev.startTime}~${ev.endTime} ${ev.title}`
+  if (ev.startTime) return `${ev.startTime}~ ${ev.title}`
   return `(종일) ${ev.title}`
 }
 
-/** 'HH:mm' 분이 30분 단위인지 확인 후 그렇지 않으면 30분 단위로 보정해서 반환 */
 function normalizeStartTimeTo30(input: string | undefined, fallback: string): string {
   if (!input) return fallback
   const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(input)
@@ -53,17 +63,33 @@ function normalizeStartTimeTo30(input: string | undefined, fallback: string): st
   return `${hh}:${flooredMm}`
 }
 
+/** 현재 KST 시각을 30분 단위 floor로 'HH:mm' 반환 */
+function nowKstHHmmFloor(): string {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Seoul',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  const parts = fmt.formatToParts(new Date())
+  const h = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10) % 24
+  const m = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10)
+  const flooredM = m < 30 ? 0 : 30
+  return `${String(h).padStart(2, '0')}:${String(flooredM).padStart(2, '0')}`
+}
+
 export default function CheckInModal({
-  date: initialDate, userName, initialStartTime, onClose, onSuccess,
+  date: initialDate, userName, initialStartTime, mode, onClose, onSuccess,
 }: CheckInModalProps) {
   const [date, setDate] = useState<string>(initialDate)
   const [name, setName] = useState<string>(userName ?? '')
-  // 시간 입력 — 출근시간 / 퇴근예정시간 (기본: 09:00 / 18:00, 30분 단위)
+  // 시간 입력
   const [startTime, setStartTime] = useState<string>(() =>
     normalizeStartTimeTo30(initialStartTime, '09:00')
   )
   const [endTime, setEndTime] = useState<string>('18:00')
-  // 근무장소 chips (시간과 분리). 기본: [사무실]
+  // 실제 출근시간 — 비어있을 수 있음 (비우면 출근 안 함)
+  const [actualCheckInTime, setActualCheckInTime] = useState<string>('')
   const [locations, setLocations] = useState<WorkLocations>(() => defaultWorkLocations())
   const [workContent, setWorkContent] = useState<string>('')
   const [leaveTimeline, setLeaveTimeline] = useState<LeaveTimeline>([])
@@ -71,8 +97,14 @@ export default function CheckInModal({
   const [calendarLookup, setCalendarLookup] = useState<UserCalendarLookup | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState<string | null>(null)
+  // 서버에서 받은 hasExisting (모드 자동 판별 fallback)
+  const [hasExisting, setHasExisting] = useState(false)
 
-  /** 어제 퇴근보고에서 작성한 다음 출근 예정 정보를 prefill */
+  // 효과적 모드 — props.mode 우선, 없으면 hasExisting으로 자동 판별
+  const effectiveMode: 'create' | 'edit' | 'complete' =
+    mode ?? (hasExisting ? 'edit' : 'create')
+
+  /** prefill */
   useEffect(() => {
     let cancelled = false
     const fetchPrefill = async () => {
@@ -80,52 +112,57 @@ export default function CheckInModal({
         const res = await fetch(`/api/team-status/expected-timeline?date=${encodeURIComponent(date)}`)
         if (!res.ok) return
         const data = await res.json() as {
-          // v2 우선
           plannedLocations?: WorkLocations | null
           expectedStartTime?: string | null
           expectedEndTime?: string | null
-          // legacy fallback
           timeline?: WorkLocationTimeline | null
           leaveTimeline?: LeaveTimeline | null
+          hasExisting?: boolean
+          checkedInAt?: string | null  // 서버에서 'HH:mm' 또는 null
         }
         if (cancelled) return
+        if (data.hasExisting) setHasExisting(true)
 
-        // 1) v2 plannedLocations 우선
+        // chips
         const v2Locs = normalizeWorkLocations(data.plannedLocations)
-        if (v2Locs && v2Locs.length > 0) {
-          setLocations(v2Locs)
-        } else if (data.timeline && data.timeline.length > 0) {
-          // 2) legacy timeline → chips 변환
-          const fromTimeline = legacyTimelineToLocations(data.timeline)
-          if (fromTimeline && fromTimeline.length > 0) {
-            setLocations(fromTimeline)
-          }
+        if (v2Locs && v2Locs.length > 0) setLocations(v2Locs)
+        else if (data.timeline && data.timeline.length > 0) {
+          const fromTl = legacyTimelineToLocations(data.timeline)
+          if (fromTl && fromTl.length > 0) setLocations(fromTl)
         }
 
-        // 시간 prefill — initialStartTime이 명시되면 그것 우선 (출근 버튼 시각),
-        // 없으면 prefill의 expectedStartTime 또는 timeline 첫 항목 시각 사용
+        // 시간 prefill
         if (!initialStartTime) {
-          if (data.expectedStartTime) {
-            setStartTime(data.expectedStartTime)
-          } else if (data.timeline && data.timeline.length > 0) {
+          if (data.expectedStartTime) setStartTime(data.expectedStartTime)
+          else if (data.timeline && data.timeline.length > 0) {
             const first = data.timeline.find(e => e.kind === 'work_location')
             if (first?.startTime) setStartTime(first.startTime)
           }
         }
-        if (data.expectedEndTime) {
-          setEndTime(data.expectedEndTime)
-        } else if (data.timeline && data.timeline.length > 0) {
+        if (data.expectedEndTime) setEndTime(data.expectedEndTime)
+        else if (data.timeline && data.timeline.length > 0) {
           const last = data.timeline[data.timeline.length - 1]
           if ((last?.kind === 'expected_checkout' || last?.kind === 'checkout') && last.startTime) {
             setEndTime(last.startTime)
           }
         }
 
+        // actualCheckInTime prefill — 모드별 분기
+        const explicitMode = mode
+        if (explicitMode === 'complete') {
+          // 출근 완료 모드 — 현재 시각 floor
+          setActualCheckInTime(nowKstHHmmFloor())
+        } else {
+          // create/edit — 서버에서 받은 daily.checked_in_at 값
+          if (data.checkedInAt) setActualCheckInTime(data.checkedInAt)
+        }
+
+        // 휴가
         if (Array.isArray(data.leaveTimeline) && data.leaveTimeline.length > 0) {
           setLeaveTimeline(data.leaveTimeline)
         }
       } catch {
-        // prefill 실패는 무시 (기본값 유지)
+        // 무시
       } finally {
         if (!cancelled) setLoadingPrefill(false)
       }
@@ -135,7 +172,7 @@ export default function CheckInModal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date])
 
-  /** 외부 캘린더 일정 조회 */
+  /** 외부 캘린더 일정 */
   useEffect(() => {
     let cancelled = false
     const fetchCalendar = async () => {
@@ -145,17 +182,12 @@ export default function CheckInModal({
         const data = await res.json() as UserCalendarLookup
         if (cancelled) return
         setCalendarLookup(data)
-        if (
-          data.leaveType
-          && (!leaveTimeline || leaveTimeline.length === 0)
-        ) {
+        if (data.leaveType && (!leaveTimeline || leaveTimeline.length === 0)) {
           setLeaveTimeline([
             buildLeaveItem(data.leaveType, data.leaveLabel ?? undefined, 'calendar'),
           ])
         }
-      } catch {
-        // 무시
-      }
+      } catch { /* 무시 */ }
     }
     fetchCalendar()
     return () => { cancelled = true }
@@ -171,6 +203,10 @@ export default function CheckInModal({
   if (!isAllDayLeave) {
     if (!startTime || !isHalfHour(startTime)) timeErrors.push('출근시간을 30분 단위로 선택해주세요.')
     if (!endTime || !/^(\d{1,2}):(00|30)$/.test(endTime)) timeErrors.push('퇴근예정시간을 30분 단위로 선택해주세요.')
+    // actualCheckInTime은 비어있을 수 있음 (출근 안 한 상태). 채워져 있으면 30분 단위 검증
+    if (actualCheckInTime && !isHalfHour(actualCheckInTime)) {
+      timeErrors.push('실제 출근시간을 30분 단위로 선택해주세요.')
+    }
   }
   const validationErrors = [...locErrors.map(e => e.message), ...leaveErrors.map(e => e.message), ...timeErrors]
 
@@ -190,10 +226,11 @@ export default function CheckInModal({
         body: JSON.stringify({
           date,
           name: name.trim(),
-          // v2: chips + 시간 분리
           plannedWorkLocations: isAllDayLeave ? [] : locations,
           start_time: isAllDayLeave ? null : startTime,
           end_time:   isAllDayLeave ? null : endTime,
+          // 실제 출근시간 — 비어있으면 NULL (출근 안 함 또는 취소)
+          actualCheckInTime: actualCheckInTime || null,
           leaveTimeline,
           break_time: '00:00',
           work_content: workContent.trim() || null,
@@ -201,7 +238,7 @@ export default function CheckInModal({
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error ?? '출근보고 처리에 실패했습니다.')
+        setError(data.error ?? '처리에 실패했습니다.')
       } else {
         onSuccess()
       }
@@ -212,15 +249,29 @@ export default function CheckInModal({
     }
   }
 
+  // 헤더 제목 — 모드별
+  const headerTitle =
+    effectiveMode === 'create'   ? '출근보고 작성하기'
+    : effectiveMode === 'complete' ? '출근 완료'
+    : '출근보고 수정하기'
+  const headerSubtitle =
+    effectiveMode === 'create'   ? `${date} — 시간과 근무장소를 입력해주세요`
+    : effectiveMode === 'complete' ? `${date} — 실제 출근 시각/장소를 확정해주세요`
+    : `${date} — 모든 항목 자유롭게 수정 가능`
+
+  // 제출 버튼 라벨
+  const submitLabel =
+    effectiveMode === 'create'   ? '출근보고 작성'
+    : effectiveMode === 'complete' ? '출근 완료'
+    : '수정 저장'
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto py-6 px-4"
-    >
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto py-6 px-4">
       <div className="bg-surface rounded-[20px] shadow-[var(--shadow-popover)] w-full max-w-md">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
-            <h3 className="text-base font-semibold text-text-primary">출근보고 작성하기</h3>
-            <p className="text-[12px] text-text-secondary mt-0.5">{date} — 시간과 근무장소를 입력해주세요</p>
+            <h3 className="text-base font-semibold text-text-primary">{headerTitle}</h3>
+            <p className="text-[12px] text-text-secondary mt-0.5">{headerSubtitle}</p>
           </div>
           <button
             onClick={onClose}
@@ -246,7 +297,6 @@ export default function CheckInModal({
                 <span className="text-sm text-text-muted whitespace-nowrap">({dowKo(date)})</span>
               )}
             </div>
-            <p className="mt-1 text-[12px] text-text-muted">기본값은 오늘이며, 다른 날짜로도 작성할 수 있습니다.</p>
           </div>
 
           {/* 이름 */}
@@ -268,7 +318,7 @@ export default function CheckInModal({
                 <span className="text-[12px] font-semibold text-info-text">캘린더 일정 ({date})</span>
               </div>
               {calendarLookup.fetchFailed ? (
-                <p className="text-[12px] text-warning-text">캘린더 데이터를 불러오지 못했습니다 (이전 캐시도 없음).</p>
+                <p className="text-[12px] text-warning-text">캘린더 데이터를 불러오지 못했습니다.</p>
               ) : (
                 <ul className="text-[12px] text-text-primary space-y-0.5">
                   {calendarLookup.leaveType && (
@@ -296,11 +346,11 @@ export default function CheckInModal({
             <>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">출근시간 *</label>
+                  <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">출근예정시간 *</label>
                   <HalfHourTimeSelect
                     value={startTime}
                     onChange={setStartTime}
-                    ariaLabel="출근시간"
+                    ariaLabel="출근예정시간"
                   />
                 </div>
                 <div>
@@ -315,12 +365,12 @@ export default function CheckInModal({
               </div>
 
               <div>
-                <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">근무장소 *</label>
+                <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">근무장소 (예정) *</label>
                 <p className="text-[12px] text-text-muted mb-2">
                   하루 중 들를 장소를 순서대로 추가하세요. 시간과는 무관합니다.
                 </p>
                 {loadingPrefill && (
-                  <p className="text-[12px] text-text-muted mb-2">어제 퇴근보고의 다음 출근 예정 정보를 불러오는 중...</p>
+                  <p className="text-[12px] text-text-muted mb-2">정보를 불러오는 중...</p>
                 )}
                 <WorkLocationChipsInput
                   value={locations}
@@ -328,6 +378,40 @@ export default function CheckInModal({
                   errors={locErrors}
                 />
               </div>
+
+              {/* 실제 출근시간 — edit/complete 모드에서 노출 */}
+              {(effectiveMode === 'edit' || effectiveMode === 'complete') && (
+                <div>
+                  <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
+                    실제 출근시간
+                    <span className="ml-1 text-[11px] font-normal text-text-muted">
+                      (비우면 출근 안 한 상태로 되돌림)
+                    </span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <HalfHourTimeSelect
+                        value={actualCheckInTime}
+                        onChange={setActualCheckInTime}
+                        allowNextDay
+                        ariaLabel="실제 출근시간"
+                        placeholder="출근 안 함"
+                      />
+                    </div>
+                    {actualCheckInTime && (
+                      <button
+                        type="button"
+                        onClick={() => setActualCheckInTime('')}
+                        className="shrink-0 inline-flex items-center justify-center h-10 w-10 rounded-[10px] border border-border-strong bg-surface text-text-muted hover:text-danger-text hover:bg-danger-bg transition-colors"
+                        aria-label="실제 출근시간 비우기"
+                        title="출근 안 함으로 되돌리기"
+                      >
+                        <X className="h-4 w-4" aria-hidden />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </>
           )}
 
@@ -361,7 +445,7 @@ export default function CheckInModal({
               className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 transition-colors"
             >
               {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-              저장
+              {submitLabel}
             </button>
           </div>
         </form>

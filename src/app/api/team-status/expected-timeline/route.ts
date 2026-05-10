@@ -48,6 +48,8 @@ export async function GET(request: Request) {
       expectedEndTime: null,
       timeline: null,
       leaveTimeline: null,
+      hasExisting: false,
+      checkedInAt: null as string | null,  // 'HH:mm' or null — daily.checked_in_at에서 추출
     }
 
     // ─── 1순위: D-day 본문 row ─────────────────────────────────────────────
@@ -89,12 +91,42 @@ export async function GET(request: Request) {
         })
       }
 
+      // daily_work_status에서 checked_in_at 시간 추출 (HH:mm)
+      let checkedInAt: string | null = null
+      try {
+        const { data: daily } = await adminClient
+          .from('daily_work_status')
+          .select('checked_in_at')
+          .eq('user_email', user.email!)
+          .eq('work_date', date)
+          .maybeSingle()
+        if (daily?.checked_in_at) {
+          const d = new Date(daily.checked_in_at)
+          // KST(+09) 기준 HH:mm 추출
+          const fmt = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'Asia/Seoul',
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+          const parts = fmt.formatToParts(d)
+          const h = parts.find(p => p.type === 'hour')?.value ?? '00'
+          const m = parts.find(p => p.type === 'minute')?.value ?? '00'
+          // 30분 floor
+          const mm = parseInt(m, 10)
+          const flooredM = mm < 30 ? '00' : '30'
+          checkedInAt = `${h.padStart(2, '0')}:${flooredM}`
+        }
+      } catch { /* 무시 */ }
+
       return NextResponse.json({
         plannedLocations,
         expectedStartTime: startHHmm,
         expectedEndTime: endHHmm,
         timeline,
         leaveTimeline,
+        hasExisting: true,
+        checkedInAt,
       })
     }
 
@@ -167,6 +199,8 @@ export async function GET(request: Request) {
       expectedEndTime,
       timeline,
       leaveTimeline,
+      hasExisting: false,
+      checkedInAt: null,
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
@@ -177,6 +211,8 @@ export async function GET(request: Request) {
       expectedEndTime: null,
       timeline: null,
       leaveTimeline: null,
+      hasExisting: false,
+      checkedInAt: null,
     }, { status: 200 })
   }
 }

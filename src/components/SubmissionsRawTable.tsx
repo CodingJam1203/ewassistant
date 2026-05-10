@@ -82,7 +82,7 @@ export interface SubmissionRow {
   division: string | null
   team: string | null
 
-  report_type: 'check_in' | 'check_out' | 'check_in_update' | 'check_out_update'
+  report_type: 'check_in' | 'check_out' | 'check_in_update' | 'check_out_update' | 'check_in_complete'
   target_date: string
   submitted_at: string
 
@@ -150,19 +150,21 @@ const REPORT_TYPE_OPTIONS: Array<{ value: '' | 'check_in' | 'check_out'; label: 
 
 function reportTypeLabel(t: SubmissionRow['report_type']): string {
   switch (t) {
-    case 'check_in':         return '출근보고'
-    case 'check_out':        return '퇴근보고'
-    case 'check_in_update':  return '출근보고 수정'
-    case 'check_out_update': return '퇴근보고 수정'
+    case 'check_in':          return '출근보고'
+    case 'check_out':         return '퇴근보고'
+    case 'check_in_update':   return '출근보고 수정'
+    case 'check_out_update':  return '퇴근보고 수정'
+    case 'check_in_complete': return '출근 완료'
   }
 }
 
 function reportTypeBadge(t: SubmissionRow['report_type']): BadgeVariant {
   switch (t) {
-    case 'check_in':         return 'success'
-    case 'check_out':        return 'info'
-    case 'check_in_update':  return 'warning'
-    case 'check_out_update': return 'warning'
+    case 'check_in':          return 'success'
+    case 'check_out':         return 'info'
+    case 'check_in_update':   return 'warning'
+    case 'check_out_update':  return 'warning'
+    case 'check_in_complete': return 'success'
   }
 }
 
