@@ -840,13 +840,19 @@ export default function WorkLogForm({
               {...register('breakTime')}
               className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
             >
-              <option value="00:00">00:00 (추가 휴게 없음)</option>
-              <option value="00:30">00:30 (30분)</option>
-              <option value="01:00">01:00 (1시간)</option>
-              <option value="01:30">01:30 (1시간 30분)</option>
-              <option value="02:00">02:00 (2시간)</option>
-              <option value="02:30">02:30 (2시간 30분)</option>
-              <option value="03:00">03:00 (3시간)</option>
+              {/* 0:00 ~ 12:00 30분 단위 (총 25개) */}
+              {Array.from({ length: 25 }).map((_, i) => {
+                const totalMin = i * 30
+                const h = Math.floor(totalMin / 60)
+                const m = totalMin % 60
+                const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+                let label: string
+                if (totalMin === 0) label = '00:00 (추가 휴게 없음)'
+                else if (h === 0) label = `${value} (${m}분)`
+                else if (m === 0) label = `${value} (${h}시간)`
+                else label = `${value} (${h}시간 ${m}분)`
+                return <option key={value} value={value}>{label}</option>
+              })}
             </select>
             {errors.breakTime && <p className="mt-1 text-sm text-danger-text">{errors.breakTime.message as string}</p>}
           </div>
