@@ -69,10 +69,17 @@ export async function POST(request: Request) {
     const body = await request.json()
     const date: string     = body.date ?? getKstTodayDateString()
     const location: string = body.location ?? ''
-    const target: 'planned' | 'actual' = body.target === 'actual' ? 'actual' : 'planned'
+    const target: 'planned' | 'actual' | 'actual_replace' | 'current' =
+      (body.target === 'actual' || body.target === 'actual_replace' || body.target === 'current')
+        ? body.target : 'planned'
 
-    if (!location.trim()) {
+    // current/actual_replace 외의 케이스에서 location 검증
+    if ((target === 'planned' || target === 'actual' || target === 'current') && !location.trim()) {
       return NextResponse.json({ error: '근무지를 입력해주세요.' }, { status: 400 })
+    }
+    // actual_replace는 body.locations(배열) 받음 — 빈 배열도 허용 (전체 비우기)
+    if (target === 'actual_replace' && !Array.isArray(body.locations)) {
+      return NextResponse.json({ error: 'actual_replace는 locations 배열이 필요합니다.' }, { status: 400 })
     }
 
     const now     = new Date().toISOString()
@@ -147,9 +154,18 @@ export async function POST(request: Request) {
       // ─── v2 chips append — target에 따라 분기 ─────────────────────────
       const newChip = locationStringToChip(location)
 
-      if (target === 'actual') {
-        // actual에 chip append
-        // 베이스: 기존 actual → planned (없으면) → legacy → 단일
+      if (target === 'actual_replace') {
+        // actual_work_locations 전체 교체 (body.locations 배열 그대로 set)
+        const replaced = normalizeWorkLocations(body.locations) ?? []
+        updatedActualLocs = replaced
+        chipsChanged = true
+        updates.actual_work_locations = replaced
+      } else if (target === 'current') {
+        // daily.current_location만 갱신, work_logs는 안 건드림
+        // (위 daily upsert에서 이미 current_location=location으로 갱신됨)
+        // chips는 변경 없음
+      } else if (target === 'actual') {
+        // actual에 chip append (기존 동작 — 호환용)
         const baseActual: WorkLocations | null =
           normalizeWorkLocations(wLog?.actual_work_locations)
           ?? normalizeWorkLocations(wLog?.planned_work_locations)

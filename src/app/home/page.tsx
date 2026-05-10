@@ -26,6 +26,9 @@ import type { WorkLog } from '@/types/work-log'
 import type { MonthBaselines, UserMonthSummary } from '@/lib/utils/work-hours'
 import type { TeamMemberCard } from '@/app/api/team-status/route'
 import { computeWorkLogState, buttonsForState } from '@/lib/work-log-state'
+import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
+import { resolveDisplayLocations, resolvePlannedLocations, formatChipsArrow } from '@/lib/work-locations-v2'
+import type { WorkLocations as WorkLocationsType } from '@/types/work-locations-v2'
 
 // 무거운 컴포넌트는 dynamic import — 초기 번들에서 빠지고 사용 시점에만 로드.
 //   - WorkLogModal: 퇴근보고/수정 클릭 시
@@ -111,6 +114,76 @@ function StatChip({
 }
 
 const LOCATION_OPTIONS = ['사무실', '재택', '외근', '기타'] as const
+
+/**
+ * 실제 근무지 chips 편집기 — 1번 카드 본인 영역.
+ * - actual chips 편집 (없으면 planned로 prefill)
+ * - ★ 마커로 현재 위치 표시
+ */
+function ActualChipsEditor({
+  initialChips, currentLabel, plannedLabel, date, onChange,
+}: {
+  initialChips: WorkLocationsType
+  currentLabel: string | null
+  plannedLabel: string | null  // 예정 라벨 (참고 표시)
+  date: string
+  onChange: () => void
+}) {
+  const [chips, setChips] = useState<WorkLocationsType>(initialChips)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => { setChips(initialChips) }, [JSON.stringify(initialChips)]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleChipsChange = async (next: WorkLocationsType) => {
+    setChips(next)
+    setSaving(true)
+    try {
+      await fetch('/api/team-status/location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, target: 'actual_replace', locations: next, location: '' }),
+      })
+      onChange()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSetCurrent = async (label: string) => {
+    setSaving(true)
+    try {
+      await fetch('/api/team-status/location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, target: 'current', location: label }),
+      })
+      onChange()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {plannedLabel && (
+        <p className="text-[11px] text-text-muted">
+          <span className="font-semibold mr-1">예정</span>{plannedLabel}
+        </p>
+      )}
+      <WorkLocationChipsInput
+        value={chips}
+        onChange={handleChipsChange}
+        currentLabel={currentLabel}
+        onSetCurrent={handleSetCurrent}
+        compact
+        disabled={saving}
+      />
+      <p className="text-[11px] text-text-muted">
+        ★ = 현재 위치 (다른 칩의 ☆ 클릭 → 이동)
+      </p>
+    </div>
+  )
+}
 
 function LocationSelectInline({
   current, date, onChange,
@@ -560,16 +633,34 @@ export default function HomePage() {
                 </Button>
               )}
 
-              {/* 근무지 드롭다운 (출근 후) */}
-              {(state === 'C' || state === 'D') && (
-                <div className="ml-auto">
-                  <LocationSelectInline
-                    current={myCard?.current_location ?? null}
-                    date={today}
-                    onChange={fetchMyCard}
-                  />
-                </div>
-              )}
+              {/* 실제 근무지 chips 편집기 + ★ 현재 위치 (출근 후) */}
+              {(state === 'C' || state === 'D') && myCard && (() => {
+                const plannedChips = resolvePlannedLocations({
+                  planned: myCard.planned_work_locations,
+                  legacyExpectedTimeline: myCard.work_location_timeline,
+                  legacyExpectedWorkLocation: myCard.work_location,
+                })
+                const actualChips = resolveDisplayLocations({
+                  actual: myCard.actual_work_locations,
+                  planned: myCard.planned_work_locations,
+                  legacyActualTimeline: myCard.work_location_timeline,
+                  legacyWorkLocation: myCard.current_location,
+                })
+                const initialChips = (actualChips && actualChips.length > 0)
+                  ? actualChips
+                  : (plannedChips ?? [])
+                return (
+                  <div className="basis-full">
+                    <ActualChipsEditor
+                      initialChips={initialChips}
+                      currentLabel={myCard.current_location ?? null}
+                      plannedLabel={plannedChips ? formatChipsArrow(plannedChips) : null}
+                      date={today}
+                      onChange={fetchMyCard}
+                    />
+                  </div>
+                )
+              })()}
             </div>
           )
         })()}

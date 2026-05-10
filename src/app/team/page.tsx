@@ -15,6 +15,8 @@ import { cn } from '@/lib/utils/cn'
 import type { TeamMemberCard } from '@/app/api/team-status/route'
 import { computeWorkLogState, buttonsForState } from '@/lib/work-log-state'
 import { resolveDisplayLocations, resolvePlannedLocations, chipLabel, formatChipsArrow } from '@/lib/work-locations-v2'
+import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
+import type { WorkLocations as WorkLocationsType } from '@/types/work-locations-v2'
 import type { WorkLocations } from '@/types/work-locations-v2'
 
 type ViewMode = 'card' | 'list'
@@ -301,26 +303,16 @@ function MemberCard({
               <span className="shrink-0 text-text-muted font-semibold mt-0.5">실제</span>
               <div className="flex-1 min-w-0">
                 {card.is_self ? (
-                  <div className="space-y-1">
-                    {showActual && (
-                      <div className="flex items-center gap-1 flex-wrap text-text-primary font-medium">
-                        <MapPin className="h-3 w-3 text-primary-600 shrink-0" aria-hidden />
-                        {actualChips!.map((chip, i) => (
-                          <span key={i} className="inline-flex items-center">
-                            {i > 0 && <span className="mx-1 text-text-muted">→</span>}
-                            {chipLabel(chip)}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    {/* 본인 카드 — 실제 근무지 추가 (actual에 칩 append) */}
-                    <LocationSelect
-                      current={card.current_location ?? card.work_location}
-                      date={date}
-                      onChange={onAction}
-                      target="actual"
-                    />
-                  </div>
+                  <ActualChipsEditor
+                    initialChips={
+                      actualChips && actualChips.length > 0
+                        ? actualChips
+                        : (plannedChips ?? [])
+                    }
+                    currentLabel={card.current_location ?? card.work_location ?? null}
+                    date={date}
+                    onChange={onAction}
+                  />
                 ) : showActual ? (
                   <div className="flex items-center gap-1 flex-wrap text-text-primary font-medium">
                     <MapPin className="h-3 w-3 text-primary-600 shrink-0" aria-hidden />

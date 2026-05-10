@@ -4,16 +4,14 @@
  * 근무장소 칩 입력 컴포넌트 (v2).
  *
  * - 드롭다운: 사무실 / 외근 / 재택 / 기타
- *   * 사무실/외근/재택 선택 시 → 즉시 칩으로 추가, select는 default(사무실)로 리셋
- *   * 기타 선택 시 → 텍스트 input + 추가 버튼 노출 (입력 후 추가)
- * - 칩 누적 (중복 허용)
- * - 칩 사이에 → 화살표 표시 (순서 강조)
- * - 칩에 좌/우 이동 + 삭제 버튼
- * - 시간 정보는 일절 다루지 않음
+ * - 칩 누적, 좌/우 이동, 삭제
+ * - (옵션) 별표 ★ — 현재 위치 마커
+ *   * currentLabel과 일치하는 칩에 ★ 채워짐, 다른 칩은 외곽선 ☆
+ *   * ☆ 클릭 시 onSetCurrent 콜백 호출 (해당 칩을 현재 위치로 마킹)
  */
 
 import { useState, useMemo } from 'react'
-import { ArrowRight, X, MapPin, ArrowLeft, Plus } from 'lucide-react'
+import { ArrowRight, X, MapPin, ArrowLeft, Plus, Star } from 'lucide-react'
 import {
   WORK_LOCATION_KIND_LABELS,
   type WorkLocationChip,
@@ -28,6 +26,10 @@ interface WorkLocationChipsInputProps {
   errors?: LocationsValidationError[]
   disabled?: boolean
   compact?: boolean
+  /** 현재 위치 라벨 — 일치하는 칩에 ★ 마커 표시 */
+  currentLabel?: string | null
+  /** ★ 클릭 시 콜백 — 호출자가 daily.current_location 등을 갱신 */
+  onSetCurrent?: (label: string) => void
 }
 
 const KIND_ORDER: WorkLocationKind[] = ['office', 'field', 'remote', 'custom']
@@ -38,8 +40,9 @@ export default function WorkLocationChipsInput({
   errors,
   disabled,
   compact,
+  currentLabel,
+  onSetCurrent,
 }: WorkLocationChipsInputProps) {
-  // 드롭다운 현재 선택값 — 즉시 추가 모드라 화면에는 안 보이지만 select를 위해 유지
   const [selectedKind, setSelectedKind] = useState<WorkLocationKind | ''>('')
   const [pendingCustom, setPendingCustom] = useState('')
 
@@ -58,19 +61,16 @@ export default function WorkLocationChipsInput({
     return { byIndex: map, general }
   }, [errors])
 
-  /** select onChange — custom이 아니면 즉시 추가, custom은 입력 모드로 진입 */
   const handleKindSelect = (k: WorkLocationKind) => {
     if (disabled) return
     if (k === 'custom') {
       setSelectedKind('custom')
       return
     }
-    // 즉시 추가
     onChange([...value, { kind: k }])
-    setSelectedKind('')  // 다시 placeholder로
+    setSelectedKind('')
   }
 
-  /** 기타 입력 추가 */
   const handleCustomAdd = () => {
     if (disabled) return
     const trimmed = pendingCustom.trim()
@@ -94,6 +94,8 @@ export default function WorkLocationChipsInput({
     onChange(next)
   }
 
+  const showStar = !!onSetCurrent
+
   return (
     <div className="space-y-2.5">
       {/* 추가 영역 */}
@@ -113,7 +115,6 @@ export default function WorkLocationChipsInput({
           ))}
         </select>
 
-        {/* 기타 선택 시 텍스트 입력 + 추가 버튼 */}
         {selectedKind === 'custom' && (
           <>
             <input
@@ -153,25 +154,47 @@ export default function WorkLocationChipsInput({
         )}
       </div>
 
-      {/* 칩 목록 — 사이에 → 화살표 */}
+      {/* 칩 목록 */}
       {value.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           {value.map((chip, i) => {
             const itemErrors = errorByIndex.byIndex.get(i) ?? []
+            const label = chipLabel(chip)
+            const isCurrent = !!currentLabel && currentLabel.trim() === label.trim()
             return (
               <div key={i} className="inline-flex items-center gap-1">
                 <div
                   className={`inline-flex items-center gap-1 rounded-full border-2 px-2.5 py-1 text-[13px] ${
                     itemErrors.length > 0
                       ? 'border-danger-border bg-danger-bg text-danger-text'
-                      : 'border-primary-200 bg-primary-50 text-primary-700'
+                      : isCurrent
+                        ? 'border-warning-text bg-warning-bg text-warning-text'
+                        : 'border-primary-200 bg-primary-50 text-primary-700'
                   }`}
                 >
-                  <span className="text-[10px] tabular-nums font-semibold text-primary-600">
+                  <span className={`text-[10px] tabular-nums font-semibold ${isCurrent ? 'text-warning-text' : 'text-primary-600'}`}>
                     {i + 1}
                   </span>
-                  <MapPin className="h-3 w-3 text-primary-600 shrink-0" aria-hidden />
-                  <span className="font-semibold px-0.5">{chipLabel(chip)}</span>
+                  <MapPin className={`h-3 w-3 shrink-0 ${isCurrent ? 'text-warning-text' : 'text-primary-600'}`} aria-hidden />
+                  <span className="font-semibold px-0.5">{label}</span>
+
+                  {/* 별표 — 현재 위치 마커 */}
+                  {showStar && (
+                    <button
+                      type="button"
+                      onClick={() => onSetCurrent?.(label)}
+                      disabled={disabled}
+                      aria-label={isCurrent ? '현재 위치' : '이 위치를 현재 위치로 표시'}
+                      title={isCurrent ? '현재 위치' : '현재 위치로 표시'}
+                      className={`inline-flex items-center justify-center h-5 w-5 rounded-full transition-colors ${
+                        isCurrent
+                          ? 'text-warning-text hover:bg-warning-text/10'
+                          : 'text-text-muted hover:text-warning-text hover:bg-warning-bg'
+                      }`}
+                    >
+                      <Star className={`h-3 w-3 ${isCurrent ? 'fill-current' : ''}`} aria-hidden />
+                    </button>
+                  )}
 
                   {/* 좌 이동 */}
                   {!disabled && i > 0 && (
@@ -217,7 +240,7 @@ export default function WorkLocationChipsInput({
                   )}
                 </div>
 
-                {/* 칩 사이 화살표 */}
+                {/* 칩 사이 → 화살표 */}
                 {i < value.length - 1 && (
                   <ArrowRight className="h-4 w-4 text-text-muted shrink-0" aria-hidden />
                 )}
