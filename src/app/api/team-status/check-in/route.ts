@@ -243,9 +243,9 @@ export async function POST(request: Request) {
           work_location_type: tlFirst?.type === 'custom' ? '기타' : (tlFirst?.label ?? (isAllDayLeave ? null : '사무실')),
           work_location_custom: tlFirst?.type === 'custom' ? (tlFirst.customLabel ?? null) : null,
           work_location_timeline: timeline,
-          // v2 — 당일 출근 시점에 planned=actual 동일
+          // v2 — 출근 시점엔 planned만 저장. actual은 NULL (아직 일 안 함 → 표시 fallback으로 planned가 노출)
           planned_work_locations: plannedLocations,
-          actual_work_locations: plannedLocations,
+          actual_work_locations: null,
           // 휴가
           leave_timeline: leaveTimeline,
           late_or_attendance_status: '아니오',
@@ -310,19 +310,8 @@ export async function POST(request: Request) {
       const actualLocation = firstChipLabel(plannedLocations)
         || (tlFirstSub ? displayLocation(tlFirstSub) : (body.work_location ?? null))
 
-      // 사전 보고 work_log에 actual_work_locations 기록 (planned는 보존)
-      try {
-        const updates: Record<string, unknown> = {}
-        if (plannedLocations && plannedLocations.length > 0) {
-          updates.actual_work_locations = plannedLocations
-        }
-        if (Object.keys(updates).length > 0) {
-          await adminClient
-            .from('work_logs')
-            .update(updates)
-            .eq('id', workLogId)
-        }
-      } catch { /* 무시 */ }
+      // 사전 보고가 있는 경우 — work_log expected_*는 보존하되 actual은 갱신하지 않음
+      // (출근 시점엔 actual=NULL 정책. 표시 fallback으로 planned가 자연스럽게 노출됨)
 
       void recordSubmission({
         user_id: user.id,

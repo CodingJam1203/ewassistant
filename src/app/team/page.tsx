@@ -63,11 +63,13 @@ const STATUS_BORDER: Record<'green' | 'yellow' | 'red', string> = {
 const LOCATION_OPTIONS = ['사무실', '재택', '외근', '기타'] as const
 
 function LocationSelect({
-  current, date, onChange,
+  current, date, onChange, target = 'planned',
 }: {
   current: string | null
   date: string
   onChange: (loc: string) => void
+  /** 'planned' (예정 갱신, 기본) | 'actual' (실제 갱신) */
+  target?: 'planned' | 'actual'
 }) {
   const [custom, setCustom] = useState('')
   const [showCustom, setShowCustom] = useState(false)
@@ -80,7 +82,7 @@ function LocationSelect({
     await fetch('/api/team-status/location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, location: val }),
+      body: JSON.stringify({ date, location: val, target }),
     })
     setSaving(false)
     onChange(val)
@@ -91,7 +93,7 @@ function LocationSelect({
     await fetch('/api/team-status/location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, location: custom.trim() }),
+      body: JSON.stringify({ date, location: custom.trim(), target }),
     })
     setSaving(false)
     onChange(custom.trim())
@@ -310,10 +312,12 @@ function MemberCard({
                         ))}
                       </div>
                     )}
+                    {/* 본인 카드 — 실제 근무지 추가 (actual에 칩 append) */}
                     <LocationSelect
                       current={card.current_location ?? card.work_location}
                       date={date}
                       onChange={onAction}
+                      target="actual"
                     />
                   </div>
                 ) : showActual ? (
@@ -520,6 +524,7 @@ function MemberListRow({
                   current={card.current_location ?? card.work_location}
                   date={date}
                   onChange={onAction}
+                  target="actual"
                 />
               ) : (
                 <div className="text-[12px] text-text-primary font-medium inline-flex items-center gap-1">
