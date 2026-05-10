@@ -30,12 +30,23 @@ interface WorkLocationChipsViewProps {
   chipsTrailing?: ReactNode
   /** 빈 상태 안내 문구 (leading/trailing 없을 때만 표시) */
   emptyText?: string
+  /** 칩 크기. sm은 좁은 셀(리스트뷰)용 */
+  chipSize?: 'sm' | 'md'
 }
 
 export default function WorkLocationChipsView({
   value, currentIndex, currentLabel,
   chipsLeading, chipsTrailing, emptyText,
+  chipSize = 'md',
 }: WorkLocationChipsViewProps) {
+  const chipCls =
+    chipSize === 'sm'
+      ? 'border px-2 py-0.5 text-[11px]'
+      : 'border-2 px-2.5 py-1 text-[13px]'
+  const iconCls = chipSize === 'sm' ? 'h-2.5 w-2.5' : 'h-3 w-3'
+  const indexCls = chipSize === 'sm' ? 'text-[9px]' : 'text-[10px]'
+  const arrowCls = chipSize === 'sm' ? 'h-3 w-3' : 'h-4 w-4'
+
   const showRow = !!chipsLeading || !!chipsTrailing || value.length > 0
 
   return (
@@ -56,23 +67,23 @@ export default function WorkLocationChipsView({
             return (
               <div key={i} className="inline-flex items-center gap-1">
                 <div
-                  className={`inline-flex items-center gap-1 rounded-full border-2 px-2.5 py-1 text-[13px] ${
+                  className={`inline-flex items-center gap-1 rounded-full ${chipCls} ${
                     isCurrent
                       ? 'border-warning-text bg-warning-bg text-warning-text'
                       : 'border-primary-200 bg-primary-50 text-primary-700'
                   }`}
                 >
-                  <span className={`text-[10px] tabular-nums font-semibold ${isCurrent ? 'text-warning-text' : 'text-primary-600'}`}>
+                  <span className={`${indexCls} tabular-nums font-semibold ${isCurrent ? 'text-warning-text' : 'text-primary-600'}`}>
                     {i + 1}
                   </span>
-                  <MapPin className={`h-3 w-3 shrink-0 ${isCurrent ? 'text-warning-text' : 'text-primary-600'}`} aria-hidden />
+                  <MapPin className={`${iconCls} shrink-0 ${isCurrent ? 'text-warning-text' : 'text-primary-600'}`} aria-hidden />
                   <span className="font-semibold px-0.5">{label}</span>
                   {isCurrent && (
-                    <Star className="h-3 w-3 fill-current shrink-0" aria-hidden />
+                    <Star className={`${iconCls} fill-current shrink-0`} aria-hidden />
                   )}
                 </div>
                 {i < value.length - 1 && (
-                  <ArrowRight className="h-4 w-4 text-text-muted shrink-0" aria-hidden />
+                  <ArrowRight className={`${arrowCls} text-text-muted shrink-0`} aria-hidden />
                 )}
               </div>
             )

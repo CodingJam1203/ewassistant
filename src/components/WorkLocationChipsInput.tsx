@@ -36,6 +36,8 @@ interface WorkLocationChipsInputProps {
   chipsLeading?: ReactNode
   /** 칩 줄 끝에 끼우는 노드 (예: 완료 버튼) */
   chipsTrailing?: ReactNode
+  /** 칩 크기. sm은 좁은 셀(리스트뷰)용 */
+  chipSize?: 'sm' | 'md'
 }
 
 const KIND_ORDER: WorkLocationKind[] = ['office', 'field', 'remote', 'custom']
@@ -51,7 +53,16 @@ export default function WorkLocationChipsInput({
   onSetCurrent,
   chipsLeading,
   chipsTrailing,
+  chipSize = 'md',
 }: WorkLocationChipsInputProps) {
+  const chipCls =
+    chipSize === 'sm'
+      ? 'border px-2 py-0.5 text-[11px]'
+      : 'border-2 px-2.5 py-1 text-[13px]'
+  const iconCls = chipSize === 'sm' ? 'h-2.5 w-2.5' : 'h-3 w-3'
+  const indexCls = chipSize === 'sm' ? 'text-[9px]' : 'text-[10px]'
+  const arrowCls = chipSize === 'sm' ? 'h-3 w-3' : 'h-4 w-4'
+  const ctrlSize = chipSize === 'sm' ? 'h-4 w-4' : 'h-5 w-5'
   const [selectedKind, setSelectedKind] = useState<WorkLocationKind | ''>('')
   const [pendingCustom, setPendingCustom] = useState('')
 
@@ -126,7 +137,7 @@ export default function WorkLocationChipsInput({
             return (
               <div key={i} className="inline-flex items-center gap-1">
                 <div
-                  className={`inline-flex items-center gap-1 rounded-full border-2 px-2.5 py-1 text-[13px] ${
+                  className={`inline-flex items-center gap-1 rounded-full ${chipCls} ${
                     itemErrors.length > 0
                       ? 'border-danger-border bg-danger-bg text-danger-text'
                       : isCurrent
@@ -134,10 +145,10 @@ export default function WorkLocationChipsInput({
                         : 'border-primary-200 bg-primary-50 text-primary-700'
                   }`}
                 >
-                  <span className={`text-[10px] tabular-nums font-semibold ${isCurrent ? 'text-warning-text' : 'text-primary-600'}`}>
+                  <span className={`${indexCls} tabular-nums font-semibold ${isCurrent ? 'text-warning-text' : 'text-primary-600'}`}>
                     {i + 1}
                   </span>
-                  <MapPin className={`h-3 w-3 shrink-0 ${isCurrent ? 'text-warning-text' : 'text-primary-600'}`} aria-hidden />
+                  <MapPin className={`${iconCls} shrink-0 ${isCurrent ? 'text-warning-text' : 'text-primary-600'}`} aria-hidden />
                   <span className="font-semibold px-0.5">{label}</span>
                   {showStar && (
                     <button
@@ -146,13 +157,13 @@ export default function WorkLocationChipsInput({
                       disabled={disabled}
                       aria-label={isCurrent ? '현재 위치' : '이 위치를 현재 위치로 표시'}
                       title={isCurrent ? '현재 위치' : '현재 위치로 표시'}
-                      className={`inline-flex items-center justify-center h-5 w-5 rounded-full transition-colors ${
+                      className={`inline-flex items-center justify-center ${ctrlSize} rounded-full transition-colors ${
                         isCurrent
                           ? 'text-warning-text hover:bg-warning-text/10'
                           : 'text-text-muted hover:text-warning-text hover:bg-warning-bg'
                       }`}
                     >
-                      <Star className={`h-3 w-3 ${isCurrent ? 'fill-current' : ''}`} aria-hidden />
+                      <Star className={`${iconCls} ${isCurrent ? 'fill-current' : ''}`} aria-hidden />
                     </button>
                   )}
                   {!disabled && i > 0 && (
@@ -161,9 +172,9 @@ export default function WorkLocationChipsInput({
                       onClick={() => handleMove(i, -1)}
                       aria-label={`${i + 1}번째 항목 앞으로 이동`}
                       title="앞으로"
-                      className="inline-flex items-center justify-center h-5 w-5 rounded-full text-primary-700 hover:text-white hover:bg-primary-600 transition-colors"
+                      className={`inline-flex items-center justify-center ${ctrlSize} rounded-full text-primary-700 hover:text-white hover:bg-primary-600 transition-colors`}
                     >
-                      <ArrowLeft className="h-3 w-3" aria-hidden />
+                      <ArrowLeft className={`${iconCls}`} aria-hidden />
                     </button>
                   )}
                   {!disabled && i < value.length - 1 && (
@@ -172,9 +183,9 @@ export default function WorkLocationChipsInput({
                       onClick={() => handleMove(i, 1)}
                       aria-label={`${i + 1}번째 항목 뒤로 이동`}
                       title="뒤로"
-                      className="inline-flex items-center justify-center h-5 w-5 rounded-full text-primary-700 hover:text-white hover:bg-primary-600 transition-colors"
+                      className={`inline-flex items-center justify-center ${ctrlSize} rounded-full text-primary-700 hover:text-white hover:bg-primary-600 transition-colors`}
                     >
-                      <ArrowRight className="h-3 w-3" aria-hidden />
+                      <ArrowRight className={`${iconCls}`} aria-hidden />
                     </button>
                   )}
                   {!disabled && (
@@ -183,9 +194,9 @@ export default function WorkLocationChipsInput({
                       onClick={() => handleRemove(i)}
                       aria-label={`${i + 1}번째 항목 삭제`}
                       title="삭제"
-                      className="inline-flex items-center justify-center h-5 w-5 rounded-full text-primary-700 hover:text-white hover:bg-danger-text transition-colors"
+                      className={`inline-flex items-center justify-center ${ctrlSize} rounded-full text-primary-700 hover:text-white hover:bg-danger-text transition-colors`}
                     >
-                      <X className="h-3 w-3" aria-hidden />
+                      <X className={`${iconCls}`} aria-hidden />
                     </button>
                   )}
                   {itemErrors.length > 0 && (
@@ -195,7 +206,7 @@ export default function WorkLocationChipsInput({
                   )}
                 </div>
                 {i < value.length - 1 && (
-                  <ArrowRight className="h-4 w-4 text-text-muted shrink-0" aria-hidden />
+                  <ArrowRight className={`${arrowCls} text-text-muted shrink-0`} aria-hidden />
                 )}
               </div>
             )

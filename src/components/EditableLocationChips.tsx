@@ -27,6 +27,10 @@ interface EditableLocationChipsProps {
   plannedHint?: string | null
   /** 빈 상태일 때 안내문 (보기 모드) */
   emptyText?: string
+  /** [예정]/[실제] 라벨 pill 표시 여부 (default true). 부모가 외부에 자체 라벨이 있을 때 false. */
+  showLabels?: boolean
+  /** 칩 크기. sm은 좁은 셀(리스트뷰)용. */
+  chipSize?: 'sm' | 'md'
 }
 
 /** 작은 라벨 pill — 예정/실제 구분용 */
@@ -45,6 +49,8 @@ function LabelPill({ text, tone }: { text: string; tone: 'planned' | 'actual' })
 export default function EditableLocationChips({
   value, currentLabel, currentIndex, date, onChange,
   plannedHint, emptyText,
+  showLabels = true,
+  chipSize = 'md',
 }: EditableLocationChipsProps) {
   const [editing, setEditing] = useState(false)
 
@@ -160,8 +166,8 @@ export default function EditableLocationChips({
 
   return (
     <div className="space-y-1.5">
-      {/* 예정 라인 */}
-      {plannedHint && (
+      {/* 예정 라인 — showLabels=false면 부모가 외부에 라벨을 그리므로 본 컴포넌트는 칩화 생략 */}
+      {plannedHint && showLabels && (
         <div className="flex items-center gap-2 flex-wrap">
           <LabelPill text="예정" tone="planned" />
           <span className="text-[12px] text-text-secondary">{plannedHint}</span>
@@ -174,9 +180,10 @@ export default function EditableLocationChips({
           value={chips}
           currentLabel={currentLabel}
           currentIndex={effectiveIndex}
-          chipsLeading={<LabelPill text="실제" tone="actual" />}
+          chipsLeading={showLabels ? <LabelPill text="실제" tone="actual" /> : null}
           chipsTrailing={editButton}
           emptyText={emptyText ?? '근무장소가 없습니다. 수정 클릭 → 추가'}
+          chipSize={chipSize}
         />
       ) : (
         <div className="space-y-2">
@@ -186,8 +193,9 @@ export default function EditableLocationChips({
             currentLabel={currentLabel}
             currentIndex={effectiveIndex}
             onSetCurrent={handleSetCurrent}
-            chipsLeading={<LabelPill text="실제" tone="actual" />}
+            chipsLeading={showLabels ? <LabelPill text="실제" tone="actual" /> : null}
             chipsTrailing={doneButton}
+            chipSize={chipSize}
             compact
           />
           <p className="text-[11px] text-text-muted">

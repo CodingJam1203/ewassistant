@@ -226,6 +226,7 @@ function MemberCard({
                     currentIndex={card.current_location_index ?? null}
                     date={date}
                     onChange={onAction}
+                    showLabels={false}
                   />
                 ) : showActual ? (
                   <div className="flex items-center gap-1 flex-wrap text-text-primary font-medium">
@@ -475,6 +476,8 @@ function MemberListRow({
                   currentIndex={card.current_location_index ?? null}
                   date={date}
                   onChange={onAction}
+                  showLabels={false}
+                  chipSize="sm"
                 />
               ) : (
                 <div className="text-[12px] text-text-primary font-medium inline-flex items-center gap-1">
@@ -514,7 +517,7 @@ function MemberListRow({
               )}
               {buttons.showCheckInEdit && !buttons.showCheckInComplete && (
                 <Button variant="secondary" size="sm" onClick={() => onOpenCheckIn(card, 'edit')} disabled={busy} className="!h-7 !px-2 !text-[11px]">
-                  <Check className="h-3 w-3" aria-hidden /> 수정
+                  <Check className="h-3 w-3" aria-hidden /> 출근수정
                 </Button>
               )}
               {buttons.showCheckOutCreate && (
