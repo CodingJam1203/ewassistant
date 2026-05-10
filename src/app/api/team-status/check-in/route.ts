@@ -38,13 +38,16 @@ import type { LeaveTimeline } from '@/types/leave-timeline'
 /**
  * POST /api/team-status/check-in
  *
- * 정책 (v2):
- * - D-1 퇴근보고 시 다음날 출근예정 = D-1 row의 expected_*에 저장 (사전 보고)
- * - D-day 출근보고 = D-day의 본문 row를 INSERT/UPDATE (start_time, end_time, planned)
- *   * 사전 보고 row(leave_date=D-1)는 그대로 보존
- *   * D-day 본문 row가 이미 있으면 갱신 (출근보고 재작성 케이스)
- *   * actual_work_locations는 NULL (출근만 했고 아직 일하지 않음 — 표시 시 planned로 fallback)
- *   * expected_*는 NULL (다음 출근 예정은 퇴근보고에서 입력)
+ * 새 정책 (한 일자 한 row 모델):
+ *   - 한 사용자 + 한 일자 = work_logs row 1개 (leave_date 매칭)
+ *   - 출근보고 작성/수정/출근완료를 통합 처리
+ *   - body.actualCheckInTime (HH:mm 또는 null/empty):
+ *       * 비어있음 → daily.checked_in_at = NULL (출근 아직 안 함)
+ *       * 채워짐  → daily.checked_in_at = ISO (실제 출근 갱신)
+ *
+ * report_type 분기:
+ *   - row 신규 INSERT      → check_in
+ *   - row 기존 UPDATE      → check_in_update (예정값 변경) or check_in_complete (실제출근만 갱신)
  */
 export async function POST(request: Request) {
   try {
@@ -144,6 +147,11 @@ export async function POST(request: Request) {
     if (body.end_time && !isHalfHourHHmm(body.end_time)) {
       return NextResponse.json({ error: '퇴근 시각은 30분 단위로 입력해주세요.' }, { status: 400 })
     }
+    // actualCheckInTime — 비어있을 수 있음. 비어있지 않으면 30분 단위 검증
+    const actualCheckInTimeRaw: string | null | undefined = body.actualCheckInTime
+    if (actualCheckInTimeRaw && !isHalfHourHHmm(actualCheckInTimeRaw)) {
+      return NextResponse.json({ error: '실제 출근시간은 30분 단위로 입력해주세요.' }, { status: 400 })
+    }
 
     // ─── 시간/장소 도출 ──────────────────────────────────────────────────────
     const tlFirst = timeline ? firstWorkLocation(timeline) : null
@@ -184,30 +192,32 @@ export async function POST(request: Request) {
         { user: user.email, raw: calcResult.actualWorkMinutes, startTime, endTime, breakTime })
     }
 
-    // ─── D-day 본문 row 찾기 (leave_date 매칭) ───────────────────────────────
-    // 사전 보고(leave_date=D-1, expected_start_date=D-day)는 안 건드림.
+    // ─── 기존 D-day row 찾기 ─────────────────────────────────────────────────
     let workLogId: string | null = body.work_log_id ?? null
+    let prevPlannedLocations: WorkLocations | null = null
+    let prevStartTime: string | null = null
+    let prevEndTime: string | null = null
     if (!workLogId) {
       const { data: todayLog } = await adminClient
         .from('work_logs')
-        .select('id')
+        .select('id, planned_work_locations, start_time, end_time')
         .eq('user_email', user.email!)
         .eq('leave_date', date)
         .eq('is_deleted', false)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
-      workLogId = todayLog?.id ?? null
+      if (todayLog) {
+        workLogId = todayLog.id
+        prevPlannedLocations = normalizeWorkLocations(todayLog.planned_work_locations)
+        prevStartTime = typeof todayLog.start_time === 'string' ? todayLog.start_time.slice(0, 5) : null
+        prevEndTime = typeof todayLog.end_time === 'string' ? todayLog.end_time.slice(0, 5) : null
+      }
     }
 
     const willCreateNewLog = !workLogId
 
-    const checkedInAt: string =
-      body.checked_in_at
-      ?? new Date(`${date}T${startTime}:00+09:00`).toISOString()
-
-    // ─── D-day work_log: INSERT 또는 UPDATE ─────────────────────────────────
-    // 본문 영역만 처리 — expected_*는 NULL (다음 출근 예정은 퇴근보고 단계에서)
+    // 예정값 영역
     const bodyArea = {
       name,
       work_type_label: '기본근무 등록',
@@ -222,13 +232,13 @@ export async function POST(request: Request) {
       work_location_type:   tlFirst?.type === 'custom' ? '기타' : (tlFirst?.label ?? (isAllDayLeave ? null : '사무실')),
       work_location_custom: tlFirst?.type === 'custom' ? (tlFirst.customLabel ?? null) : null,
       work_location_timeline: timeline,
-      // v2 — actual은 NULL (정책: 출근만 했고 아직 일 안함, 표시는 planned fallback)
+      // v2 — 출근시점엔 actual NULL (퇴근보고에서 입력)
       planned_work_locations: plannedLocations,
       actual_work_locations:  null,
       leave_timeline:         leaveTimeline,
       late_or_attendance_status: '아니오',
       attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
-      // expected_* — D-day 본문에서는 비움 (다음 출근 예정은 퇴근보고에서)
+      // expected_*는 비움 — 다음날 정보는 퇴근보고에서
       expected_start_date:    null,
       expected_work_time:     null,
       expected_work_location: null,
@@ -243,14 +253,12 @@ export async function POST(request: Request) {
     }
 
     if (workLogId) {
-      // UPDATE — 기존 D-day row 갱신 (재작성 케이스)
       const { error: updErr } = await adminClient
         .from('work_logs')
         .update({ ...bodyArea, updated_at: submissionNow, updated_by: user.id })
         .eq('id', workLogId)
       if (updErr) throw updErr
     } else {
-      // INSERT — D-day 신규 row
       const { data: newLog, error: insErr } = await adminClient
         .from('work_logs')
         .insert({
@@ -271,80 +279,164 @@ export async function POST(request: Request) {
       workLogId = newLog.id
     }
 
+    // ─── 변경 필드 분석 (report_type 분기 + RAW 기록용) ──────────────────────
+    const plannedChanged =
+      JSON.stringify(prevPlannedLocations) !== JSON.stringify(plannedLocations)
+      || prevStartTime !== startTime
+      || prevEndTime !== endTime
+
+    // ─── daily_work_status 갱신 ──────────────────────────────────────────────
+    // checked_in_at은 actualCheckInTime이 들어왔을 때만 갱신 (비어있으면 NULL)
+    const actualCheckInTime: string | null = (
+      typeof actualCheckInTimeRaw === 'string' && actualCheckInTimeRaw.trim()
+    ) ? actualCheckInTimeRaw : null
+
+    let prevCheckedInAt: string | null = null
+    {
+      const { data: prevDaily } = await adminClient
+        .from('daily_work_status')
+        .select('checked_in_at')
+        .eq('work_date', date)
+        .eq('user_email', user.email!)
+        .maybeSingle()
+      prevCheckedInAt = prevDaily?.checked_in_at ?? null
+    }
+
+    const checkedInAtIso: string | null = actualCheckInTime
+      ? new Date(`${date}T${actualCheckInTime}:00+09:00`).toISOString()
+      : null
+
+    const checkedInChanged = (prevCheckedInAt ?? null) !== (checkedInAtIso ?? null)
+
+    const currentLocation = firstChipLabel(plannedLocations)
+      || (tlFirst ? displayLocation(tlFirst) : (body.work_location ?? body.work_location_type ?? '사무실'))
+
+    const dailyUpsertPayload: Record<string, unknown> = {
+      work_date:        date,
+      user_email:       user.email!,
+      user_profile_id:  profile?.id ?? null,
+      work_log_id:      workLogId,
+      status:           checkedInAtIso ? 'working' : 'reported',
+      current_location: currentLocation,
+      checked_in_at:    checkedInAtIso,  // null이면 출근 안 한 상태로 되돌림
+      // checked_out_at은 이 라우트에서 안 건드림
+      is_on_break:      false,
+      updated_at:       submissionNow,
+    }
+
+    const { data: daily, error: dailyErr } = await adminClient
+      .from('daily_work_status')
+      .upsert(dailyUpsertPayload, { onConflict: 'work_date,user_email' })
+      .select()
+      .single()
+
+    if (dailyErr) throw dailyErr
+
     // ─── submissions 로그 ─────────────────────────────────────────────────
-    void recordSubmission({
-      user_id: user.id,
-      user_email: user.email!,
-      name,
-      division: profile?.division ?? null,
-      team:     profile?.team ?? null,
-      report_type: 'check_in',
-      target_date: date,
-      submitted_at: submissionNow,
-      work_log_id: workLogId,
-      // 출근보고 영역 (당일 출근정보)
-      start_time:      startTime,
-      end_time:        endTime,
-      work_location:   workLocation,
-      work_location_timeline: timeline ?? null,
-      leave_timeline:         leaveTimeline ?? null,
-      planned_work_locations: plannedLocations ?? null,
-      // expected_* 비움
-      work_type_label: '기본근무 등록',
-      work_type_code:  calcResult.workTypeCode,
-      attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
-    })
+    // report_type 분기:
+    //   - 신규 INSERT          → 'check_in'
+    //   - 예정값 변경 (기존 row UPDATE + 예정 다름)  → 'check_in_update'
+    //   - 실제출근만 변경                            → 'check_in_complete'
+    //   - 둘 다 변경 시 → 두 행 모두 기록
+    if (willCreateNewLog) {
+      void recordSubmission({
+        user_id: user.id,
+        user_email: user.email!,
+        name,
+        division: profile?.division ?? null,
+        team:     profile?.team ?? null,
+        report_type: 'check_in',
+        target_date: date,
+        submitted_at: submissionNow,
+        work_log_id: workLogId,
+        start_time:      startTime,
+        end_time:        endTime,
+        work_location:   workLocation,
+        work_location_timeline: timeline ?? null,
+        leave_timeline:         leaveTimeline ?? null,
+        planned_work_locations: plannedLocations ?? null,
+        work_type_label: '기본근무 등록',
+        work_type_code:  calcResult.workTypeCode,
+        attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
+      })
+    } else {
+      if (plannedChanged) {
+        void recordSubmission({
+          user_id: user.id,
+          user_email: user.email!,
+          name,
+          division: profile?.division ?? null,
+          team:     profile?.team ?? null,
+          report_type: 'check_in_update',
+          target_date: date,
+          submitted_at: submissionNow,
+          work_log_id: workLogId,
+          start_time:      startTime,
+          end_time:        endTime,
+          work_location:   workLocation,
+          work_location_timeline: timeline ?? null,
+          leave_timeline:         leaveTimeline ?? null,
+          planned_work_locations: plannedLocations ?? null,
+          work_type_label: '기본근무 등록',
+          work_type_code:  calcResult.workTypeCode,
+          attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
+        })
+      }
+      if (checkedInChanged) {
+        void recordSubmission({
+          user_id: user.id,
+          user_email: user.email!,
+          name,
+          division: profile?.division ?? null,
+          team:     profile?.team ?? null,
+          report_type: 'check_in_complete',
+          target_date: date,
+          submitted_at: submissionNow,
+          work_log_id: workLogId,
+          start_time:      actualCheckInTime,
+          work_location:   currentLocation,
+          attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
+        })
+      }
+    }
 
     await adminClient
       .from('user_profiles')
       .update({ last_submitted_at: submissionNow })
       .eq('email', user.email!)
 
-    // ─── daily_work_status ────────────────────────────────────────────────
-    const currentLocation = firstChipLabel(plannedLocations)
-      || (tlFirst ? displayLocation(tlFirst) : (body.work_location ?? body.work_location_type ?? '사무실'))
-
-    const { data: daily, error: dailyErr } = await adminClient
-      .from('daily_work_status')
-      .upsert({
-        work_date:        date,
-        user_email:       user.email!,
-        user_profile_id:  profile?.id ?? null,
-        work_log_id:      workLogId,
-        status:           'working',
-        current_location: currentLocation,
-        checked_in_at:    checkedInAt,
-        checked_out_at:   null,
-        is_on_break:      false,
-        updated_at:       submissionNow,
-      }, { onConflict: 'work_date,user_email' })
-      .select()
-      .single()
-
-    if (dailyErr) throw dailyErr
-
     await adminClient.from('work_status_events').insert({
       work_date:       date,
       user_email:      user.email!,
       user_profile_id: profile?.id ?? null,
       work_log_id:     workLogId,
-      event_type:      willCreateNewLog ? 'report_created_from_check_in' : 'check_in_re_submitted',
-      event_value:     { location: currentLocation, declared_check_in_at: checkedInAt },
+      event_type:      willCreateNewLog
+        ? 'report_created_from_check_in'
+        : (checkedInChanged ? 'check_in_complete' : 'check_in_update'),
+      event_value:     {
+        location: currentLocation,
+        actual_check_in_at: checkedInAtIso,
+        planned_changed: plannedChanged,
+        checked_in_changed: checkedInChanged,
+      },
       event_at:        submissionNow,
       created_by:      user.email!,
     })
 
-    notifyCheckinSubmitted({
-      name: profile?.display_name || body.name || user.email!,
-      date,
-      checkedInAt,
-      workLocation: currentLocation,
-      timeline: timeline ?? undefined,
-      plannedWorkLocations: plannedLocations ?? undefined,
-      leaveTimeline: leaveTimeline ?? undefined,
-      division: profile?.division ?? null,
-      team: profile?.team ?? null,
-    })
+    // Teams 알림은 실제 출근(check_in_complete) 시에만 — 단순 보고만 작성한 경우 알림 X
+    if (checkedInAtIso) {
+      notifyCheckinSubmitted({
+        name: profile?.display_name || body.name || user.email!,
+        date,
+        checkedInAt: checkedInAtIso,
+        workLocation: currentLocation,
+        timeline: timeline ?? undefined,
+        plannedWorkLocations: plannedLocations ?? undefined,
+        leaveTimeline: leaveTimeline ?? undefined,
+        division: profile?.division ?? null,
+        team: profile?.team ?? null,
+      })
+    }
 
     return NextResponse.json(daily)
   } catch (err: unknown) {

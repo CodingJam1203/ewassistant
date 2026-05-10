@@ -34,6 +34,14 @@ import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { WorkLocations } from '@/types/work-locations-v2'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
+/**
+ * POST /api/work-logs
+ *
+ * 새 정책 (한 일자 한 row 모델):
+ * - D-day work_log row UPSERT (leave_date 매칭)
+ * - 다음날(D+1) 출근예정이 함께 입력되면 D+1 row도 UPSERT (leave_date=D+1)
+ * - 기존 resubmitLogId 흐름 deprecated — 단순 ignore (UPSERT가 알아서 처리)
+ */
 export async function POST(request: Request) {
   try {
     const user = await requireActiveUser()
@@ -103,7 +111,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // ─── legacy timeline 처리 (호환용) ──────────────────────────────────────
+    // ─── legacy timeline (호환) ─────────────────────────────────────────────
     let workLocationTimeline: WorkLocationTimeline | null = null
     let workTimelineFirst: ReturnType<typeof firstWorkLocation> = null
     let workTimelineEnd: ReturnType<typeof endItemOf> = null
@@ -128,42 +136,20 @@ export async function POST(request: Request) {
       workTimelineEnd = endItemOf(workLocationTimeline)
     }
 
+    // 다음 출근 예정 timeline (legacy)
     let expectedTimeline: WorkLocationTimeline | null = null
-    let mirrorExpectedWorkLocation: string | null = null
-    let mirrorExpectedWorkTime: string | null = null
-
-    if (body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)') {
-      if (Array.isArray(body.expectedTimeline)) {
-        const timelineErrors = validateTimeline(body.expectedTimeline as WorkLocationTimeline)
-        if (timelineErrors.length > 0) {
-          return NextResponse.json(
-            { error: '출근 예정 타임라인이 올바르지 않습니다: ' + timelineErrors.map(e => e.message).join(', ') },
-            { status: 400 }
-          )
-        }
-        expectedTimeline = body.expectedTimeline as WorkLocationTimeline
-        const first = firstWorkLocation(expectedTimeline)
-        mirrorExpectedWorkLocation = first ? displayLocation(first) : null
-        mirrorExpectedWorkTime = first?.startTime ?? null
-      } else {
-        mirrorExpectedWorkLocation =
-          body.expectedWorkLocationType === '기타'
-            ? (body.expectedWorkLocation ?? null)
-            : (body.expectedWorkLocationType ?? body.expectedWorkLocation ?? null)
-        mirrorExpectedWorkTime = body.expectedWorkTime ?? null
+    if (body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' && Array.isArray(body.expectedTimeline)) {
+      const tlErrors = validateTimeline(body.expectedTimeline as WorkLocationTimeline)
+      if (tlErrors.length > 0) {
+        return NextResponse.json(
+          { error: '출근 예정 타임라인이 올바르지 않습니다: ' + tlErrors.map(e => e.message).join(', ') },
+          { status: 400 }
+        )
       }
-      // v2 expectedStartTime이 있으면 mirror에 반영 (HH:mm)
-      if (typeof body.expectedStartTime === 'string' && /^(\d{1,2}):(\d{2})$/.test(body.expectedStartTime)) {
-        mirrorExpectedWorkTime = body.expectedStartTime
-      }
-      // planned chip의 첫 라벨이 있으면 location mirror 보강
-      if (plannedWorkLocations && plannedWorkLocations.length > 0) {
-        mirrorExpectedWorkLocation = firstChipLabel(plannedWorkLocations) || mirrorExpectedWorkLocation
-      }
+      expectedTimeline = body.expectedTimeline as WorkLocationTimeline
     }
 
-    // ─── 시간/장소 도출 — v2 우선, legacy fallback ─────────────────────────
-    // 시간: body.startTime/endTime (HH:mm) 우선 → workTimeline → 기본
+    // ─── 시간/장소 도출 ──────────────────────────────────────────────────────
     const finalStartTime: string = leaveAllDay
       ? '09:00'
       : (body.startTime ?? workTimelineFirst?.startTime ?? '09:00')
@@ -171,7 +157,6 @@ export async function POST(request: Request) {
       ? '18:00'
       : (body.endTime ?? workTimelineEnd?.startTime ?? '18:00')
 
-    // 장소 요약 — actual chips 우선, 없으면 planned, 없으면 legacy timeline, 없으면 단일
     const displayLocs: WorkLocations | null =
       actualWorkLocations
       ?? plannedWorkLocations
@@ -210,22 +195,13 @@ export async function POST(request: Request) {
     const breakFinalRoundedMin = snapMinutes(breakFinalRoundedMinRaw, 'round')
 
     if (body.breakTime && !isHalfHourHHmm(body.breakTime)) {
-      return NextResponse.json(
-        { error: '휴게시간은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: '휴게시간은 30분 단위로 입력 가능합니다.' }, { status: 400 })
     }
     if (body.startTime && !isHalfHourHHmm(body.startTime)) {
-      return NextResponse.json(
-        { error: '출근 시각은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: '출근 시각은 30분 단위로 입력 가능합니다.' }, { status: 400 })
     }
     if (body.endTime && !isHalfHourHHmm(body.endTime)) {
-      return NextResponse.json(
-        { error: '퇴근 시각은 30분 단위(00 또는 30분)만 입력 가능합니다.' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: '퇴근 시각은 30분 단위로 입력 가능합니다.' }, { status: 400 })
     }
 
     const breakHHForCalc: string = (() => {
@@ -261,11 +237,8 @@ export async function POST(request: Request) {
 
     const snappedActualMin = snapMinutes(calcResult.actualWorkMinutes, 'round')
     if (!isHalfHour(calcResult.actualWorkMinutes)) {
-      console.warn(
-        '[/api/work-logs POST] non-30min actual_work_time auto-snapped',
-        { raw: calcResult.actualWorkMinutes, snapped: snappedActualMin,
-          start: finalStartTime, end: finalEndTime, break: breakFinalRoundedMin, leave: leaveMinutes }
-      )
+      console.warn('[/api/work-logs POST] non-30min actual auto-snapped',
+        { raw: calcResult.actualWorkMinutes, snapped: snappedActualMin })
     }
 
     let userDivision: string | null = null
@@ -283,18 +256,25 @@ export async function POST(request: Request) {
       // 무시
     }
 
-    // 다음 출근 예정 시간 mirror — v2 expectedStartTime 우선
-    const finalExpectedStartDate = body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
-      ? body.expectedStartDate ?? null
-      : null
-    const finalExpectedWorkTime = mirrorExpectedWorkTime
-    const finalExpectedWorkLocation = mirrorExpectedWorkLocation
+    const adminClient = createAdminClient()
 
-    const insertData = {
-      user_id: user.id,
-      user_email: user.email,
-      division: userDivision,
-      team: userTeam,
+    // ─── D-day row UPSERT ───────────────────────────────────────────────────
+    // leave_date=body.leaveDate 매칭. 있으면 UPDATE, 없으면 INSERT.
+    let workLogId: string | null = null
+    {
+      const { data: existing } = await adminClient
+        .from('work_logs')
+        .select('id')
+        .eq('user_email', user.email!)
+        .eq('leave_date', body.leaveDate)
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      workLogId = existing?.id ?? null
+    }
+
+    const dDayData: Record<string, unknown> = {
       name: body.name,
       work_type_label: body.workTypeLabel,
       work_type_code: calcResult.workTypeCode,
@@ -304,24 +284,24 @@ export async function POST(request: Request) {
       break_time: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
       break_reason: body.breakReason || null,
       work_content: body.workContent || null,
-      // legacy 단일 mirror
       work_location: finalWorkLocation,
       work_location_type: body.workLocationType || null,
       work_location_custom: body.workLocationType === '기타' ? body.workLocationCustom : null,
       work_location_timeline: workLocationTimeline,
-      // v2 chips
-      planned_work_locations: plannedWorkLocations,
-      actual_work_locations: actualWorkLocations,
+      // v2
+      planned_work_locations: plannedWorkLocations === undefined ? null : plannedWorkLocations,  // 퇴근보고는 D-day의 planned는 안 건드림 (별도 D+1 row)
+      actual_work_locations:  actualWorkLocations,
       late_or_attendance_status: body.lateOrAttendanceStatus || null,
       previous_report_time: body.lateOrAttendanceStatus === '예' ? body.previousReportTime : null,
-      current_report_time: body.lateOrAttendanceStatus === '예' ? body.currentReportTime : null,
-      late_reason: body.lateOrAttendanceStatus === '예' ? body.lateReason : null,
+      current_report_time:  body.lateOrAttendanceStatus === '예' ? body.currentReportTime  : null,
+      late_reason:          body.lateOrAttendanceStatus === '예' ? body.lateReason          : null,
       attendance_record_type: body.attendanceRecordType || null,
-      expected_start_date: finalExpectedStartDate,
-      expected_work_time: finalExpectedWorkTime,
-      expected_work_location: finalExpectedWorkLocation,
-      expected_work_location_timeline: expectedTimeline,
-      expected_leave_timeline: expectedLeaveTimeline,
+      // expected_*는 더 이상 사용 안 함 (다음날 정보는 D+1 row로 분리)
+      expected_start_date:    null,
+      expected_work_time:     null,
+      expected_work_location: null,
+      expected_work_location_timeline: null,
+      expected_leave_timeline: null,
       leave_timeline: leaveTimeline,
       break_auto_actual_minutes:    breakAutoActualMin,
       break_auto_rounded_minutes:   breakAutoRoundedMin,
@@ -334,24 +314,137 @@ export async function POST(request: Request) {
       ew_end: calcResult.ewEndText,
       ew_value: calcResult.ewValue,
       copy_text: calcResult.copyText,
-      teams_sent: false,
-      is_deleted: false,
     }
 
-    const adminClient = createAdminClient()
+    // 퇴근보고는 actualWorkLocations만 갱신, planned는 보존 (D-day row의 planned는 출근보고에서 정해진 값)
+    // → planned_work_locations를 dDayData에서 제거 (UPDATE 시 안 건드림). INSERT 시는 NULL 허용.
+    delete dDayData.planned_work_locations
 
-    if (body.resubmitLogId) {
-      await adminClient.from('work_logs').update({ is_deleted: true }).eq('id', body.resubmitLogId)
+    let savedLog: Record<string, unknown> | null = null
+    if (workLogId) {
+      const { data, error: updErr } = await adminClient
+        .from('work_logs')
+        .update({ ...dDayData, updated_at: new Date().toISOString(), updated_by: user.id })
+        .eq('id', workLogId)
+        .select()
+        .single()
+      if (updErr) {
+        console.error('DB UPDATE Error:', updErr)
+        return NextResponse.json({ error: `데이터 저장 실패: ${updErr.message}` }, { status: 500 })
+      }
+      savedLog = data as Record<string, unknown>
+    } else {
+      const { data, error: insErr } = await adminClient
+        .from('work_logs')
+        .insert({
+          ...dDayData,
+          user_id: user.id,
+          user_email: user.email,
+          division: userDivision,
+          team: userTeam,
+          // 신규 INSERT 시는 planned_work_locations도 채울 수 있음 (퇴근보고가 D-day 첫 작성인 경우)
+          planned_work_locations: plannedWorkLocations,
+          teams_sent: false,
+          is_deleted: false,
+        })
+        .select()
+        .single()
+      if (insErr) {
+        console.error('DB INSERT Error:', insErr)
+        return NextResponse.json({ error: `데이터 저장 실패: ${insErr.message}` }, { status: 500 })
+      }
+      savedLog = data as Record<string, unknown>
+      workLogId = savedLog?.id as string ?? null
     }
-    const { data, error } = await adminClient
-      .from('work_logs')
-      .insert([insertData])
-      .select()
-      .single()
 
-    if (error) {
-      console.error('DB Insert Error:', error)
-      return NextResponse.json({ error: `데이터 저장 실패: ${error.message}` }, { status: 500 })
+    // ─── D+1 row UPSERT (다음 출근 예정) ─────────────────────────────────────
+    const isCheckInProgress = body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
+    if (isCheckInProgress && body.expectedStartDate) {
+      // D+1 row의 본문 영역에 다음날 출근예정 정보 저장
+      const nextDate: string = body.expectedStartDate
+      const nextStartTime: string = (body.expectedStartTime
+        ?? (expectedTimeline ? firstWorkLocation(expectedTimeline)?.startTime : null)
+        ?? '09:00') as string
+      const nextEndTimeSrc: string | null = (body.expectedEndTime ?? null) as string | null
+      const nextEndTimeFromTl: string | null = (() => {
+        if (!expectedTimeline || expectedTimeline.length === 0) return null
+        const last = expectedTimeline[expectedTimeline.length - 1]
+        if (last.kind === 'expected_checkout' || last.kind === 'checkout') return last.startTime
+        return null
+      })()
+      const nextEndTime: string = nextEndTimeSrc ?? nextEndTimeFromTl ?? '18:00'
+
+      const nextWorkLocation: string = firstChipLabel(plannedWorkLocations)
+        || (expectedTimeline ? (firstWorkLocation(expectedTimeline) ? displayLocation(firstWorkLocation(expectedTimeline)!) : '') : '')
+        || '사무실'
+
+      // D+1 row 존재 확인
+      const { data: existingNext } = await adminClient
+        .from('work_logs')
+        .select('id')
+        .eq('user_email', user.email!)
+        .eq('leave_date', nextDate)
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      const dPlus1Data: Record<string, unknown> = {
+        name: body.name,
+        leave_date: nextDate,
+        start_time: mod24HHmm(nextStartTime),
+        end_time:   mod24HHmm(nextEndTime),
+        work_location: nextWorkLocation,
+        work_location_timeline: expectedTimeline,
+        planned_work_locations: plannedWorkLocations,
+        actual_work_locations: null,  // 아직 미정
+        leave_timeline: expectedLeaveTimeline,
+        attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
+        // 본문 영역은 비움 (실제 근무는 그날에 채움)
+        // expected_*는 더 이상 사용 안 함
+        expected_start_date:    null,
+        expected_work_time:     null,
+        expected_work_location: null,
+        expected_work_location_timeline: null,
+        expected_leave_timeline: null,
+      }
+
+      if (existingNext) {
+        await adminClient
+          .from('work_logs')
+          .update({ ...dPlus1Data, updated_at: new Date().toISOString(), updated_by: user.id })
+          .eq('id', existingNext.id)
+      } else {
+        await adminClient
+          .from('work_logs')
+          .insert({
+            ...dPlus1Data,
+            user_id: user.id,
+            user_email: user.email,
+            division: userDivision,
+            team: userTeam,
+            work_type_label: body.workTypeLabel ?? '기본근무 등록',
+            late_or_attendance_status: '아니오',
+            teams_sent: false,
+            is_deleted: false,
+          })
+      }
+    }
+
+    // ─── daily_work_status: checked_out_at 갱신 (퇴근보고이므로) ─────────────
+    {
+      const checkedOutAtIso = new Date(`${body.leaveDate}T${(finalEndTime || '18:00').padStart(5, '0')}:00+09:00`).toISOString()
+      await adminClient
+        .from('daily_work_status')
+        .upsert({
+          work_date:        body.leaveDate,
+          user_email:       user.email!,
+          user_profile_id:  null,  // 모를 수 있음
+          work_log_id:      workLogId,
+          status:           'checked_out',
+          checked_out_at:   checkedOutAtIso,
+          updated_at:       new Date().toISOString(),
+        }, { onConflict: 'work_date,user_email' })
     }
 
     try {
@@ -382,7 +475,6 @@ export async function POST(request: Request) {
       workTypeLabel: body.workTypeLabel ?? '',
       workLocation: finalWorkLocation,
       workLocationTimeline,
-      // v2 — 알림 빌더가 chips 우선 사용 (Phase 4에서 messages.ts 처리)
       actualWorkLocations,
       plannedWorkLocations,
       leaveTimeline,
@@ -401,19 +493,16 @@ export async function POST(request: Request) {
       lateReason:         body.lateOrAttendanceStatus === '예' ? (body.lateReason ?? null) : null,
       workContent: body.workContent || null,
       attendanceRecordType: body.attendanceRecordType || null,
-      expectedStartDate:    finalExpectedStartDate,
-      expectedWorkTime:     finalExpectedWorkTime,
-      expectedWorkLocation: finalExpectedWorkLocation,
+      expectedStartDate:    body.expectedStartDate ?? null,
+      expectedWorkTime:     body.expectedStartTime ?? null,
+      expectedWorkLocation: firstChipLabel(plannedWorkLocations) || null,
       expectedTimeline,
       division: userDivision,
       team: userTeam,
     }
 
-    if (body.resubmitLogId) {
-      notifyCheckoutResubmitted(notifyPayload)
-    } else {
-      notifyWorkLogSubmitted(notifyPayload)
-    }
+    // resubmitLogId 흐름은 deprecated — 항상 worklog_submitted로 발송 (재제출 알림 X)
+    notifyWorkLogSubmitted(notifyPayload)
 
     // ─── submissions 로그 ─────────────────────────────────────────
     const submittedNow = new Date().toISOString()
@@ -426,7 +515,7 @@ export async function POST(request: Request) {
       report_type: 'check_out',
       target_date: body.leaveDate ?? '',
       submitted_at: submittedNow,
-      work_log_id: data?.id ?? null,
+      work_log_id: workLogId,
       start_time: dbStartTime,
       end_time: dbEndTime,
       break_time: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
@@ -455,10 +544,7 @@ export async function POST(request: Request) {
       attendance_record_type: body.attendanceRecordType || null,
     })
 
-    if (
-      body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
-      && body.expectedStartDate
-    ) {
+    if (isCheckInProgress && body.expectedStartDate) {
       void recordSubmission({
         user_id: user.id,
         user_email: user.email!,
@@ -468,19 +554,19 @@ export async function POST(request: Request) {
         report_type: 'check_in',
         target_date: body.expectedStartDate,
         submitted_at: submittedNow,
-        work_log_id: data?.id ?? null,
-        expected_start_date:    body.expectedStartDate,
-        expected_work_time:     finalExpectedWorkTime,
-        expected_work_location: finalExpectedWorkLocation,
-        expected_work_location_timeline: expectedTimeline ?? null,
-        expected_leave_timeline: expectedLeaveTimeline ?? null,
+        work_log_id: workLogId,
+        start_time: body.expectedStartTime ?? null,
+        end_time: body.expectedEndTime ?? null,
+        work_location: firstChipLabel(plannedWorkLocations) || null,
+        work_location_timeline: expectedTimeline ?? null,
+        leave_timeline: expectedLeaveTimeline ?? null,
         planned_work_locations: plannedWorkLocations ?? null,
         work_type_label: body.workTypeLabel,
         attendance_record_type: body.attendanceRecordType,
       })
     }
 
-    return NextResponse.json(data)
+    return NextResponse.json(savedLog)
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('Work Log API Error:', message)
