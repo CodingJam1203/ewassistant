@@ -481,7 +481,7 @@ export default function HomePage() {
                 </Button>
               )}
 
-              {/* 출근보고 수정 + 출근 완료 (B 상태에서 이어진 디자인) */}
+              {/* 출근보고 수정 + 출근 완료 (B 상태) — 이어진 버튼 디자인 */}
               {buttons.showCheckInEdit && buttons.showCheckInComplete && (
                 <div className="inline-flex rounded-[10px] overflow-hidden border border-border-strong shadow-[var(--shadow-card)]">
                   <button
@@ -503,7 +503,7 @@ export default function HomePage() {
                 </div>
               )}
 
-              {/* 출근보고 수정만 (C/D/E 상태) */}
+              {/* 출근보고 수정 단독 (C/D/E 상태) */}
               {buttons.showCheckInEdit && !buttons.showCheckInComplete && (
                 <Button
                   variant="secondary"

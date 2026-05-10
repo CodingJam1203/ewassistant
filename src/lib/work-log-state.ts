@@ -89,7 +89,7 @@ export function buttonsForState(state: WorkLogState): ButtonVisibility {
       return {
         showCheckInCreate: false,
         showCheckInEdit: true,
-        showCheckInComplete: true,  // [출근보고 수정]과 함께 이어진 디자인
+        showCheckInComplete: true,  // B 상태에서만 노출 — 실제 출근하면 C로 전환되어 자동 사라짐
         showCheckOutCreate: true,
         showCheckOutEdit: false,
         showBreakStart: false,

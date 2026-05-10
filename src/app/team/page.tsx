@@ -364,7 +364,7 @@ function MemberCard({
               </Button>
             )}
 
-            {/* 출근보고 수정 + 출근 완료 (B) */}
+            {/* 출근보고 수정 + 출근 완료 (B) — 이어진 디자인 */}
             {buttons.showCheckInEdit && buttons.showCheckInComplete && (
               <div className="inline-flex rounded-[8px] overflow-hidden border border-border-strong">
                 <button
@@ -386,7 +386,7 @@ function MemberCard({
               </div>
             )}
 
-            {/* 출근보고 수정만 (C/D/E) */}
+            {/* 출근보고 수정 단독 (C/D/E) */}
             {buttons.showCheckInEdit && !buttons.showCheckInComplete && (
               <Button
                 variant="secondary"
@@ -686,7 +686,7 @@ export default function TeamPage() {
       const params = new URLSearchParams({ date })
       if (filterDiv)  params.set('division', filterDiv)
       if (filterTeam) params.set('team', filterTeam)
-      const res = await fetch(`/api/team-status?${params}`)
+      const res = await fetch(`/api/team-status?${params}`, { cache: 'no-store' })
       const data = await res.json()
       if (Array.isArray(data)) setCards(data)
     } catch {
