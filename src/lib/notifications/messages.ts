@@ -29,23 +29,28 @@ import {
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
 
-/** YYYY-MM-DD -> "2026/05/04(월)" */
+/** YYYY-MM-DD -> "2026/05/04(월)" — KST 기준 (서버 timezone 무관) */
 export function koreanDate(dateStr: string): string {
-  const d = new Date(`${dateStr}T00:00:00+09:00`)
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  const w = WEEKDAYS[d.getDay()]
+  const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return dateStr
+  const yyyy = m[1]
+  const mm = m[2]
+  const dd = m[3]
+  // UTC 정오로 Date 객체 만들어서 어떤 timezone에서도 같은 날짜 결과 보장
+  const d = new Date(Date.UTC(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10), 12, 0, 0))
+  const w = WEEKDAYS[d.getUTCDay()]
   return `${yyyy}/${mm}/${dd}(${w})`
 }
 
-/** YYYY-MM-DD -> "5/4(월)" */
+/** YYYY-MM-DD -> "5/4(월)" — KST 기준 (서버 timezone 무관) */
 function shortKoreanDate(dateStr: string): string {
-  const d = new Date(`${dateStr}T00:00:00+09:00`)
-  const m = d.getMonth() + 1
-  const day = d.getDate()
-  const w = WEEKDAYS[d.getDay()]
-  return `${m}/${day}(${w})`
+  const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return dateStr
+  const mo = parseInt(m[2], 10)
+  const day = parseInt(m[3], 10)
+  const d = new Date(Date.UTC(parseInt(m[1], 10), mo - 1, day, 12, 0, 0))
+  const w = WEEKDAYS[d.getUTCDay()]
+  return `${mo}/${day}(${w})`
 }
 
 /** ISO string -> KST HH:mm, leading zero stripped: "09:30" -> "9:30" */
