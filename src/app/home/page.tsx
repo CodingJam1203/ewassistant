@@ -13,9 +13,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
-import { format } from 'date-fns'
-import { ko } from 'date-fns/locale'
-import { LogIn, LogOut, RefreshCw, Clock, MapPin, Coffee, X, Check, LayoutGrid, Calendar as CalendarIcon } from 'lucide-react'
+import { format, addDays, parseISO } from 'date-fns'
+import { LogIn, LogOut, RefreshCw, Clock, MapPin, Coffee, X, Check, LayoutGrid, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react'
 import WorkHoursCard from '@/components/WorkHoursCard'
 import SubmissionsRawTable from '@/components/SubmissionsRawTable'
 import { Button, Badge, StatusCard, Select, DateInputWithDow } from '@/components/ui'
@@ -325,8 +324,11 @@ function LocationSelectInline({
 }
 
 export default function HomePage() {
-  const today = format(new Date(), 'yyyy-MM-dd')
-  const todayLabel = format(new Date(), 'M월 d일 (EEE)', { locale: ko })
+  const todayKst = format(new Date(), 'yyyy-MM-dd')
+  // 사용자가 선택한 작업 일자 — 기본값: 오늘. 새벽 근무 후 어제 보고 등을 위해 변경 가능.
+  const [selectedDate, setSelectedDate] = useState(todayKst)
+  const today = selectedDate  // 기존 today 사용처 호환 (오늘 → 선택일자)
+  const isToday = selectedDate === todayKst
 
   const [logs, setLogs] = useState<WorkLog[]>([])
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null)
@@ -547,15 +549,48 @@ export default function HomePage() {
               </Badge>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-text-secondary">{todayLabel}</span>
+          {/* 날짜 이동 + 강조 영역 */}
+          <div className="flex items-center gap-1.5">
             <Button
-              variant="ghost"
-              size="sm"
-              iconOnly
+              variant="ghost" size="sm" iconOnly
+              onClick={() => setSelectedDate(format(addDays(parseISO(selectedDate), -1), 'yyyy-MM-dd'))}
+              title="이전 날짜" aria-label="이전 날짜"
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden />
+            </Button>
+            {/* 선택 일자 — 강조 표시 + 클릭 시 picker */}
+            <DateInputWithDow
+              size="md"
+              value={selectedDate}
+              onChange={v => v && setSelectedDate(v)}
+              max={todayKst}
+              className={cn(
+                'min-w-[150px] !text-base !font-semibold',
+                isToday
+                  ? '!border-primary-500 !bg-primary-50 !text-primary-700'
+                  : '!border-warning-text !bg-warning-bg !text-warning-text',
+              )}
+            />
+            <Button
+              variant="ghost" size="sm" iconOnly
+              onClick={() => {
+                const next = format(addDays(parseISO(selectedDate), 1), 'yyyy-MM-dd')
+                if (next <= todayKst) setSelectedDate(next)
+              }}
+              disabled={selectedDate >= todayKst}
+              title="다음 날짜" aria-label="다음 날짜"
+            >
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </Button>
+            {!isToday && (
+              <Button variant="ghost" size="sm" onClick={() => setSelectedDate(todayKst)}>
+                오늘
+              </Button>
+            )}
+            <Button
+              variant="ghost" size="sm" iconOnly
               onClick={() => { fetchMyCard() }}
-              title="새로고침"
-              aria-label="새로고침"
+              title="새로고침" aria-label="새로고침"
             >
               <RefreshCw className="h-4 w-4" aria-hidden />
             </Button>

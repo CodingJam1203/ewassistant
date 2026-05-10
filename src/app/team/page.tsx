@@ -876,7 +876,15 @@ export default function TeamPage() {
             <Button variant="ghost" size="sm" iconOnly onClick={prevDay} aria-label="이전 날짜">
               <ChevronLeft className="h-4 w-4" aria-hidden />
             </Button>
-            <DateInputWithDow value={date} onChange={setDate} />
+            <DateInputWithDow
+              value={date}
+              onChange={setDate}
+              className={
+                date === today
+                  ? 'min-w-[150px] !text-base !font-semibold !border-primary-500 !bg-primary-50 !text-primary-700'
+                  : 'min-w-[150px] !text-base !font-semibold !border-warning-text !bg-warning-bg !text-warning-text'
+              }
+            />
             <Button
               variant="ghost"
               size="sm"
