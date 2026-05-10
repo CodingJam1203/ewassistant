@@ -26,10 +26,12 @@ interface WorkLocationChipsInputProps {
   errors?: LocationsValidationError[]
   disabled?: boolean
   compact?: boolean
-  /** 현재 위치 라벨 — 일치하는 칩에 ★ 마커 표시 */
+  /** 현재 위치 라벨 — 일치하는 칩에 ★ 마커 표시 (index가 우선, 그 다음 라벨 fallback) */
   currentLabel?: string | null
-  /** ★ 클릭 시 콜백 — 호출자가 daily.current_location 등을 갱신 */
-  onSetCurrent?: (label: string) => void
+  /** 현재 위치 칩 index — 우선 매칭. 같은 라벨이 여러 개일 때 정확한 chip 식별 */
+  currentIndex?: number | null
+  /** ★ 클릭 시 콜백 — (label, index) 함께 전달 */
+  onSetCurrent?: (label: string, index: number) => void
 }
 
 const KIND_ORDER: WorkLocationKind[] = ['office', 'field', 'remote', 'custom']
@@ -41,6 +43,7 @@ export default function WorkLocationChipsInput({
   disabled,
   compact,
   currentLabel,
+  currentIndex,
   onSetCurrent,
 }: WorkLocationChipsInputProps) {
   const [selectedKind, setSelectedKind] = useState<WorkLocationKind | ''>('')
@@ -160,7 +163,15 @@ export default function WorkLocationChipsInput({
           {value.map((chip, i) => {
             const itemErrors = errorByIndex.byIndex.get(i) ?? []
             const label = chipLabel(chip)
-            const isCurrent = !!currentLabel && currentLabel.trim() === label.trim()
+            // index가 명시된 경우 index 우선. 그 외에는 라벨 일치 + 같은 라벨 중 첫 번째만.
+            const labelMatchFirst =
+              !!currentLabel &&
+              currentLabel.trim() === label.trim() &&
+              value.findIndex(c => chipLabel(c).trim() === currentLabel.trim()) === i
+            const isCurrent =
+              typeof currentIndex === 'number'
+                ? currentIndex === i
+                : labelMatchFirst
             return (
               <div key={i} className="inline-flex items-center gap-1">
                 <div
@@ -182,7 +193,7 @@ export default function WorkLocationChipsInput({
                   {showStar && (
                     <button
                       type="button"
-                      onClick={() => onSetCurrent?.(label)}
+                      onClick={() => onSetCurrent?.(label, i)}
                       disabled={disabled}
                       aria-label={isCurrent ? '현재 위치' : '이 위치를 현재 위치로 표시'}
                       title={isCurrent ? '현재 위치' : '현재 위치로 표시'}

@@ -18,6 +18,7 @@
  */
 
 import { useState } from 'react'
+import { dowKo } from '@/lib/utils/date'
 import { X, Loader2, Plane } from 'lucide-react'
 import { Button, Field, Input, Select } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
@@ -151,6 +152,9 @@ export default function VacationRegisterModal({
                   onChange={e => setStartDate(e.target.value)}
                   required
                 />
+                {startDate && (
+                  <p className="mt-1 text-[12px] text-text-muted">({dowKo(startDate)})</p>
+                )}
               </Field>
               <Field label="종료일" required>
                 <Input
@@ -159,6 +163,9 @@ export default function VacationRegisterModal({
                   onChange={e => setEndDate(e.target.value)}
                   required
                 />
+                {endDate && (
+                  <p className="mt-1 text-[12px] text-text-muted">({dowKo(endDate)})</p>
+                )}
               </Field>
             </div>
 

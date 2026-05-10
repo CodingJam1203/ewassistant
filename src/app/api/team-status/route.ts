@@ -34,6 +34,7 @@ export interface TeamMemberCard {
   daily_status_id: string | null
   status: string
   current_location: string | null
+  current_location_index: number | null
   checked_in_at: string | null
   checked_out_at: string | null
   break_started_at: string | null
@@ -326,6 +327,7 @@ export async function GET(request: Request) {
         daily_status_id: daily ? (daily.id as string) : null,
         status,
         current_location: daily ? (daily.current_location as string | null) : null,
+        current_location_index: daily ? ((daily.current_location_index as number | null) ?? null) : null,
         checked_in_at:    daily ? (daily.checked_in_at as string | null) : null,
         checked_out_at:   daily ? (daily.checked_out_at as string | null) : null,
         break_started_at: daily ? (daily.break_started_at as string | null) : null,

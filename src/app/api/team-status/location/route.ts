@@ -75,6 +75,10 @@ export async function POST(request: Request) {
     const target: 'planned' | 'actual' | 'actual_replace' | 'current' =
       (body.target === 'actual' || body.target === 'actual_replace' || body.target === 'current')
         ? body.target : 'planned'
+    // 클라이언트가 명시한 현재 위치 칩 index (선택). actual_replace/current에서 사용.
+    const requestedIndex: number | null =
+      typeof body.currentIndex === 'number' && Number.isInteger(body.currentIndex) && body.currentIndex >= 0
+        ? body.currentIndex : null
 
     // current/actual_replace 외의 케이스에서 location 검증
     if ((target === 'planned' || target === 'actual' || target === 'current') && !location.trim()) {
@@ -97,31 +101,62 @@ export async function POST(request: Request) {
 
     const { data: existingStatus } = await adminClient
       .from('daily_work_status')
-      .select('current_location')
+      .select('current_location, current_location_index')
       .eq('work_date', date)
       .eq('user_email', user.email!)
       .maybeSingle()
     const previousLocation = existingStatus?.current_location ?? ''
+    const previousIndex: number | null =
+      typeof existingStatus?.current_location_index === 'number'
+        ? existingStatus.current_location_index : null
 
-    // current_location 결정 — target별 분기
+    // current_location / current_location_index 결정 — target별 분기
     let effectiveCurrentLocation: string = location
+    let effectiveCurrentIndex: number | null = requestedIndex
     if (target === 'actual_replace') {
-      // 기존 current가 새 chips에 있으면 유지, 없으면 첫 칩 라벨로 자동 잡기
       const newChips = normalizeWorkLocations(body.locations) ?? []
-      const hasMatch = newChips.some(c => chipLabel(c).trim() === (previousLocation ?? '').trim())
-      effectiveCurrentLocation = hasMatch
-        ? (previousLocation ?? firstChipLabel(newChips))
-        : firstChipLabel(newChips)
+      // 1) requestedIndex가 유효 범위면 그대로 사용
+      if (
+        requestedIndex !== null &&
+        requestedIndex >= 0 && requestedIndex < newChips.length
+      ) {
+        effectiveCurrentIndex = requestedIndex
+        effectiveCurrentLocation = chipLabel(newChips[requestedIndex])
+      } else if (
+        previousIndex !== null &&
+        previousIndex >= 0 && previousIndex < newChips.length &&
+        chipLabel(newChips[previousIndex]).trim() === (previousLocation ?? '').trim()
+      ) {
+        // 2) 이전 index가 그대로 유효(같은 라벨)면 유지
+        effectiveCurrentIndex = previousIndex
+        effectiveCurrentLocation = previousLocation
+      } else {
+        // 3) 라벨 첫 매칭 또는 첫 칩
+        const matchIdx = newChips.findIndex(
+          c => chipLabel(c).trim() === (previousLocation ?? '').trim()
+        )
+        if (matchIdx >= 0) {
+          effectiveCurrentIndex = matchIdx
+          effectiveCurrentLocation = previousLocation
+        } else {
+          effectiveCurrentIndex = newChips.length > 0 ? 0 : null
+          effectiveCurrentLocation = firstChipLabel(newChips)
+        }
+      }
+    } else if (target === 'current') {
+      // 클라이언트가 정확한 index를 보낸 경우 우선 사용. 그 외엔 NULL 유지(라벨 fallback)
+      effectiveCurrentIndex = requestedIndex
     }
 
     const { data: daily, error: dailyErr } = await adminClient
       .from('daily_work_status')
       .upsert({
-        work_date:        date,
-        user_email:       user.email!,
-        user_profile_id:  profile?.id ?? null,
-        current_location: effectiveCurrentLocation,
-        updated_at:       now,
+        work_date:               date,
+        user_email:              user.email!,
+        user_profile_id:         profile?.id ?? null,
+        current_location:        effectiveCurrentLocation,
+        current_location_index:  effectiveCurrentIndex,
+        updated_at:              now,
       }, { onConflict: 'work_date,user_email' })
       .select()
       .single()
@@ -239,6 +274,7 @@ export async function POST(request: Request) {
       actualWorkLocations: updatedActualLocs
         ?? (target === 'actual_replace' ? normalizeWorkLocations(body.locations) ?? undefined : undefined),
       currentLabel: effectiveCurrentLocation,
+      currentIndex: effectiveCurrentIndex,
       division: profile?.division ?? null,
       team: profile?.team ?? null,
     })

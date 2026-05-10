@@ -151,16 +151,17 @@ function LocationSelect({
 
 // ─── 실제 근무지 chips 편집기 (본인만) — chips 편집 + ★ 현재 위치 마커 ────────
 function ActualChipsEditor({
-  initialChips, currentLabel, date, onChange,
+  initialChips, currentLabel, currentIndex, date, onChange,
 }: {
   initialChips: WorkLocationsType
   currentLabel: string | null
+  currentIndex: number | null
   date: string
   onChange: () => void
 }) {
   // 로컬 optimistic state
   const [chips, setChips] = useState<WorkLocationsType>(initialChips)
-  const [localCurrent, setLocalCurrent] = useState<string | null>(null)
+  const [localIndex, setLocalIndex] = useState<number | null>(null)
 
   const pendingRef = useRef(0)
   const onChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -170,8 +171,8 @@ function ActualChipsEditor({
   }, [JSON.stringify(initialChips)]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (localCurrent && currentLabel === localCurrent) setLocalCurrent(null)
-  }, [currentLabel, localCurrent])
+    if (localIndex !== null && currentIndex === localIndex) setLocalIndex(null)
+  }, [currentIndex, localIndex])
 
   useEffect(() => () => {
     if (onChangeTimerRef.current) clearTimeout(onChangeTimerRef.current)
@@ -184,40 +185,71 @@ function ActualChipsEditor({
     }, 700)
   }
 
+  // chips 변경 시 marked chip의 새 index 추론 (reference + kind/label 매칭)
+  const recomputeIndexAfterChange = (
+    prev: WorkLocationsType,
+    next: WorkLocationsType,
+    prevIdx: number | null,
+  ): number | null => {
+    if (next.length === 0) return null
+    if (prevIdx === null || prevIdx < 0 || prevIdx >= prev.length) {
+      return next.length > 0 ? 0 : null
+    }
+    const target = prev[prevIdx]
+    const refIdx = next.indexOf(target)
+    if (refIdx >= 0) return refIdx
+    const match = next.findIndex(c =>
+      c.kind === target.kind &&
+      (c.kind !== 'custom' || c.customLabel === target.customLabel)
+    )
+    return match >= 0 ? match : 0
+  }
+
   const handleChipsChange = (next: WorkLocationsType) => {
+    const effIdx = localIndex ?? currentIndex
+    const newIndex = recomputeIndexAfterChange(chips, next, effIdx)
     setChips(next)
+    setLocalIndex(newIndex)
     pendingRef.current++
     fetch('/api/team-status/location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, target: 'actual_replace', locations: next, location: '' }),
+      body: JSON.stringify({
+        date, target: 'actual_replace',
+        locations: next, location: '',
+        currentIndex: newIndex,
+      }),
     }).finally(() => {
       pendingRef.current--
       scheduleParentRefresh()
     })
   }
 
-  const handleSetCurrent = (label: string) => {
-    setLocalCurrent(label)
+  const handleSetCurrent = (label: string, index: number) => {
+    setLocalIndex(index)
     pendingRef.current++
     fetch('/api/team-status/location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, target: 'current', location: label }),
+      body: JSON.stringify({
+        date, target: 'current',
+        location: label, currentIndex: index,
+      }),
     }).finally(() => {
       pendingRef.current--
       scheduleParentRefresh()
     })
   }
 
-  const effectiveCurrent = localCurrent ?? currentLabel
+  const effectiveIndex = localIndex ?? currentIndex
 
   return (
     <div className="space-y-1">
       <WorkLocationChipsInput
         value={chips}
         onChange={handleChipsChange}
-        currentLabel={effectiveCurrent}
+        currentLabel={currentLabel}
+        currentIndex={effectiveIndex}
         onSetCurrent={handleSetCurrent}
         compact
       />
@@ -389,6 +421,7 @@ function MemberCard({
                         : (plannedChips ?? [])
                     }
                     currentLabel={card.current_location ?? card.work_location ?? null}
+                    currentIndex={card.current_location_index ?? null}
                     date={date}
                     onChange={onAction}
                   />

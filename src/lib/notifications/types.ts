@@ -139,6 +139,8 @@ export interface LocationChangedNotifyPayload {
   actualWorkLocations?: WorkLocations | null
   /** v2: 현재 위치(★) 라벨 — chips 중 어느 것이 ★인지 표시 */
   currentLabel?: string | null
+  /** v2: 현재 위치(★) 칩 index — 같은 라벨 칩이 여러 개일 때 정확한 식별 */
+  currentIndex?: number | null
   division?: string | null
   team?: string | null
 }

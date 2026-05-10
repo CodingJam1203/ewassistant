@@ -121,17 +121,18 @@ const LOCATION_OPTIONS = ['사무실', '재택', '외근', '기타'] as const
  * - ★ 마커로 현재 위치 표시
  */
 function ActualChipsEditor({
-  initialChips, currentLabel, plannedLabel, date, onChange,
+  initialChips, currentLabel, currentIndex, plannedLabel, date, onChange,
 }: {
   initialChips: WorkLocationsType
   currentLabel: string | null
+  currentIndex: number | null
   plannedLabel: string | null  // 예정 라벨 (참고 표시)
   date: string
   onChange: () => void
 }) {
   // 로컬 optimistic state — 즉시 반영
   const [chips, setChips] = useState<WorkLocationsType>(initialChips)
-  const [localCurrent, setLocalCurrent] = useState<string | null>(null)
+  const [localIndex, setLocalIndex] = useState<number | null>(null)
 
   // 서버 응답 race condition 방지 + 부모 refetch debounce
   const pendingRef = useRef(0)
@@ -142,10 +143,10 @@ function ActualChipsEditor({
     if (pendingRef.current === 0) setChips(initialChips)
   }, [JSON.stringify(initialChips)]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 부모 currentLabel이 따라잡으면 로컬 오버라이드 해제
+  // 부모 currentIndex가 로컬과 일치하면 오버라이드 해제
   useEffect(() => {
-    if (localCurrent && currentLabel === localCurrent) setLocalCurrent(null)
-  }, [currentLabel, localCurrent])
+    if (localIndex !== null && currentIndex === localIndex) setLocalIndex(null)
+  }, [currentIndex, localIndex])
 
   // 컴포넌트 unmount 시 타이머 정리
   useEffect(() => () => {
@@ -159,33 +160,63 @@ function ActualChipsEditor({
     }, 700)
   }
 
+  // chips 변경 시 marked chip의 새 index 추론 (reference + kind/label 매칭)
+  const recomputeIndexAfterChange = (
+    prev: WorkLocationsType,
+    next: WorkLocationsType,
+    prevIdx: number | null,
+  ): number | null => {
+    if (next.length === 0) return null
+    if (prevIdx === null || prevIdx < 0 || prevIdx >= prev.length) {
+      return next.length > 0 ? 0 : null
+    }
+    const target = prev[prevIdx]
+    const refIdx = next.indexOf(target)
+    if (refIdx >= 0) return refIdx
+    const match = next.findIndex(c =>
+      c.kind === target.kind &&
+      (c.kind !== 'custom' || c.customLabel === target.customLabel)
+    )
+    return match >= 0 ? match : 0
+  }
+
   const handleChipsChange = (next: WorkLocationsType) => {
-    setChips(next)  // 즉시 UI 반영
+    const effIdx = localIndex ?? currentIndex
+    const newIndex = recomputeIndexAfterChange(chips, next, effIdx)
+    setChips(next)
+    setLocalIndex(newIndex)
     pendingRef.current++
     fetch('/api/team-status/location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, target: 'actual_replace', locations: next, location: '' }),
+      body: JSON.stringify({
+        date, target: 'actual_replace',
+        locations: next, location: '',
+        currentIndex: newIndex,
+      }),
     }).finally(() => {
       pendingRef.current--
       scheduleParentRefresh()
     })
   }
 
-  const handleSetCurrent = (label: string) => {
-    setLocalCurrent(label)  // 즉시 ★ 이동
+  const handleSetCurrent = (label: string, index: number) => {
+    setLocalIndex(index)
     pendingRef.current++
     fetch('/api/team-status/location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, target: 'current', location: label }),
+      body: JSON.stringify({
+        date, target: 'current',
+        location: label, currentIndex: index,
+      }),
     }).finally(() => {
       pendingRef.current--
       scheduleParentRefresh()
     })
   }
 
-  const effectiveCurrent = localCurrent ?? currentLabel
+  const effectiveIndex = localIndex ?? currentIndex
 
   return (
     <div className="space-y-1.5">
@@ -197,7 +228,8 @@ function ActualChipsEditor({
       <WorkLocationChipsInput
         value={chips}
         onChange={handleChipsChange}
-        currentLabel={effectiveCurrent}
+        currentLabel={currentLabel}
+        currentIndex={effectiveIndex}
         onSetCurrent={handleSetCurrent}
         compact
       />
@@ -677,6 +709,7 @@ export default function HomePage() {
                     <ActualChipsEditor
                       initialChips={initialChips}
                       currentLabel={myCard.current_location ?? null}
+                      currentIndex={myCard.current_location_index ?? null}
                       plannedLabel={plannedChips ? formatChipsArrow(plannedChips) : null}
                       date={today}
                       onChange={fetchMyCard}

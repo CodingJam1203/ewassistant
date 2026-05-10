@@ -396,13 +396,18 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       const p = payload as LocationChangedNotifyPayload
       const chips = normalizeWorkLocations(p.actualWorkLocations)
       const current = (p.currentLabel ?? p.newLocation ?? '').trim()
+      const idx = typeof p.currentIndex === 'number' ? p.currentIndex : null
 
-      // chips 라인 — 현재 위치는 ★로 강조
+      // chips 라인 — 현재 위치는 ★로 강조 (index 우선, 그 다음 라벨 첫 매칭)
       const chipsLine = (() => {
         if (!chips || chips.length === 0) return null
-        const parts = chips.map(c => {
+        const labelFirstMatch =
+          idx === null && current
+            ? chips.findIndex(c => chipLabel(c).trim() === current)
+            : -1
+        const parts = chips.map((c, i) => {
           const label = chipLabel(c)
-          const isCurrent = current && label.trim() === current
+          const isCurrent = idx !== null ? idx === i : labelFirstMatch === i
           return isCurrent ? `★ ${label}` : label
         })
         return parts.join(' → ')
