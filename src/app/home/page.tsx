@@ -11,7 +11,7 @@
  * 디자인 시스템 — DESIGN.md 참고. ui/ 컴포넌트만 사용.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { format } from 'date-fns'
 import { dowKo } from '@/lib/utils/date'
@@ -129,39 +129,63 @@ function ActualChipsEditor({
   date: string
   onChange: () => void
 }) {
+  // 로컬 optimistic state — 즉시 반영
   const [chips, setChips] = useState<WorkLocationsType>(initialChips)
-  const [saving, setSaving] = useState(false)
+  const [localCurrent, setLocalCurrent] = useState<string | null>(null)
 
-  useEffect(() => { setChips(initialChips) }, [JSON.stringify(initialChips)]) // eslint-disable-line react-hooks/exhaustive-deps
+  // 서버 응답 race condition 방지 + 부모 refetch debounce
+  const pendingRef = useRef(0)
+  const onChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const handleChipsChange = async (next: WorkLocationsType) => {
-    setChips(next)
-    setSaving(true)
-    try {
-      await fetch('/api/team-status/location', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, target: 'actual_replace', locations: next, location: '' }),
-      })
-      onChange()
-    } finally {
-      setSaving(false)
-    }
+  // pending 중에는 외부 prop 동기화 차단 (낙관 업데이트 보존)
+  useEffect(() => {
+    if (pendingRef.current === 0) setChips(initialChips)
+  }, [JSON.stringify(initialChips)]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 부모 currentLabel이 따라잡으면 로컬 오버라이드 해제
+  useEffect(() => {
+    if (localCurrent && currentLabel === localCurrent) setLocalCurrent(null)
+  }, [currentLabel, localCurrent])
+
+  // 컴포넌트 unmount 시 타이머 정리
+  useEffect(() => () => {
+    if (onChangeTimerRef.current) clearTimeout(onChangeTimerRef.current)
+  }, [])
+
+  const scheduleParentRefresh = () => {
+    if (onChangeTimerRef.current) clearTimeout(onChangeTimerRef.current)
+    onChangeTimerRef.current = setTimeout(() => {
+      if (pendingRef.current === 0) onChange()
+    }, 700)
   }
 
-  const handleSetCurrent = async (label: string) => {
-    setSaving(true)
-    try {
-      await fetch('/api/team-status/location', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, target: 'current', location: label }),
-      })
-      onChange()
-    } finally {
-      setSaving(false)
-    }
+  const handleChipsChange = (next: WorkLocationsType) => {
+    setChips(next)  // 즉시 UI 반영
+    pendingRef.current++
+    fetch('/api/team-status/location', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, target: 'actual_replace', locations: next, location: '' }),
+    }).finally(() => {
+      pendingRef.current--
+      scheduleParentRefresh()
+    })
   }
+
+  const handleSetCurrent = (label: string) => {
+    setLocalCurrent(label)  // 즉시 ★ 이동
+    pendingRef.current++
+    fetch('/api/team-status/location', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, target: 'current', location: label }),
+    }).finally(() => {
+      pendingRef.current--
+      scheduleParentRefresh()
+    })
+  }
+
+  const effectiveCurrent = localCurrent ?? currentLabel
 
   return (
     <div className="space-y-1.5">
@@ -173,10 +197,9 @@ function ActualChipsEditor({
       <WorkLocationChipsInput
         value={chips}
         onChange={handleChipsChange}
-        currentLabel={currentLabel}
+        currentLabel={effectiveCurrent}
         onSetCurrent={handleSetCurrent}
         compact
-        disabled={saving}
       />
       <p className="text-[11px] text-text-muted">
         현재 위치의 별(★)을 클릭해주세요

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { format, addDays, subDays, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { ChevronLeft, ChevronRight, RefreshCw, MapPin, Clock, Coffee, LogIn, LogOut, X, LayoutGrid, List, Check } from 'lucide-react'
@@ -158,49 +158,68 @@ function ActualChipsEditor({
   date: string
   onChange: () => void
 }) {
+  // 로컬 optimistic state
   const [chips, setChips] = useState<WorkLocationsType>(initialChips)
-  const [saving, setSaving] = useState(false)
+  const [localCurrent, setLocalCurrent] = useState<string | null>(null)
 
-  useEffect(() => { setChips(initialChips) }, [JSON.stringify(initialChips)]) // eslint-disable-line react-hooks/exhaustive-deps
+  const pendingRef = useRef(0)
+  const onChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const handleChipsChange = async (next: WorkLocationsType) => {
+  useEffect(() => {
+    if (pendingRef.current === 0) setChips(initialChips)
+  }, [JSON.stringify(initialChips)]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (localCurrent && currentLabel === localCurrent) setLocalCurrent(null)
+  }, [currentLabel, localCurrent])
+
+  useEffect(() => () => {
+    if (onChangeTimerRef.current) clearTimeout(onChangeTimerRef.current)
+  }, [])
+
+  const scheduleParentRefresh = () => {
+    if (onChangeTimerRef.current) clearTimeout(onChangeTimerRef.current)
+    onChangeTimerRef.current = setTimeout(() => {
+      if (pendingRef.current === 0) onChange()
+    }, 700)
+  }
+
+  const handleChipsChange = (next: WorkLocationsType) => {
     setChips(next)
-    setSaving(true)
-    try {
-      await fetch('/api/team-status/location', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, target: 'actual_replace', locations: next, location: '' }),
-      })
-      onChange()
-    } finally {
-      setSaving(false)
-    }
+    pendingRef.current++
+    fetch('/api/team-status/location', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, target: 'actual_replace', locations: next, location: '' }),
+    }).finally(() => {
+      pendingRef.current--
+      scheduleParentRefresh()
+    })
   }
 
-  const handleSetCurrent = async (label: string) => {
-    setSaving(true)
-    try {
-      await fetch('/api/team-status/location', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, target: 'current', location: label }),
-      })
-      onChange()
-    } finally {
-      setSaving(false)
-    }
+  const handleSetCurrent = (label: string) => {
+    setLocalCurrent(label)
+    pendingRef.current++
+    fetch('/api/team-status/location', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, target: 'current', location: label }),
+    }).finally(() => {
+      pendingRef.current--
+      scheduleParentRefresh()
+    })
   }
+
+  const effectiveCurrent = localCurrent ?? currentLabel
 
   return (
     <div className="space-y-1">
       <WorkLocationChipsInput
         value={chips}
         onChange={handleChipsChange}
-        currentLabel={currentLabel}
+        currentLabel={effectiveCurrent}
         onSetCurrent={handleSetCurrent}
         compact
-        disabled={saving}
       />
       <p className="text-[11px] text-text-muted">
         현재 위치의 별(★)을 클릭해주세요
