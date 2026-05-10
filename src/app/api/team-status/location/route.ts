@@ -20,6 +20,9 @@ import {
   normalizeWorkLocations,
   legacyTimelineToLocations,
   legacySingleToLocations,
+  firstChipLabel,
+  chipLabel,
+  formatChipsArrow,
 } from '@/lib/work-locations-v2'
 import type { WorkLocations } from '@/types/work-locations-v2'
 
@@ -100,13 +103,24 @@ export async function POST(request: Request) {
       .maybeSingle()
     const previousLocation = existingStatus?.current_location ?? ''
 
+    // current_location 결정 — target별 분기
+    let effectiveCurrentLocation: string = location
+    if (target === 'actual_replace') {
+      // 기존 current가 새 chips에 있으면 유지, 없으면 첫 칩 라벨로 자동 잡기
+      const newChips = normalizeWorkLocations(body.locations) ?? []
+      const hasMatch = newChips.some(c => chipLabel(c).trim() === (previousLocation ?? '').trim())
+      effectiveCurrentLocation = hasMatch
+        ? (previousLocation ?? firstChipLabel(newChips))
+        : firstChipLabel(newChips)
+    }
+
     const { data: daily, error: dailyErr } = await adminClient
       .from('daily_work_status')
       .upsert({
         work_date:        date,
         user_email:       user.email!,
         user_profile_id:  profile?.id ?? null,
-        current_location: location,
+        current_location: effectiveCurrentLocation,
         updated_at:       now,
       }, { onConflict: 'work_date,user_email' })
       .select()
@@ -133,11 +147,11 @@ export async function POST(request: Request) {
 
       // legacy location_history 누적 유지
       const history: unknown[] = Array.isArray(wLog?.location_history) ? wLog!.location_history : []
-      history.push({ time: flooredTime, location, source: 'status_change' })
+      history.push({ time: flooredTime, location: effectiveCurrentLocation, source: 'status_change' })
 
       const updates: Record<string, unknown> = {
         location_history: history,
-        work_location: location, // legacy mirror (단일 문자열) — 항상 갱신
+        work_location: effectiveCurrentLocation, // legacy mirror (단일 문자열) — 항상 갱신
       }
 
       // legacy timeline은 호환 유지 (target과 무관하게)
@@ -214,15 +228,17 @@ export async function POST(request: Request) {
       created_by:      user.email!,
     })
 
-    // Teams 알림 — actual이 있으면 actual을 보내고 (실제 변경), 아니면 planned (계획 변경 또는 fallback)
+    // Teams 알림 — actual chips + 현재 위치(★)를 함께 전달
     notifyLocationChanged({
       name: profile?.display_name || user.email!,
       date,
       previousLocation,
-      newLocation: location,
+      newLocation: effectiveCurrentLocation,
       changedAt: now,
       timeline: updatedTimeline ?? undefined,
-      actualWorkLocations: updatedActualLocs ?? undefined,
+      actualWorkLocations: updatedActualLocs
+        ?? (target === 'actual_replace' ? normalizeWorkLocations(body.locations) ?? undefined : undefined),
+      currentLabel: effectiveCurrentLocation,
       division: profile?.division ?? null,
       team: profile?.team ?? null,
     })

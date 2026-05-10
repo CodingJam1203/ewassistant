@@ -137,6 +137,8 @@ export interface LocationChangedNotifyPayload {
   timeline?: WorkLocationTimeline | null
   /** v2: 변경 후 actual chips 배열 (메시지 표시 최우선) */
   actualWorkLocations?: WorkLocations | null
+  /** v2: 현재 위치(★) 라벨 — chips 중 어느 것이 ★인지 표시 */
+  currentLabel?: string | null
   division?: string | null
   team?: string | null
 }

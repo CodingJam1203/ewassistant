@@ -17,7 +17,7 @@ import type {
   MorningSummaryData,
 } from './types'
 import { formatTimelineForTeams, getWorkLocations } from '@/lib/work-location-timeline'
-import { formatChipsArrow, normalizeWorkLocations } from '@/lib/work-locations-v2'
+import { formatChipsArrow, normalizeWorkLocations, chipLabel } from '@/lib/work-locations-v2'
 import {
   formatLeaveLines,
   isFullDayLeave,
@@ -394,22 +394,36 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
 
     case 'location_changed': {
       const p = payload as LocationChangedNotifyPayload
+      const chips = normalizeWorkLocations(p.actualWorkLocations)
+      const current = (p.currentLabel ?? p.newLocation ?? '').trim()
+
+      // chips 라인 — 현재 위치는 ★로 강조
+      const chipsLine = (() => {
+        if (!chips || chips.length === 0) return null
+        const parts = chips.map(c => {
+          const label = chipLabel(c)
+          const isCurrent = current && label.trim() === current
+          return isCurrent ? `★ ${label}` : label
+        })
+        return parts.join(' → ')
+      })()
+
       const baseLines = [
         `📍${p.name} 근무지 변경 / ${p.date}`,
         `🔹이전 근무지 : ${p.previousLocation || '미입력'}`,
-        `🔹변경 근무지 : ${p.newLocation || '미입력'}`,
+        `🔹현재 위치(★) : ${current || '미지정'}`,
         `🔹변경 시각 : ${kstHHmm(p.changedAt)}`,
       ]
-      // v2 chips 우선
-      const chips = normalizeWorkLocations(p.actualWorkLocations)
-      if (chips && chips.length > 0) {
+
+      if (chipsLine) {
         return [
           ...baseLines,
-          `🔹근무장소 : ${formatChipsArrow(chips)}`,
+          `🔹실제 근무장소 : ${chipsLine}`,
           cta(),
         ].join('\n')
       }
 
+      // legacy timeline fallback
       const tl = p.timeline
       if (tl && getWorkLocations(tl).length >= 2) {
         const formatted = formatTimelineForTeams(tl)
