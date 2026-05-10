@@ -16,6 +16,7 @@ export type ReportType =
   | 'check_out'
   | 'check_in_update'
   | 'check_out_update'
+  | 'check_in_complete'
 
 export interface SubmissionLogInput {
   user_id: string | null
