@@ -18,9 +18,8 @@
  */
 
 import { useState } from 'react'
-import { dowKo } from '@/lib/utils/date'
 import { X, Loader2, Plane } from 'lucide-react'
-import { Button, Field, Input, Select } from '@/components/ui'
+import { Button, Field, Input, Select, DateInputWithDow } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
 
 export interface VacationRegisterModalProps {
@@ -146,26 +145,10 @@ export default function VacationRegisterModal({
           <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <Field label="시작일" required>
-                <Input
-                  type="date"
-                  value={startDate}
-                  onChange={e => setStartDate(e.target.value)}
-                  required
-                />
-                {startDate && (
-                  <p className="mt-1 text-[12px] text-text-muted">({dowKo(startDate)})</p>
-                )}
+                <DateInputWithDow value={startDate} onChange={setStartDate} className="w-full" />
               </Field>
               <Field label="종료일" required>
-                <Input
-                  type="date"
-                  value={endDate}
-                  onChange={e => setEndDate(e.target.value)}
-                  required
-                />
-                {endDate && (
-                  <p className="mt-1 text-[12px] text-text-muted">({dowKo(endDate)})</p>
-                )}
+                <DateInputWithDow value={endDate} onChange={setEndDate} className="w-full" />
               </Field>
             </div>
 

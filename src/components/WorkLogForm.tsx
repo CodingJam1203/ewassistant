@@ -23,7 +23,8 @@ import * as z from 'zod'
 import { calculateEw, EwCalculationResult } from '@/lib/ew-calculator'
 import { Copy, Loader2 } from 'lucide-react'
 import { addDays } from 'date-fns'
-import { getKstTodayDateString, toKstDateString, dowKo } from '@/lib/utils/date'
+import { getKstTodayDateString, toKstDateString } from '@/lib/utils/date'
+import { DateInputWithDow } from '@/components/ui'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
 import LeaveTimelineInput from '@/components/LeaveTimelineInput'
 import TimeSelect from '@/components/TimeSelect'
@@ -731,15 +732,12 @@ export default function WorkLogForm({
 
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-text-primary">퇴근일자 *</label>
-            <div className="mt-1 flex items-center gap-2">
-              <input
-                type="date"
-                {...register('leaveDate')}
-                className="block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border"
+            <div className="mt-1">
+              <DateInputWithDow
+                value={formValues.leaveDate}
+                inputProps={register('leaveDate')}
+                className="w-full sm:w-1/2"
               />
-              {formValues.leaveDate && (
-                <span className="text-sm text-text-muted">({dowKo(formValues.leaveDate)})</span>
-              )}
             </div>
             {errors.leaveDate && <p className="mt-1 text-sm text-danger-text">{errors.leaveDate.message as string}</p>}
           </div>
@@ -955,11 +953,12 @@ export default function WorkLogForm({
                 <div>
                   <label className="block text-xs font-medium text-text-secondary">출근 예정 날짜 *</label>
                   <p className="text-xs text-text-muted mt-0.5">내일 출근 날짜를 입력해주세요</p>
-                  <div className="mt-1 flex items-center gap-2">
-                    <input type="date" {...register('expectedStartDate')} className="block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border" />
-                    {formValues.expectedStartDate && (
-                      <span className="text-sm text-text-muted">({dowKo(formValues.expectedStartDate)})</span>
-                    )}
+                  <div className="mt-1">
+                    <DateInputWithDow
+                      value={formValues.expectedStartDate}
+                      inputProps={register('expectedStartDate')}
+                      className="w-full sm:w-1/2"
+                    />
                   </div>
                   {errors.expectedStartDate && <p className="mt-1 text-xs text-danger-text">{errors.expectedStartDate.message as string}</p>}
                 </div>

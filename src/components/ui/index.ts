@@ -16,6 +16,9 @@ export type { CardProps, StatCardProps, StatusCardProps, StatusCardTone } from '
 export { Input, Select, Field } from './Input'
 export type { InputProps, SelectProps, FieldProps } from './Input'
 
+export { default as DateInputWithDow } from './DateInputWithDow'
+export type { DateInputWithDowProps } from './DateInputWithDow'
+
 export { FilterBar } from './FilterBar'
 export type { FilterBarProps, FilterFieldProps } from './FilterBar'
 

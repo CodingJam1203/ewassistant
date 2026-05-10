@@ -9,6 +9,7 @@ import WorkLogModal from '@/components/WorkLogModal'
 import {
   Button, Badge, Select, FilterBar, PageHeader,
   TableContainer, TableScroll, Table, Th, Td, TR_HOVER,
+  DateInputWithDow,
 } from '@/components/ui'
 import type { BadgeVariant } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
@@ -875,15 +876,7 @@ export default function TeamPage() {
             <Button variant="ghost" size="sm" iconOnly onClick={prevDay} aria-label="이전 날짜">
               <ChevronLeft className="h-4 w-4" aria-hidden />
             </Button>
-            <input
-              type="date"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-              className="h-10 rounded-[10px] border border-border-strong bg-surface px-3 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
-            />
-            <span className="text-[12px] text-text-muted whitespace-nowrap px-1">
-              ({format(parseISO(date), 'eee', { locale: ko })})
-            </span>
+            <DateInputWithDow value={date} onChange={setDate} />
             <Button
               variant="ghost"
               size="sm"

@@ -14,12 +14,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { format } from 'date-fns'
-import { dowKo } from '@/lib/utils/date'
 import { ko } from 'date-fns/locale'
 import { LogIn, LogOut, RefreshCw, Clock, MapPin, Coffee, X, Check, LayoutGrid, Calendar as CalendarIcon } from 'lucide-react'
 import WorkHoursCard from '@/components/WorkHoursCard'
 import SubmissionsRawTable from '@/components/SubmissionsRawTable'
-import { Button, Badge, StatusCard, Select } from '@/components/ui'
+import { Button, Badge, StatusCard, Select, DateInputWithDow } from '@/components/ui'
 import type { StatusCardTone, BadgeVariant } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
 import type { WorkLog } from '@/types/work-log'
@@ -762,15 +761,7 @@ export default function HomePage() {
         <h3 className="text-lg font-bold text-text-primary">내 제출 내역</h3>
         {tab === 'final' && finalView === 'list' && (
           <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={filterDate}
-              onChange={e => setFilterDate(e.target.value)}
-              className="h-9 rounded-[10px] border border-border-strong bg-surface text-[13px] px-3 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
-            />
-            {filterDate && (
-              <span className="text-[12px] text-text-muted whitespace-nowrap">({dowKo(filterDate)})</span>
-            )}
+            <DateInputWithDow size="sm" value={filterDate} onChange={setFilterDate} />
             {filterDate && (
               <Button variant="ghost" size="sm" onClick={() => setFilterDate('')}>
                 초기화

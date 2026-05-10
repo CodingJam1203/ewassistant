@@ -1,5 +1,5 @@
 'use client'
-import { dowKo } from '@/lib/utils/date'
+import { DateInputWithDow } from '@/components/ui'
 
 import { useEffect, useState } from 'react'
 import { X, Loader2, Calendar } from 'lucide-react'
@@ -301,17 +301,11 @@ export default function CheckInModal({
           {/* 날짜 */}
           <div>
             <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">날짜 *</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={date}
-                onChange={e => setDate(e.target.value || initialDate)}
-                className="w-full sm:w-1/2 h-10 rounded-[10px] border border-border-strong bg-surface text-sm px-3 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
-              />
-              {date && (
-                <span className="text-sm text-text-muted whitespace-nowrap">({dowKo(date)})</span>
-              )}
-            </div>
+            <DateInputWithDow
+              value={date}
+              onChange={v => setDate(v || initialDate)}
+              className="w-full sm:w-1/2"
+            />
           </div>
 
           {/* 이름 */}
