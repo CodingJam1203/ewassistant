@@ -26,8 +26,10 @@ export interface DateInputWithDowProps {
   value?: string
   /** 변경 콜백 — value를 직접 전달받음 */
   onChange?: (next: string) => void
-  /** native input에 직접 spread (RHF register 결과 등) */
-  inputProps?: React.InputHTMLAttributes<HTMLInputElement>
+  /** native input에 직접 spread (RHF register 결과 등). ref도 받음. */
+  inputProps?: React.InputHTMLAttributes<HTMLInputElement> & {
+    ref?: React.Ref<HTMLInputElement>
+  }
   className?: string
   size?: Size
   disabled?: boolean
