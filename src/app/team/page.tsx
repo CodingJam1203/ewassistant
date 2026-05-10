@@ -203,7 +203,7 @@ function ActualChipsEditor({
         disabled={saving}
       />
       <p className="text-[11px] text-text-muted">
-        ★ = 현재 위치 (다른 칩의 ☆ 클릭 → 이동)
+        현재 위치의 별(★)을 클릭해주세요
       </p>
     </div>
   )
