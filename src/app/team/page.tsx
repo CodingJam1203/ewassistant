@@ -331,10 +331,10 @@ function MemberCard({
               </Button>
             )}
 
-            {/* 휴게 시작/종료 */}
+            {/* 휴게 시작 — 평상시 secondary */}
             {buttons.showBreakStart && (
               <Button
-                variant="warning-soft"
+                variant="secondary"
                 size="sm"
                 onClick={() => action('break-start')}
                 disabled={busy}
@@ -343,13 +343,13 @@ function MemberCard({
                 휴게 시작
               </Button>
             )}
+            {/* 휴게 종료 — 진행 중 강조 (warning-soft) */}
             {buttons.showBreakEnd && (
               <Button
                 variant="warning-soft"
                 size="sm"
                 onClick={() => action('break-end')}
                 disabled={busy}
-                className="!bg-warning-text !text-white !border-warning-text hover:!bg-warning-text/90"
               >
                 <Coffee className="h-3.5 w-3.5" aria-hidden />
                 휴게 종료
@@ -528,12 +528,12 @@ function MemberListRow({
                 </Button>
               )}
               {buttons.showBreakStart && (
-                <Button variant="warning-soft" size="sm" onClick={() => action('break-start')} disabled={busy} className="!h-7 !px-2 !text-[11px]">
+                <Button variant="secondary" size="sm" onClick={() => action('break-start')} disabled={busy} className="!h-7 !px-2 !text-[11px]">
                   <Coffee className="h-3 w-3" aria-hidden /> 휴게
                 </Button>
               )}
               {buttons.showBreakEnd && (
-                <Button variant="warning-soft" size="sm" onClick={() => action('break-end')} disabled={busy} className="!h-7 !px-2 !text-[11px] !bg-warning-text !text-white !border-warning-text hover:!bg-warning-text/90">
+                <Button variant="warning-soft" size="sm" onClick={() => action('break-end')} disabled={busy} className="!h-7 !px-2 !text-[11px]">
                   <Coffee className="h-3 w-3" aria-hidden /> 종료
                 </Button>
               )}

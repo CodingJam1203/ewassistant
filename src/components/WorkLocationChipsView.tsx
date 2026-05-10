@@ -3,15 +3,18 @@
 /**
  * 근무장소 chips — 보기 전용.
  *
- * `WorkLocationChipsInput`의 미리보기 사촌. 칩만 렌더 + 화살표 + ★ 마커.
- * 컨트롤 (← → ✕ ☆) 일체 없음. 우상단에 옵셔널 "수정" 버튼.
+ * 칩 + 화살표 + ★ 마커. 컨트롤(← → ✕ ☆) 일체 없음.
+ * 라벨 칩(좌)이나 수정 버튼(우) 같은 외부 노드는 chipsLeading / chipsTrailing으로 끼움.
  *
  * 사용:
- *   <WorkLocationChipsView value={chips} currentIndex={idx} />
- *   <WorkLocationChipsView value={chips} currentLabel={label} onEdit={() => setEditing(true)} />
+ *   <WorkLocationChipsView value={chips} currentIndex={idx}
+ *      chipsLeading={<LabelPill text="실제" />}
+ *      chipsTrailing={<EditButton onClick={...} />}
+ *   />
  */
 
-import { ArrowRight, MapPin, Star, Pencil } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { ArrowRight, MapPin, Star } from 'lucide-react'
 import type { WorkLocations } from '@/types/work-locations-v2'
 import { chipLabel } from '@/lib/work-locations-v2'
 
@@ -21,37 +24,25 @@ interface WorkLocationChipsViewProps {
   currentIndex?: number | null
   /** index 없을 때 fallback 매칭. 같은 라벨 첫 번째만 ★. */
   currentLabel?: string | null
-  /** "수정" 버튼 노출 시 클릭 콜백. */
-  onEdit?: () => void
-  /** 빈 상태 안내 문구. */
+  /** 칩 줄 시작에 끼우는 노드 (예: 라벨 pill) */
+  chipsLeading?: ReactNode
+  /** 칩 줄 끝에 끼우는 노드 (예: 수정 버튼) */
+  chipsTrailing?: ReactNode
+  /** 빈 상태 안내 문구 (leading/trailing 없을 때만 표시) */
   emptyText?: string
 }
 
 export default function WorkLocationChipsView({
-  value, currentIndex, currentLabel, onEdit, emptyText,
+  value, currentIndex, currentLabel,
+  chipsLeading, chipsTrailing, emptyText,
 }: WorkLocationChipsViewProps) {
-  const isEmpty = !value || value.length === 0
+  const showRow = !!chipsLeading || !!chipsTrailing || value.length > 0
 
   return (
-    <div className="space-y-1.5">
-      {/* 우상단 수정 버튼 (있을 때만) */}
-      {onEdit && (
-        <div className="flex items-center justify-end">
-          <button
-            type="button"
-            onClick={onEdit}
-            className="inline-flex items-center gap-1 h-6 px-1.5 rounded-md text-[11px] text-primary-600 hover:bg-primary-50 transition-colors"
-            aria-label="근무장소 수정"
-          >
-            <Pencil className="h-3 w-3" aria-hidden />
-            수정
-          </button>
-        </div>
-      )}
-
-      {/* 칩 목록 */}
-      {!isEmpty ? (
+    <div className="space-y-1">
+      {showRow ? (
         <div className="flex flex-wrap items-center gap-1.5">
+          {chipsLeading}
           {value.map((chip, i) => {
             const label = chipLabel(chip)
             const labelMatchFirst =
@@ -80,14 +71,13 @@ export default function WorkLocationChipsView({
                     <Star className="h-3 w-3 fill-current shrink-0" aria-hidden />
                   )}
                 </div>
-
-                {/* 칩 사이 → 화살표 */}
                 {i < value.length - 1 && (
                   <ArrowRight className="h-4 w-4 text-text-muted shrink-0" aria-hidden />
                 )}
               </div>
             )
           })}
+          {chipsTrailing}
         </div>
       ) : (
         emptyText && (

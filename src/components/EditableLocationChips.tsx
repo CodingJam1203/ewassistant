@@ -3,24 +3,16 @@
 /**
  * EditableLocationChips — 보기/편집 모드 분리 + optimistic 저장 + 부모 refetch debounce.
  *
- * 보기 모드: WorkLocationChipsView (칩 + 화살표 + ★) + 우상단 "수정" 버튼
- * 편집 모드: WorkLocationChipsInput (4 pill add UI + 칩 컨트롤) + 우상단 "완료" 버튼
+ * 레이아웃 (A1 + A3):
+ *   [예정] 재택 → 사무실
+ *   [실제] [1 재택 ★] → [2 사무실] → [3 재택]  [✏️ 수정]
  *
- * 호출자(home/team)는 actualChips + currentLabel/currentIndex만 넘기면 됨.
- * API 호출/optimistic 갱신/parent debounce는 모두 내부에서 처리.
- *
- * 사용:
- *   <EditableLocationChips
- *     value={chips}
- *     currentIndex={card.current_location_index}
- *     currentLabel={card.current_location}
- *     date={today}
- *     onChange={() => fetchCards()}    // 부모 refetch (debounced)
- *     plannedHint="재택 → 사무실"        // optional, 보기 모드에 작은 안내문
- *   />
+ *   편집 모드 클릭 시 [실제] 라인의 칩에 컨트롤(★ ← → ✕)이 등장하고,
+ *   추가 pill 줄이 아래에 펼쳐지고, 수정 버튼이 [완료] 버튼으로 바뀜.
  */
 
 import { useEffect, useRef, useState } from 'react'
+import { Pencil, Check } from 'lucide-react'
 import WorkLocationChipsView from '@/components/WorkLocationChipsView'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
 import type { WorkLocations } from '@/types/work-locations-v2'
@@ -31,10 +23,23 @@ interface EditableLocationChipsProps {
   currentIndex: number | null
   date: string
   onChange: () => void
-  /** 보기 모드 상단 작은 안내 ("예정: 재택 → 사무실") — optional */
+  /** 보기 모드 상단 작은 안내 ("재택 → 사무실") — optional */
   plannedHint?: string | null
   /** 빈 상태일 때 안내문 (보기 모드) */
   emptyText?: string
+}
+
+/** 작은 라벨 pill — 예정/실제 구분용 */
+function LabelPill({ text, tone }: { text: string; tone: 'planned' | 'actual' }) {
+  const cls =
+    tone === 'planned'
+      ? 'bg-surface-muted text-text-secondary'
+      : 'bg-primary-50 text-primary-700'
+  return (
+    <span className={`inline-flex items-center h-6 px-2 rounded-full text-[11px] font-semibold shrink-0 ${cls}`}>
+      {text}
+    </span>
+  )
 }
 
 export default function EditableLocationChips({
@@ -131,55 +136,65 @@ export default function EditableLocationChips({
 
   const effectiveIndex = localIndex ?? currentIndex
 
-  if (!editing) {
-    // ─── 보기 모드 ─────────────────────────────────────────────────
-    return (
-      <div className="space-y-1">
-        {plannedHint && (
-          <p className="text-[11px] text-text-muted">
-            <span className="font-semibold mr-1">예정</span>{plannedHint}
-          </p>
-        )}
+  const editButton = (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-dashed border-border-strong text-[11px] text-text-secondary hover:text-primary-700 hover:border-primary-500 hover:bg-primary-50 transition-colors"
+    >
+      <Pencil className="h-3 w-3" aria-hidden />
+      수정
+    </button>
+  )
+
+  const doneButton = (
+    <button
+      type="button"
+      onClick={() => setEditing(false)}
+      className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-primary-600 text-white text-[11px] font-semibold hover:bg-primary-700 transition-colors"
+    >
+      <Check className="h-3 w-3" aria-hidden />
+      완료
+    </button>
+  )
+
+  return (
+    <div className="space-y-1.5">
+      {/* 예정 라인 */}
+      {plannedHint && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <LabelPill text="예정" tone="planned" />
+          <span className="text-[12px] text-text-secondary">{plannedHint}</span>
+        </div>
+      )}
+
+      {/* 실제 라인 */}
+      {!editing ? (
         <WorkLocationChipsView
           value={chips}
           currentLabel={currentLabel}
           currentIndex={effectiveIndex}
-          onEdit={() => setEditing(true)}
+          chipsLeading={<LabelPill text="실제" tone="actual" />}
+          chipsTrailing={editButton}
           emptyText={emptyText ?? '근무장소가 없습니다. 수정 클릭 → 추가'}
         />
-      </div>
-    )
-  }
-
-  // ─── 편집 모드 ─────────────────────────────────────────────────
-  return (
-    <div className="space-y-2 rounded-[10px] border border-primary-500 bg-primary-50/30 p-2.5">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold text-primary-700">근무장소 편집</span>
-        <button
-          type="button"
-          onClick={() => setEditing(false)}
-          className="inline-flex items-center h-6 px-2 rounded-md text-[11px] text-primary-700 hover:bg-primary-100 transition-colors"
-        >
-          완료
-        </button>
-      </div>
-      {plannedHint && (
-        <p className="text-[11px] text-text-muted">
-          <span className="font-semibold mr-1">예정</span>{plannedHint}
-        </p>
+      ) : (
+        <div className="space-y-2">
+          <WorkLocationChipsInput
+            value={chips}
+            onChange={handleChipsChange}
+            currentLabel={currentLabel}
+            currentIndex={effectiveIndex}
+            onSetCurrent={handleSetCurrent}
+            chipsLeading={<LabelPill text="실제" tone="actual" />}
+            chipsTrailing={doneButton}
+            compact
+          />
+          <p className="text-[11px] text-text-muted">
+            현재 위치의 별(★)을 클릭해주세요
+          </p>
+        </div>
       )}
-      <WorkLocationChipsInput
-        value={chips}
-        onChange={handleChipsChange}
-        currentLabel={currentLabel}
-        currentIndex={effectiveIndex}
-        onSetCurrent={handleSetCurrent}
-        compact
-      />
-      <p className="text-[11px] text-text-muted">
-        현재 위치의 별(★)을 클릭해주세요
-      </p>
     </div>
   )
 }
