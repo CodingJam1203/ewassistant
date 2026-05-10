@@ -16,7 +16,7 @@ export interface SubmissionRowLike {
   user_email: string
   target_date: string
   submitted_at: string
-  report_type: 'check_in' | 'check_out' | 'check_in_update' | 'check_out_update'
+  report_type: 'check_in' | 'check_out' | 'check_in_update' | 'check_out_update' | 'check_in_complete'
 }
 
 /**
