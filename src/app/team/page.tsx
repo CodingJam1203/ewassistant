@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { format, addDays, subDays, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { ChevronLeft, ChevronRight, RefreshCw, MapPin, Clock, Coffee, LogIn, LogOut, X, LayoutGrid, List, Check } from 'lucide-react'
@@ -16,8 +16,7 @@ import { cn } from '@/lib/utils/cn'
 import type { TeamMemberCard } from '@/app/api/team-status/route'
 import { computeWorkLogState, buttonsForState } from '@/lib/work-log-state'
 import { resolveDisplayLocations, resolvePlannedLocations, chipLabel, formatChipsArrow } from '@/lib/work-locations-v2'
-import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
-import type { WorkLocations as WorkLocationsType } from '@/types/work-locations-v2'
+import EditableLocationChips from '@/components/EditableLocationChips'
 import type { WorkLocations } from '@/types/work-locations-v2'
 
 type ViewMode = 'card' | 'list'
@@ -61,204 +60,6 @@ const STATUS_BORDER: Record<'green' | 'yellow' | 'red', string> = {
   green:  'border-l-success-text',
   yellow: 'border-l-warning-text',
   red:    'border-l-danger-text',
-}
-
-// ─── 근무지 변경 드롭다운 ─────────────────────────────────────────────────────
-const LOCATION_OPTIONS = ['사무실', '재택', '외근', '기타'] as const
-
-function LocationSelect({
-  current, date, onChange, target = 'planned',
-}: {
-  current: string | null
-  date: string
-  onChange: (loc: string) => void
-  /** 'planned' (예정 갱신, 기본) | 'actual' (실제 갱신) */
-  target?: 'planned' | 'actual'
-}) {
-  const [custom, setCustom] = useState('')
-  const [showCustom, setShowCustom] = useState(false)
-  const [saving, setSaving] = useState(false)
-
-  const handleChange = async (val: string) => {
-    if (val === '기타') { setShowCustom(true); return }
-    setShowCustom(false)
-    setSaving(true)
-    await fetch('/api/team-status/location', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, location: val, target }),
-    })
-    setSaving(false)
-    onChange(val)
-  }
-  const handleCustomSubmit = async () => {
-    if (!custom.trim()) return
-    setSaving(true)
-    await fetch('/api/team-status/location', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, location: custom.trim(), target }),
-    })
-    setSaving(false)
-    onChange(custom.trim())
-    setShowCustom(false)
-    setCustom('')
-  }
-
-  const isStandard = LOCATION_OPTIONS.includes(current as typeof LOCATION_OPTIONS[number])
-
-  return (
-    <div className="flex items-center gap-1.5">
-      <MapPin className="h-3.5 w-3.5 text-text-muted shrink-0" aria-hidden />
-      {showCustom ? (
-        <div className="flex items-center gap-1">
-          <input
-            value={custom}
-            onChange={e => setCustom(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleCustomSubmit() }}
-            placeholder="장소 입력"
-            className="h-7 w-24 rounded-[8px] border border-border-strong px-2 text-[12px] focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
-            autoFocus
-          />
-          <Button variant="ghost" size="sm" onClick={handleCustomSubmit} disabled={saving} className="!h-7 !px-2 text-[12px]">
-            확인
-          </Button>
-          <button
-            onClick={() => setShowCustom(false)}
-            className="text-text-muted hover:text-text-primary"
-            aria-label="취소"
-          >
-            <X className="h-3.5 w-3.5" aria-hidden />
-          </button>
-        </div>
-      ) : (
-        <Select
-          selectSize="sm"
-          value={isStandard ? current ?? '사무실' : '기타'}
-          onChange={e => handleChange(e.target.value)}
-          disabled={saving}
-          className="!h-7 !text-[12px] !py-0 w-24"
-        >
-          {LOCATION_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
-          {current && !isStandard && <option value={current}>{current}</option>}
-        </Select>
-      )}
-      {!showCustom && current && !isStandard && (
-        <span className="text-[12px] text-text-muted">({current})</span>
-      )}
-    </div>
-  )
-}
-
-// ─── 실제 근무지 chips 편집기 (본인만) — chips 편집 + ★ 현재 위치 마커 ────────
-function ActualChipsEditor({
-  initialChips, currentLabel, currentIndex, date, onChange,
-}: {
-  initialChips: WorkLocationsType
-  currentLabel: string | null
-  currentIndex: number | null
-  date: string
-  onChange: () => void
-}) {
-  // 로컬 optimistic state
-  const [chips, setChips] = useState<WorkLocationsType>(initialChips)
-  const [localIndex, setLocalIndex] = useState<number | null>(null)
-
-  const pendingRef = useRef(0)
-  const onChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    if (pendingRef.current === 0) setChips(initialChips)
-  }, [JSON.stringify(initialChips)]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (localIndex !== null && currentIndex === localIndex) setLocalIndex(null)
-  }, [currentIndex, localIndex])
-
-  useEffect(() => () => {
-    if (onChangeTimerRef.current) clearTimeout(onChangeTimerRef.current)
-  }, [])
-
-  const scheduleParentRefresh = () => {
-    if (onChangeTimerRef.current) clearTimeout(onChangeTimerRef.current)
-    onChangeTimerRef.current = setTimeout(() => {
-      if (pendingRef.current === 0) onChange()
-    }, 700)
-  }
-
-  // chips 변경 시 marked chip의 새 index 추론 (reference + kind/label 매칭)
-  const recomputeIndexAfterChange = (
-    prev: WorkLocationsType,
-    next: WorkLocationsType,
-    prevIdx: number | null,
-  ): number | null => {
-    if (next.length === 0) return null
-    if (prevIdx === null || prevIdx < 0 || prevIdx >= prev.length) {
-      return next.length > 0 ? 0 : null
-    }
-    const target = prev[prevIdx]
-    const refIdx = next.indexOf(target)
-    if (refIdx >= 0) return refIdx
-    const match = next.findIndex(c =>
-      c.kind === target.kind &&
-      (c.kind !== 'custom' || c.customLabel === target.customLabel)
-    )
-    return match >= 0 ? match : 0
-  }
-
-  const handleChipsChange = (next: WorkLocationsType) => {
-    const effIdx = localIndex ?? currentIndex
-    const newIndex = recomputeIndexAfterChange(chips, next, effIdx)
-    setChips(next)
-    setLocalIndex(newIndex)
-    pendingRef.current++
-    fetch('/api/team-status/location', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        date, target: 'actual_replace',
-        locations: next, location: '',
-        currentIndex: newIndex,
-      }),
-    }).finally(() => {
-      pendingRef.current--
-      scheduleParentRefresh()
-    })
-  }
-
-  const handleSetCurrent = (label: string, index: number) => {
-    setLocalIndex(index)
-    pendingRef.current++
-    fetch('/api/team-status/location', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        date, target: 'current',
-        location: label, currentIndex: index,
-      }),
-    }).finally(() => {
-      pendingRef.current--
-      scheduleParentRefresh()
-    })
-  }
-
-  const effectiveIndex = localIndex ?? currentIndex
-
-  return (
-    <div className="space-y-1">
-      <WorkLocationChipsInput
-        value={chips}
-        onChange={handleChipsChange}
-        currentLabel={currentLabel}
-        currentIndex={effectiveIndex}
-        onSetCurrent={handleSetCurrent}
-        compact
-      />
-      <p className="text-[11px] text-text-muted">
-        현재 위치의 별(★)을 클릭해주세요
-      </p>
-    </div>
-  )
 }
 
 // ─── 팀원 카드 ────────────────────────────────────────────────────────────────
@@ -415,8 +216,8 @@ function MemberCard({
               <span className="shrink-0 text-text-muted font-semibold mt-0.5">실제</span>
               <div className="flex-1 min-w-0">
                 {card.is_self ? (
-                  <ActualChipsEditor
-                    initialChips={
+                  <EditableLocationChips
+                    value={
                       actualChips && actualChips.length > 0
                         ? actualChips
                         : (plannedChips ?? [])
@@ -664,11 +465,16 @@ function MemberListRow({
                 </div>
               )}
               {card.is_self ? (
-                <LocationSelect
-                  current={card.current_location ?? card.work_location}
+                <EditableLocationChips
+                  value={
+                    actualChips && actualChips.length > 0
+                      ? actualChips
+                      : (plannedChips ?? [])
+                  }
+                  currentLabel={card.current_location ?? card.work_location ?? null}
+                  currentIndex={card.current_location_index ?? null}
                   date={date}
                   onChange={onAction}
-                  target="actual"
                 />
               ) : (
                 <div className="text-[12px] text-text-primary font-medium inline-flex items-center gap-1">

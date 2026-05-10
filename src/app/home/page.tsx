@@ -11,7 +11,7 @@
  * 디자인 시스템 — DESIGN.md 참고. ui/ 컴포넌트만 사용.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { format, addDays, parseISO } from 'date-fns'
 import { LogIn, LogOut, RefreshCw, Clock, MapPin, Coffee, X, Check, LayoutGrid, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -24,9 +24,8 @@ import type { WorkLog } from '@/types/work-log'
 import type { MonthBaselines, UserMonthSummary } from '@/lib/utils/work-hours'
 import type { TeamMemberCard } from '@/app/api/team-status/route'
 import { computeWorkLogState, buttonsForState } from '@/lib/work-log-state'
-import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
+import EditableLocationChips from '@/components/EditableLocationChips'
 import { resolveDisplayLocations, resolvePlannedLocations, formatChipsArrow } from '@/lib/work-locations-v2'
-import type { WorkLocations as WorkLocationsType } from '@/types/work-locations-v2'
 
 // 무거운 컴포넌트는 dynamic import — 초기 번들에서 빠지고 사용 시점에만 로드.
 //   - WorkLogModal: 퇴근보고/수정 클릭 시
@@ -112,131 +111,6 @@ function StatChip({
 }
 
 const LOCATION_OPTIONS = ['사무실', '재택', '외근', '기타'] as const
-
-/**
- * 실제 근무지 chips 편집기 — 1번 카드 본인 영역.
- * - actual chips 편집 (없으면 planned로 prefill)
- * - ★ 마커로 현재 위치 표시
- */
-function ActualChipsEditor({
-  initialChips, currentLabel, currentIndex, plannedLabel, date, onChange,
-}: {
-  initialChips: WorkLocationsType
-  currentLabel: string | null
-  currentIndex: number | null
-  plannedLabel: string | null  // 예정 라벨 (참고 표시)
-  date: string
-  onChange: () => void
-}) {
-  // 로컬 optimistic state — 즉시 반영
-  const [chips, setChips] = useState<WorkLocationsType>(initialChips)
-  const [localIndex, setLocalIndex] = useState<number | null>(null)
-
-  // 서버 응답 race condition 방지 + 부모 refetch debounce
-  const pendingRef = useRef(0)
-  const onChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // pending 중에는 외부 prop 동기화 차단 (낙관 업데이트 보존)
-  useEffect(() => {
-    if (pendingRef.current === 0) setChips(initialChips)
-  }, [JSON.stringify(initialChips)]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 부모 currentIndex가 로컬과 일치하면 오버라이드 해제
-  useEffect(() => {
-    if (localIndex !== null && currentIndex === localIndex) setLocalIndex(null)
-  }, [currentIndex, localIndex])
-
-  // 컴포넌트 unmount 시 타이머 정리
-  useEffect(() => () => {
-    if (onChangeTimerRef.current) clearTimeout(onChangeTimerRef.current)
-  }, [])
-
-  const scheduleParentRefresh = () => {
-    if (onChangeTimerRef.current) clearTimeout(onChangeTimerRef.current)
-    onChangeTimerRef.current = setTimeout(() => {
-      if (pendingRef.current === 0) onChange()
-    }, 700)
-  }
-
-  // chips 변경 시 marked chip의 새 index 추론 (reference + kind/label 매칭)
-  const recomputeIndexAfterChange = (
-    prev: WorkLocationsType,
-    next: WorkLocationsType,
-    prevIdx: number | null,
-  ): number | null => {
-    if (next.length === 0) return null
-    if (prevIdx === null || prevIdx < 0 || prevIdx >= prev.length) {
-      return next.length > 0 ? 0 : null
-    }
-    const target = prev[prevIdx]
-    const refIdx = next.indexOf(target)
-    if (refIdx >= 0) return refIdx
-    const match = next.findIndex(c =>
-      c.kind === target.kind &&
-      (c.kind !== 'custom' || c.customLabel === target.customLabel)
-    )
-    return match >= 0 ? match : 0
-  }
-
-  const handleChipsChange = (next: WorkLocationsType) => {
-    const effIdx = localIndex ?? currentIndex
-    const newIndex = recomputeIndexAfterChange(chips, next, effIdx)
-    setChips(next)
-    setLocalIndex(newIndex)
-    pendingRef.current++
-    fetch('/api/team-status/location', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        date, target: 'actual_replace',
-        locations: next, location: '',
-        currentIndex: newIndex,
-      }),
-    }).finally(() => {
-      pendingRef.current--
-      scheduleParentRefresh()
-    })
-  }
-
-  const handleSetCurrent = (label: string, index: number) => {
-    setLocalIndex(index)
-    pendingRef.current++
-    fetch('/api/team-status/location', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        date, target: 'current',
-        location: label, currentIndex: index,
-      }),
-    }).finally(() => {
-      pendingRef.current--
-      scheduleParentRefresh()
-    })
-  }
-
-  const effectiveIndex = localIndex ?? currentIndex
-
-  return (
-    <div className="space-y-1.5">
-      {plannedLabel && (
-        <p className="text-[11px] text-text-muted">
-          <span className="font-semibold mr-1">예정</span>{plannedLabel}
-        </p>
-      )}
-      <WorkLocationChipsInput
-        value={chips}
-        onChange={handleChipsChange}
-        currentLabel={currentLabel}
-        currentIndex={effectiveIndex}
-        onSetCurrent={handleSetCurrent}
-        compact
-      />
-      <p className="text-[11px] text-text-muted">
-        현재 위치의 별(★)을 클릭해주세요
-      </p>
-    </div>
-  )
-}
 
 function LocationSelectInline({
   current, date, onChange,
@@ -740,11 +614,11 @@ export default function HomePage() {
                   : (plannedChips ?? [])
                 return (
                   <div className="basis-full">
-                    <ActualChipsEditor
-                      initialChips={initialChips}
+                    <EditableLocationChips
+                      value={initialChips}
                       currentLabel={myCard.current_location ?? null}
                       currentIndex={myCard.current_location_index ?? null}
-                      plannedLabel={plannedChips ? formatChipsArrow(plannedChips) : null}
+                      plannedHint={plannedChips ? formatChipsArrow(plannedChips) : null}
                       date={today}
                       onChange={fetchMyCard}
                     />

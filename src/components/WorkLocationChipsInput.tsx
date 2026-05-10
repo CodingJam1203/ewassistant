@@ -101,24 +101,29 @@ export default function WorkLocationChipsInput({
 
   return (
     <div className="space-y-2.5">
-      {/* 추가 영역 */}
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          value={selectedKind}
-          onChange={e => handleKindSelect(e.target.value as WorkLocationKind)}
-          disabled={disabled}
-          aria-label="근무장소 종류 추가"
-          className="select-tight rounded-[10px] border border-border-strong bg-surface h-9 px-3 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50"
-        >
-          <option value="">+ 장소 추가...</option>
-          {KIND_ORDER.map(k => (
-            <option key={k} value={k}>
-              {WORK_LOCATION_KIND_LABELS[k]}
-            </option>
-          ))}
-        </select>
-
-        {selectedKind === 'custom' && (
+      {/* 추가 영역 — 4 인라인 pill (사무실/재택/외근/기타) */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {selectedKind !== 'custom' && KIND_ORDER.filter(k => k !== 'custom').map(k => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => handleKindSelect(k)}
+            disabled={disabled}
+            className="inline-flex items-center h-7 px-2.5 rounded-full border border-dashed border-border-strong text-[12px] text-text-secondary hover:text-primary-700 hover:border-primary-500 hover:bg-primary-50 disabled:opacity-50 transition-colors"
+          >
+            + {WORK_LOCATION_KIND_LABELS[k]}
+          </button>
+        ))}
+        {selectedKind !== 'custom' ? (
+          <button
+            type="button"
+            onClick={() => handleKindSelect('custom')}
+            disabled={disabled}
+            className="inline-flex items-center h-7 px-2.5 rounded-full border border-dashed border-border-strong text-[12px] text-text-secondary hover:text-primary-700 hover:border-primary-500 hover:bg-primary-50 disabled:opacity-50 transition-colors"
+          >
+            + 기타…
+          </button>
+        ) : (
           <>
             <input
               type="text"
@@ -128,30 +133,33 @@ export default function WorkLocationChipsInput({
                 if (e.key === 'Enter') {
                   e.preventDefault()
                   handleCustomAdd()
+                } else if (e.key === 'Escape') {
+                  e.preventDefault()
+                  setPendingCustom(''); setSelectedKind('')
                 }
               }}
               placeholder="상세 장소 (예: 카페, 거래처)"
               disabled={disabled}
               autoFocus
-              className="flex-1 min-w-[160px] h-9 rounded-[10px] border border-border-strong bg-surface px-3 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50"
+              className="flex-1 min-w-[140px] h-7 rounded-full border border-primary-500 bg-surface px-2.5 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50"
             />
             <button
               type="button"
               onClick={handleCustomAdd}
               disabled={disabled || !pendingCustom.trim()}
-              className="inline-flex items-center gap-1 h-9 px-3 rounded-[10px] text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 transition-colors"
+              className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[12px] font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 transition-colors"
             >
-              <Plus className="h-3.5 w-3.5" aria-hidden />
+              <Plus className="h-3 w-3" aria-hidden />
               추가
             </button>
             <button
               type="button"
               onClick={() => { setPendingCustom(''); setSelectedKind('') }}
               disabled={disabled}
-              className="inline-flex items-center justify-center h-9 w-9 rounded-[10px] text-text-muted hover:text-text-primary hover:bg-surface-muted transition-colors"
+              className="inline-flex items-center justify-center h-7 w-7 rounded-full text-text-muted hover:text-text-primary hover:bg-surface-muted transition-colors"
               aria-label="취소"
             >
-              <X className="h-4 w-4" aria-hidden />
+              <X className="h-3.5 w-3.5" aria-hidden />
             </button>
           </>
         )}
