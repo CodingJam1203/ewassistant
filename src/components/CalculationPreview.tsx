@@ -25,11 +25,9 @@ export default function CalculationPreview({ result, error }: CalculationPreview
     )
   }
 
-  // 점심시간 자동 처리에 어색한 케이스 — 별도 계산 안내:
-  //   1) 실근무 4시간 이하 (= 240분 이하)
-  //   2) 공휴일근로 (workTypeCode=3): X=0
-  const showLunchAdvisory =
-    result.actualWorkMinutes <= 4 * 60 || result.workTypeCode === 3
+  // 점심시간 자동 처리에 어색한 케이스 — ew-calculator가 동일 조건으로 결과에 플래그.
+  // copyText 끝에도 자동으로 ' / 휴게시간 주의하여 상신' 붙음.
+  const showLunchAdvisory = result.showLunchAdvisory
 
   // 간주근로(workTypeCode=2)는 8h 이상에서 L1~L9 코드로 인정. 8h 미만은 EW 표시
   // 형식이 어색해질 수 있어 기본근무로 변경 안내.
@@ -72,8 +70,8 @@ export default function CalculationPreview({ result, error }: CalculationPreview
         </div>
 
         {showLunchAdvisory && (
-          <div className="rounded-[10px] border border-warning-border bg-warning-bg px-3 py-2 text-[12px] text-warning-text">
-            * 점심시간 진행 여부에 따라 근무시간을 별도 계산하여 EW에 상신해주세요.
+          <div className="rounded-[10px] border-2 border-danger-text bg-danger-bg px-3 py-2.5 text-[13px] font-semibold text-danger-text">
+            ⚠ 점심시간 진행 여부에 따라 근무시간을 별도 계산하여 EW에 상신해주세요.
           </div>
         )}
 

@@ -57,6 +57,13 @@ export interface EwCalculationResult {
   ewEndText: string;
   ewValue: string;
   copyText: string;
+  /**
+   * 점심시간 자동 처리에 어색한 케이스 — 별도 휴게 검토 안내.
+   *   - 실근무 4h 이하 (= 240분 이하): 점심을 안 쓰고 일찍 끝낸 경우 1h 자동 차감이 부적절
+   *   - 공휴일근무 (workTypeCode=3): X=0이지만 점심 시간 자체는 사용했을 수 있음
+   * true면 미리보기 박스를 빨간색으로 강조하고, copyText 끝에 " / 휴게시간 주의하여 상신" 추가.
+   */
+  showLunchAdvisory: boolean;
 }
 
 const weekdayKo = ["일", "월", "화", "수", "목", "금", "토"];
@@ -356,7 +363,13 @@ export function calculateEw(input: EwInput): EwCalculationResult {
     workContent: input.workContent,
     breakReason: input.breakReason,
   });
-  const copyText = baseCopyText + getCopyTextSuffix(workSubType);
+  // 점심시간 자동 처리에 어색한 케이스:
+  //   1) 실근무 4h 이하 (= 240분 이하)
+  //   2) 공휴일근로 (workTypeCode=3): X=0
+  // → 사용자가 직접 휴게/점심 시간 검토 후 EW 상신하도록 안내 + copyText에도 명시.
+  const showLunchAdvisory = actualWorkMinutes <= 4 * 60 || workTypeCode === 3;
+  const lunchAdvisorySuffix = showLunchAdvisory ? ' / 휴게시간 주의하여 상신' : '';
+  const copyText = baseCopyText + getCopyTextSuffix(workSubType) + lunchAdvisorySuffix;
 
   return {
     workTypeCode,
@@ -369,5 +382,6 @@ export function calculateEw(input: EwInput): EwCalculationResult {
     ewEndText: formatTimeOver24(ewEndMinutes),
     ewValue,
     copyText,
+    showLunchAdvisory,
   };
 }
