@@ -22,7 +22,8 @@ export async function GET(request: Request) {
   }
 
   const supabase = await createClient()
-  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+  // exchangeCodeForSession 응답에 user 포함 — 별도 getUser 호출 생략 (1 round-trip 절약).
+  const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
 
   if (exchangeError) {
     console.error('[Auth Callback] 세션 교환 실패:', exchangeError.message)
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
 
   // ── 프로필 생성/갱신 + 신규 계정 잠금 (실패해도 로그인 진행) ──────────────
   try {
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = exchangeData.user
 
     if (user?.email && user?.id) {
       const adminClient = createAdminClient()
@@ -135,12 +136,18 @@ export async function GET(request: Request) {
 
       } else {
         // ── 정상 기존 유저: last_login_at만 갱신 ────────────────────────────
-        await adminClient
+        //   await 안 함 — 로그 갱신은 응답 차단할 만큼 중요하지 않음.
+        //   서버리스 함수가 redirect 후 promise 완료까지 보통 유지되며,
+        //   설령 실패해도 사용자 경험엔 영향 없음 (다음 로그인 시 갱신).
+        adminClient
           .from('user_profiles')
           .update({ last_login_at: new Date().toISOString() })
           .eq('email', user.email)
+          .then(({ error }) => {
+            if (error) console.warn('[Auth Callback] last_login_at 갱신 실패:', error.message)
+          })
 
-        console.log(`[Auth Callback] 기존 계정 로그인 갱신: ${user.email}`)
+        console.log(`[Auth Callback] 기존 계정 로그인 갱신 (비동기): ${user.email}`)
       }
     }
   } catch (err) {
