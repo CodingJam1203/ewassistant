@@ -124,7 +124,14 @@ export async function POST(request: Request) {
 
   if (error) {
     console.error('[admin/users POST] error:', error)
-    return NextResponse.json({ error: '사용자 추가에 실패했습니다.' }, { status: 500 })
+    // Supabase 에러의 message/details/hint/code를 함께 노출 → 진짜 원인 즉시 식별
+    const errObj = error as { message?: string; details?: string; hint?: string; code?: string }
+    const detail =
+      errObj.message || errObj.details || errObj.hint || errObj.code || JSON.stringify(error)
+    return NextResponse.json(
+      { error: `사용자 추가 실패: ${detail}` },
+      { status: 500 },
+    )
   }
 
   return NextResponse.json(data, { status: 201 })
