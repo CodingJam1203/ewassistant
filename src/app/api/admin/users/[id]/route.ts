@@ -20,14 +20,61 @@ export async function PATCH(
 
   const adminClient = createAdminClient()
 
-  // 대상 계정 조회
+  // 대상 계정 조회 — user_profiles 우선, 없으면 pre_approved_emails로 fallback (사전등록 사용자)
   const { data: target, error: fetchError } = await adminClient
     .from('user_profiles')
     .select('email, id, role, is_active')
     .eq('email', targetEmail)
-    .single()
+    .maybeSingle()
 
-  if (fetchError || !target) {
+  // 사전등록 (아직 로그인 안 한) 사용자 처리 — pre_approved_emails 직접 update
+  if (!target) {
+    const { data: pre } = await adminClient
+      .from('pre_approved_emails')
+      .select('email, role')
+      .eq('email', targetEmail)
+      .maybeSingle()
+
+    if (!pre) {
+      return NextResponse.json({ error: '계정을 찾을 수 없습니다.' }, { status: 404 })
+    }
+
+    // pre_approved_emails는 is_active/display_order 없음 — display_name/division/team/role만 수정
+    const preUpdates: Record<string, unknown> = {}
+    if (typeof body.display_name === 'string') preUpdates.display_name = body.display_name.trim() || null
+    if (typeof body.division === 'string')     preUpdates.division     = body.division.trim() || null
+    if (typeof body.team === 'string')         preUpdates.team         = body.team.trim() || null
+    if (typeof body.role === 'string' && ['admin', 'leader', 'user'].includes(body.role)) {
+      preUpdates.role = body.role
+    }
+    // 이메일 변경
+    if (typeof body.email === 'string' && body.email.trim() !== targetEmail) {
+      const newEmail = body.email.toLowerCase().trim()
+      if (!newEmail.includes('@')) {
+        return NextResponse.json({ error: '유효한 이메일 형식이 아닙니다.' }, { status: 400 })
+      }
+      preUpdates.email = newEmail
+    }
+
+    if (Object.keys(preUpdates).length === 0) {
+      return NextResponse.json({ message: '변경된 항목이 없습니다.' })
+    }
+
+    const { error: preUpdateError } = await adminClient
+      .from('pre_approved_emails')
+      .update(preUpdates)
+      .eq('email', targetEmail)
+
+    if (preUpdateError) {
+      const errObj = preUpdateError as { message?: string; details?: string; hint?: string; code?: string }
+      const detail = errObj.message || errObj.details || errObj.hint || errObj.code || JSON.stringify(preUpdateError)
+      return NextResponse.json({ error: `사전등록 계정 수정 실패: ${detail}` }, { status: 500 })
+    }
+
+    return NextResponse.json({ message: '사전등록 계정이 수정되었습니다.' })
+  }
+
+  if (fetchError) {
     return NextResponse.json({ error: '계정을 찾을 수 없습니다.' }, { status: 404 })
   }
 
