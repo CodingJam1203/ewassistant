@@ -470,21 +470,22 @@ export default function WorkLogForm({
     }
   }, [userName, setValue, isEditing])
 
-  // 워크타입 변경 시 휴게 default 보정
+  // 워크타입 변경 시 휴게값 정책:
+  //   - 신규 작성: 첫 mount 1회만 breakAuto 기반으로 prefill, 이후엔 사용자 입력 보존
+  //   - 편집: 항상 사용자 입력 보존
+  //   사용자가 수동으로 30분 설정해놓고 근무유형을 바꿔도 그대로 30분 유지됨.
   const prevWorkTypeRef = useRef<string | undefined>(undefined)
   useEffect(() => {
     const wt = formValues.workTypeLabel
-    if (isEditing) {
-      if (prevWorkTypeRef.current === undefined) {
-        prevWorkTypeRef.current = wt
-        return
-      }
-    }
-    if (prevWorkTypeRef.current !== wt) {
-      setValue('breakTime', breakAutoRoundedMinutes > 0 ? breakAutoHHmm : '00:00')
+    if (prevWorkTypeRef.current === undefined) {
+      // 첫 mount — prev 기록만 하고 종료. 신규/편집 둘 다 breakTime 초기값 보존.
       prevWorkTypeRef.current = wt
+      return
     }
-  }, [formValues.workTypeLabel, setValue, breakAutoRoundedMinutes, breakAutoHHmm, isEditing])
+    // 이후 workType 변경 시 — breakTime 손대지 않음. 사용자가 명시적으로 수정.
+    prevWorkTypeRef.current = wt
+  // breakAutoRoundedMinutes / breakAutoHHmm / setValue / isEditing은 더 이상 안 씀
+  }, [formValues.workTypeLabel])
 
   // display_name 자동 업데이트 (debounce)
   useEffect(() => {
