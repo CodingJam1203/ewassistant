@@ -222,6 +222,21 @@ export default function HistoryPage() {
               onEditWorkLog={isAdmin ? openEditByWorkLogId : undefined}
             />
           )}
+
+          {tab === 'final' && (
+            <SubmissionsRawTable
+              mode="final"
+              mine={filterMine}
+              extraQuery={{
+                ...(filterDivision ? { division: filterDivision } : {}),
+                ...(filterTeam ? { team: filterTeam } : {}),
+                ...(filterName ? { name: filterName } : {}),
+                ...(refreshTick > 0 ? { _t: String(refreshTick) } : {}),
+              }}
+              allowOrgFilter
+              onEditWorkLog={isAdmin ? openEditByWorkLogId : undefined}
+            />
+          )}
         </>
       )}
     </div>
