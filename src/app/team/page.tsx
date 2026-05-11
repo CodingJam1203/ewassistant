@@ -563,7 +563,9 @@ export default function TeamPage() {
   const [checkOutTarget,    setCheckOutTarget]    = useState<TeamMemberCard | null>(null)
   const [showHeaderCheckIn, setShowHeaderCheckIn] = useState(false)
   const [myProfile, setMyProfile] = useState<{ display_name: string | null; division: string | null; team: string | null } | null>(null)
-  const [profileReady, setProfileReady] = useState(false)
+  // 초기 fetch는 mine_team=true — 서버가 본인 division/team으로 자체 필터링.
+  // 사용자가 직접 본부/팀 dropdown을 바꾸면 false로 전환되어 명시 필터 사용.
+  const [mineTeamMode, setMineTeamMode] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>(readViewMode)
 
   // viewMode 변경 시 localStorage 저장
@@ -586,10 +588,10 @@ export default function TeamPage() {
           division: profileData.division,
           team: profileData.team,
         })
+        // dropdown 표시용 — mineTeamMode=true 동안엔 쿼리에 사용되지 않으나 UI는 동기화.
         setFilterDiv(prev => prev || profileData.division || '')
         setFilterTeam(prev => prev || profileData.team || '')
       }
-      setProfileReady(true)
     })
     return () => { cancelled = true }
   }, [])
@@ -598,8 +600,13 @@ export default function TeamPage() {
     setLoading(true)
     try {
       const params = new URLSearchParams({ date })
-      if (filterDiv)  params.set('division', filterDiv)
-      if (filterTeam) params.set('team', filterTeam)
+      if (mineTeamMode) {
+        // 첫 진입 — 서버가 본인 division/team 자체 조회. profile 응답 대기 불필요.
+        params.set('mine_team', 'true')
+      } else {
+        if (filterDiv)  params.set('division', filterDiv)
+        if (filterTeam) params.set('team', filterTeam)
+      }
       const res = await fetch(`/api/team-status?${params}`, { cache: 'no-store' })
       const data = await res.json()
       if (Array.isArray(data)) {
@@ -622,12 +629,13 @@ export default function TeamPage() {
     } finally {
       setLoading(false)
     }
-  }, [date, filterDiv, filterTeam])
+  }, [date, mineTeamMode, filterDiv, filterTeam])
 
   useEffect(() => {
-    if (!profileReady) return
+    // mineTeamMode=true 면 profile 응답 대기 불필요 — 서버가 알아서 본인 팀 매핑.
+    // mineTeamMode=false (사용자 명시 필터) 면 filterDiv/filterTeam 값 확정 후에만 fetch.
     fetchCards()
-  }, [fetchCards, profileReady])
+  }, [fetchCards])
 
   // 안정 콜백 — memo'd MemberCard/MemberListRow의 prop identity 고정
   const handleOpenCheckIn = useCallback(
@@ -732,7 +740,11 @@ export default function TeamPage() {
         <FilterBar.Field label="본부">
           <Select
             value={filterDiv}
-            onChange={e => { setFilterDiv(e.target.value); setFilterTeam('') }}
+            onChange={e => {
+              setMineTeamMode(false)  // 사용자 명시 필터 — 더 이상 서버 본인 매핑 사용 X
+              setFilterDiv(e.target.value)
+              setFilterTeam('')
+            }}
             className="min-w-[140px]"
           >
             <option value="">전체 본부</option>
@@ -743,7 +755,10 @@ export default function TeamPage() {
         <FilterBar.Field label="팀">
           <Select
             value={filterTeam}
-            onChange={e => setFilterTeam(e.target.value)}
+            onChange={e => {
+              setMineTeamMode(false)
+              setFilterTeam(e.target.value)
+            }}
             disabled={!filterDiv}
             className="min-w-[140px]"
           >

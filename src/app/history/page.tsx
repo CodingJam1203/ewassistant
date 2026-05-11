@@ -20,8 +20,6 @@ interface OrgTeam { id: string; division_id: string; name: string }
 interface OrgDivision { id: string; name: string; teams: OrgTeam[] }
 
 export default function HistoryPage() {
-  const [logs, setLogs] = useState<WorkLog[]>([])
-  const [, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
   const [org, setOrg] = useState<OrgDivision[]>([])
   const [filterMine, setFilterMine] = useState(false)
@@ -30,6 +28,8 @@ export default function HistoryPage() {
   const [filterName, setFilterName] = useState('')
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null)
   const [editScope,  setEditScope]  = useState<'check_in' | 'check_out' | undefined>(undefined)
+  // 새로고침 button — SubmissionsRawTable의 extraQuery dependency 변경 트리거용 카운터.
+  const [refreshTick, setRefreshTick] = useState(0)
 
   // ─── 탭 ─────────────────────────────────────────────────────
   const [tab, setTab] = useState<TabKey>('final')
@@ -54,43 +54,14 @@ export default function HistoryPage() {
   }
   const availableTeams = org.find(d => d.name === filterDivision)?.teams ?? []
 
-  const fetchLogs = async () => {
-    setLoading(true)
-    try {
-      const url = new URL('/api/work-logs', window.location.origin)
-      if (filterMine) {
-        url.searchParams.append('mine', 'true')
-      } else {
-        if (filterDivision) url.searchParams.append('division', filterDivision)
-        if (filterTeam) url.searchParams.append('team', filterTeam)
-      }
-      url.searchParams.append('limit', '200')
-      const res = await fetch(url.toString())
-      const data = await res.json()
-      if (res.ok) setLogs(data)
-      else console.error('Failed to fetch logs:', data.error)
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
-  }
-  useEffect(() => { fetchLogs() }, [filterMine, filterDivision, filterTeam]) // eslint-disable-line react-hooks/exhaustive-deps
-
   /**
    * 수정 모달 진입 — SubmissionsRawTable의 ✏ 버튼 핸들러.
-   * 캐시에 있으면 바로, 없으면 GET /api/work-logs/{id}로 단건 조회.
+   * GET /api/work-logs/{id}로 단건 조회 (모달 캐시용 list fetch는 제거 — 초기 페이로드 절감).
    */
   const openEditByWorkLogId = async (
     workLogId: string,
     scope: 'check_in' | 'check_out',
   ) => {
-    const cached = logs.find(l => l.id === workLogId)
-    if (cached) {
-      setEditScope(scope)
-      setEditingLog(cached)
-      return
-    }
     try {
       const res = await fetch(`/api/work-logs/${workLogId}`)
       if (!res.ok) {
@@ -107,7 +78,7 @@ export default function HistoryPage() {
   }
   const handleEditSuccess = () => {
     setEditingLog(null)
-    fetchLogs()
+    setRefreshTick(t => t + 1)  // SubmissionsRawTable 재조회 트리거
   }
 
   return (
@@ -195,7 +166,7 @@ export default function HistoryPage() {
           >
             필터 초기화
           </Button>
-          <Button variant="ghost" size="sm" onClick={fetchLogs}>
+          <Button variant="ghost" size="sm" onClick={() => setRefreshTick(t => t + 1)}>
             <RefreshCw className="h-4 w-4" aria-hidden /> 새로고침
           </Button>
         </div>
@@ -233,6 +204,7 @@ export default function HistoryPage() {
             ...(filterDivision ? { division: filterDivision } : {}),
             ...(filterTeam ? { team: filterTeam } : {}),
             ...(filterName ? { name: filterName } : {}),
+            ...(refreshTick > 0 ? { _t: String(refreshTick) } : {}),
           }}
           allowOrgFilter
           onEditWorkLog={isAdmin ? openEditByWorkLogId : undefined}
@@ -248,6 +220,7 @@ export default function HistoryPage() {
             ...(filterDivision ? { division: filterDivision } : {}),
             ...(filterTeam ? { team: filterTeam } : {}),
             ...(filterName ? { name: filterName } : {}),
+            ...(refreshTick > 0 ? { _t: String(refreshTick) } : {}),
           }}
           allowOrgFilter
           onEditWorkLog={isAdmin ? openEditByWorkLogId : undefined}

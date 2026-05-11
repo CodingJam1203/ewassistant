@@ -132,12 +132,31 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const dateParam = searchParams.get('date') ?? getKstTodayDateString()
-    const filterDivision = searchParams.get('division') ?? ''
-    const filterTeam = searchParams.get('team') ?? ''
+    let filterDivision = searchParams.get('division') ?? ''
+    let filterTeam = searchParams.get('team') ?? ''
     // mine=true → 본인 카드 1건만 (홈 페이지용 — 응답 크기/쿼리 시간 최소화)
     const mineOnly = searchParams.get('mine') === 'true'
+    // mine_team=true → 서버가 본인 division/team을 자체 조회 후 필터 적용.
+    //   → 클라이언트가 /api/auth/profile 응답 대기 없이 곧장 호출 가능 (1 RTT 절약).
+    //   → division/team 명시 시 mine_team 무시 (사용자가 직접 필터 변경한 경우).
+    const mineTeam = searchParams.get('mine_team') === 'true'
 
     const adminClient = createAdminClient()
+
+    // mineTeam 처리 — 본인 user_profile 조회 후 division/team으로 채움
+    if (mineTeam && !mineOnly && !filterDivision && !filterTeam) {
+      const { data: me } = await adminClient
+        .from('user_profiles')
+        .select('division, team')
+        .eq('email', user.email!)
+        .maybeSingle()
+      if (me?.division) filterDivision = me.division as string
+      if (me?.team)     filterTeam     = me.team as string
+      // 본부/팀 정보 없으면 본인 카드만이라도 반환 (빈 응답 방지)
+      if (!filterDivision && !filterTeam) {
+        // mineOnly와 동일 효과 — 본인 한 명만
+      }
+    }
 
     // ── 대상 팀원 목록 조회 ────────────────────────────────────────────────────
     // 빈 division/team = 전체 (본인 본부/팀으로 fallback하지 않음)
@@ -149,6 +168,9 @@ export async function GET(request: Request) {
       .eq('is_active', true)
 
     if (mineOnly) {
+      profileQuery = profileQuery.eq('email', user.email!)
+    } else if (mineTeam && !filterDivision && !filterTeam) {
+      // mine_team 인데 본인 profile에 division/team 둘 다 없는 케이스 — 본인만이라도
       profileQuery = profileQuery.eq('email', user.email!)
     } else {
       if (filterDivision) profileQuery = profileQuery.eq('division', filterDivision)
