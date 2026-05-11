@@ -1,5 +1,6 @@
 'use client'
 import { DateInputWithDow } from '@/components/ui'
+import { dowKo } from '@/lib/utils/date'
 
 import { useEffect, useState } from 'react'
 import { X, Loader2, Calendar } from 'lucide-react'
@@ -285,10 +286,14 @@ export default function CheckInModal({
     caseMode === 'today'  ? '출근보고 수정'
     : caseMode === 'prior' ? '출근 완료'
     : '출근보고 작성'
+  const dateWithDow = (() => {
+    const dow = dowKo(date)
+    return dow ? `${date} (${dow})` : date
+  })()
   const headerSubtitle =
-    caseMode === 'today'  ? `${date} — 모든 항목 자유롭게 수정`
-    : caseMode === 'prior' ? `${date} — 사전 등록된 정보 + 실제 출근시간 입력`
-    : `${date} — 시간과 근무장소를 입력해주세요`
+    caseMode === 'today'  ? `${dateWithDow} — 모든 항목 자유롭게 수정`
+    : caseMode === 'prior' ? `${dateWithDow} — 사전 등록된 정보 + 실제 출근시간 입력`
+    : `${dateWithDow} — 시간과 근무장소를 입력해주세요`
 
   const submitLabel =
     caseMode === 'today'  ? '수정 저장'

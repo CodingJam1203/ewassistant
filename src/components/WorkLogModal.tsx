@@ -9,6 +9,7 @@ import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { WorkLocations } from '@/types/work-locations-v2'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 import type { WorkLog } from '@/types/work-log'
+import { dowKo } from '@/lib/utils/date'
 
 interface WorkLogModalProps {
   date: string
@@ -103,14 +104,18 @@ export default function WorkLogModal({
     onSuccess()
   }
 
+  const dateWithDow = (() => {
+    const dow = dowKo(date)
+    return dow ? `${date} (${dow})` : date
+  })()
   const headerTitle = isEditing
     ? (editScope === 'check_in'  ? '출근보고 수정'
       : editScope === 'check_out' ? '퇴근보고 수정'
       : '제출 내역 수정')
     : '퇴근보고 작성'
   const headerSubtitle = isEditing
-    ? `${date} — 필요한 항목을 자유롭게 수정`
-    : `${date} — 실제 퇴근시간/근무지를 입력해 퇴근 처리`
+    ? `${dateWithDow} — 필요한 항목을 자유롭게 수정`
+    : `${dateWithDow} — 실제 퇴근시간/근무지를 입력해 퇴근 처리`
 
   const MobileSubmitButton = (
     <button
