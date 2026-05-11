@@ -286,7 +286,17 @@ export async function POST(request: Request) {
       actual_work_locations: updatedActualLocs,
     })
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err)
+    // Supabase PostgrestError 등 plain object를 더 잘 직렬화 — alert에 [object Object] 안 뜨게
+    let message: string
+    if (err instanceof Error) {
+      message = err.message
+    } else if (typeof err === 'object' && err !== null) {
+      const obj = err as { message?: string; details?: string; hint?: string; code?: string }
+      message = obj.message || obj.details || obj.hint || obj.code || JSON.stringify(err)
+    } else {
+      message = String(err)
+    }
+    console.error('[location route] error:', err)
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

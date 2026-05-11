@@ -36,12 +36,26 @@ export default function CalculationPreview({ result, error }: CalculationPreview
   const showDeemedWorkAdvisory =
     result.workTypeCode === 2 && result.actualWorkMinutes < 8 * 60
 
+  // 일요일·공휴일 근무 sub-type 안내 — EW를 토요일/일요일 중 어디로 상신할지 강조
+  const sunNotice: string | null =
+    result.workSubType === 'sun_optional'
+      ? '일요일/공휴일이지만 본인의 선택으로 근로한 건입니다. 근무시간을 토요일로 상신해주세요.'
+      : result.workSubType === 'sun_required'
+        ? '일요일/공휴일이지만 행사, 고객사 요청으로 주말 근무하는 건입니다. 근무시간을 일요일로 상신해주세요.'
+        : null
+
   return (
     <div className="bg-surface border border-border rounded-2xl shadow-[var(--shadow-card)] overflow-hidden sticky top-6">
       <div className="px-5 py-4 border-b border-border bg-background">
         <h3 className="text-base font-semibold text-text-primary">계산 결과</h3>
       </div>
       <div className="px-5 py-5 space-y-4">
+        {sunNotice && (
+          <div className="rounded-[10px] border-2 border-danger-text bg-danger-bg px-3 py-2.5 text-[13px] font-semibold text-danger-text">
+            ⚠ {sunNotice}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-4">
           <div>
             <p className="text-[12px] font-semibold text-text-secondary">실근무시간</p>

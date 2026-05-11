@@ -224,6 +224,7 @@ export async function POST(request: Request) {
     const calcResult = calculateEw({
       name: body.name,
       workTypeLabel: body.workTypeLabel,
+      workSubType: body.workSubType,
       leaveDate: body.leaveDate,
       startTime: finalStartTime,
       endTime: finalEndTime,
@@ -278,6 +279,7 @@ export async function POST(request: Request) {
       name: body.name,
       work_type_label: body.workTypeLabel,
       work_type_code: calcResult.workTypeCode,
+      work_sub_type: calcResult.workSubType,
       leave_date: body.leaveDate,
       start_time: dbStartTime,
       end_time:   dbEndTime,
@@ -424,6 +426,7 @@ export async function POST(request: Request) {
             division: userDivision,
             team: userTeam,
             work_type_label: body.workTypeLabel ?? '기본근무 등록',
+      work_sub_type: body.workSubType ?? null,
             late_or_attendance_status: '아니오',
             teams_sent: false,
             is_deleted: false,
@@ -541,6 +544,7 @@ export async function POST(request: Request) {
       thanks_macaron: body.thanksMacaron || null,
       work_type_label: body.workTypeLabel,
       work_type_code: calcResult.workTypeCode,
+      work_sub_type: calcResult.workSubType,
       attendance_record_type: body.attendanceRecordType || null,
     })
 
@@ -562,6 +566,7 @@ export async function POST(request: Request) {
         leave_timeline: expectedLeaveTimeline ?? null,
         planned_work_locations: plannedWorkLocations ?? null,
         work_type_label: body.workTypeLabel,
+        work_sub_type: body.workSubType ?? null,
         attendance_record_type: body.attendanceRecordType,
       })
     }

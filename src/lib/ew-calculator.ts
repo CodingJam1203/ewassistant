@@ -1,8 +1,18 @@
 export type WorkTypeCode = 1 | 2 | 3;
 
+/**
+ * 공휴일 근무 sub-type. NULL=평일 근무, 그 외는 work_type_code=3과 함께 사용.
+ *   saturday     : 토요일 근무
+ *   sun_optional : 일요일/공휴일 선택 근무 (EW는 토요일로 상신)
+ *   sun_required : 일요일/공휴일 필수 근무 (EW는 일요일로 상신)
+ */
+export type WorkSubType = 'saturday' | 'sun_optional' | 'sun_required' | null;
+
 export interface EwInput {
   name: string;
   workTypeLabel: string;
+  /** 공휴일 근무 sub-type. 미지정 시 null. EW 복사 텍스트 suffix 결정. */
+  workSubType?: WorkSubType;
   leaveDate: string;
   startTime: string; // "HH:mm"
   endTime: string; // "HH:mm"
@@ -38,6 +48,7 @@ export interface EwInput {
 
 export interface EwCalculationResult {
   workTypeCode: WorkTypeCode;
+  workSubType: WorkSubType;
   deductionMinutes: number;
   actualWorkMinutes: number;
   actualWorkText: string;
@@ -61,10 +72,33 @@ export function normalizeWorkTypeLabel(value: string): string {
 
 export function getWorkTypeCode(label: string): WorkTypeCode {
   const normalized = normalizeWorkTypeLabel(label);
+  // 신규 5종
+  if (normalized === "(평일) 기본 근무") return 1;
+  if (normalized === "(평일) 간주 근무") return 2;
+  if (normalized === "토요일 근무") return 3;
+  if (normalized === "일요일·공휴일 근무 (선택)") return 3;
+  if (normalized === "일요일·공휴일 근무 (필수)") return 3;
+  // 레거시 3종 — 기존 DB 데이터 호환
   if (normalized === "기본근무 등록") return 1;
   if (normalized === "간주근로 등록") return 2;
   if (normalized === "공휴일근로 등록") return 3;
   throw new Error(`지원하지 않는 근무유형입니다: ${normalized}`);
+}
+
+/** 라벨에서 workSubType 추출 — 신규 라벨에서만 의미 있음. 레거시는 null. */
+export function getWorkSubTypeFromLabel(label: string): WorkSubType {
+  const normalized = normalizeWorkTypeLabel(label);
+  if (normalized === "토요일 근무") return 'saturday';
+  if (normalized === "일요일·공휴일 근무 (선택)") return 'sun_optional';
+  if (normalized === "일요일·공휴일 근무 (필수)") return 'sun_required';
+  return null;
+}
+
+/** workSubType 별 EW 복사 텍스트 끝에 붙는 suffix (없으면 빈 문자열) */
+export function getCopyTextSuffix(subType: WorkSubType): string {
+  if (subType === 'sun_optional') return ' / 선택적 휴일 근무 - 토요일 상신';
+  if (subType === 'sun_required') return ' / 필수적 휴일 근무 - 일요일 상신';
+  return '';
 }
 
 // 7.2 차감시간 X
@@ -295,6 +329,9 @@ export function calculateEw(input: EwInput): EwCalculationResult {
   }
 
   const ewValue = getFinalEwValue(workTypeCode, ewStartMinutes, ewEndMinutes, deemedWorkEwValue);
+  // workSubType — explicit input 우선, 없으면 라벨에서 추출
+  const workSubType: WorkSubType =
+    input.workSubType !== undefined ? input.workSubType : getWorkSubTypeFromLabel(input.workTypeLabel);
   const dateText = formatKoreanDate(input.leaveDate);
   // 시트 동일: (휴게시간 : K) — 사용자 입력 K값 그대로 표시 (점심은 자동이라 K에 포함 안 됨)
   const breakTimeText = formatDurationHHMM(breakMinutes);
@@ -307,7 +344,7 @@ export function calculateEw(input: EwInput): EwCalculationResult {
     ? formatTimeOver24(endMinutes + 1440)
     : input.endTime
 
-  const copyText = buildCopyText({
+  const baseCopyText = buildCopyText({
     dateText,
     workLocation: input.workLocation,
     startTimeText: input.startTime,
@@ -319,9 +356,11 @@ export function calculateEw(input: EwInput): EwCalculationResult {
     workContent: input.workContent,
     breakReason: input.breakReason,
   });
+  const copyText = baseCopyText + getCopyTextSuffix(workSubType);
 
   return {
     workTypeCode,
+    workSubType,
     deductionMinutes,
     actualWorkMinutes,
     actualWorkText,

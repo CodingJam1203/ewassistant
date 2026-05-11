@@ -24,6 +24,7 @@ import { calculateEw, EwCalculationResult } from '@/lib/ew-calculator'
 import { Copy, Loader2 } from 'lucide-react'
 import { addDays } from 'date-fns'
 import { getKstTodayDateString, toKstDateString } from '@/lib/utils/date'
+import { categorizeDate, getKoreanHolidayName, type DateCategory } from '@/lib/kr-holidays'
 import { DateInputWithDow } from '@/components/ui'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
 import LeaveTimelineInput from '@/components/LeaveTimelineInput'
@@ -74,7 +75,19 @@ const leaveItemZ = z.object({
 
 const formSchema = z.object({
   name: z.string().min(1, '이름을 입력해주세요'),
-  workTypeLabel: z.enum(['기본근무 등록', '간주근로 등록', '공휴일근로 등록']),
+  workTypeLabel: z.enum([
+    // 신규 5종
+    '(평일) 기본 근무',
+    '(평일) 간주 근무',
+    '토요일 근무',
+    '일요일·공휴일 근무 (선택)',
+    '일요일·공휴일 근무 (필수)',
+    // 레거시 — 기존 데이터 호환 (편집 모드 prefill에만 사용)
+    '기본근무 등록',
+    '간주근로 등록',
+    '공휴일근로 등록',
+    '',  // 일요일/공휴일 + 미선택 잠금 상태
+  ]),
   leaveDate: z.string().min(1, '퇴근일자를 입력해주세요'),
 
   // 본문 시간 (퇴근보고)
@@ -176,6 +189,7 @@ const formSchema = z.object({
 })
 
 export type WorkLogFormData = z.infer<typeof formSchema>
+type WorkTypeLabelValue = WorkLogFormData['workTypeLabel']
 
 interface WorkLogFormProps {
   userName: string | null
@@ -383,11 +397,18 @@ export default function WorkLogForm({
     defaultValues: isEditing && editingLog
       ? {
           name: editingLog.name,
-          workTypeLabel: (
-            editingLog.work_type_label === '간주근로 등록' || editingLog.work_type_label === '공휴일근로 등록'
-              ? editingLog.work_type_label
-              : '기본근무 등록'
-          ) as '기본근무 등록' | '간주근로 등록' | '공휴일근로 등록',
+          workTypeLabel: ((): WorkTypeLabelValue => {
+            const stored = editingLog.work_type_label ?? ''
+            const validNewLabels = [
+              '(평일) 기본 근무', '(평일) 간주 근무', '토요일 근무',
+              '일요일·공휴일 근무 (선택)', '일요일·공휴일 근무 (필수)',
+              '기본근무 등록', '간주근로 등록', '공휴일근로 등록',
+            ] as const
+            if ((validNewLabels as readonly string[]).includes(stored)) {
+              return stored as WorkTypeLabelValue
+            }
+            return '(평일) 기본 근무'
+          })(),
           leaveDate: editingLog.leave_date,
           startTime: defaultStartTime,
           endTime: defaultEndTime,
@@ -417,7 +438,13 @@ export default function WorkLogForm({
         }
       : {
           name: userName || '',
-          workTypeLabel: '기본근무 등록',
+          workTypeLabel: ((): WorkTypeLabelValue => {
+            const today = getKstTodayDateString()
+            const cat = categorizeDate(today)
+            if (cat === 'saturday') return '토요일 근무'
+            if (cat === 'sunday_or_holiday') return ''  // 잠금 상태 — 사용자가 선택
+            return '(평일) 기본 근무'
+          })(),
           leaveDate: getKstTodayDateString(),
           startTime: defaultStartTime,
           endTime: defaultEndTime,
@@ -438,6 +465,29 @@ export default function WorkLogForm({
   })
 
   const formValues = watch()
+
+  // 날짜에 따른 근무유형 카테고리 + 한국 공휴일명 (잠금/안내 UI에 사용)
+  const dateCategory: DateCategory = categorizeDate(formValues.leaveDate ?? getKstTodayDateString())
+  const koreanHolidayName = getKoreanHolidayName(formValues.leaveDate ?? '')
+  /** 일요일/공휴일 + 근무유형 미선택 → 폼 잠금 (시간/장소/내용 모두 disabled) */
+  const isFormLocked = dateCategory === 'sunday_or_holiday' && !formValues.workTypeLabel
+
+  // workSubType — 라벨에서 추출
+  const workSubType: 'saturday' | 'sun_optional' | 'sun_required' | null = (() => {
+    const wt = formValues.workTypeLabel
+    if (wt === '토요일 근무') return 'saturday'
+    if (wt === '일요일·공휴일 근무 (선택)') return 'sun_optional'
+    if (wt === '일요일·공휴일 근무 (필수)') return 'sun_required'
+    return null
+  })()
+  // 일요일·공휴일 근무 안내문 (EW 미리보기 영역에 빨갛게 표시)
+  const subTypeNotice: string | null = (() => {
+    if (workSubType === 'sun_optional')
+      return '일요일/공휴일이지만 본인의 선택으로 근로한 건입니다. 근무시간을 토요일로 상신해주세요.'
+    if (workSubType === 'sun_required')
+      return '일요일/공휴일이지만 행사, 고객사 요청으로 주말 근무하는 건입니다. 근무시간을 일요일로 상신해주세요.'
+    return null
+  })()
 
   // 도출값
   const actualLocs = (formValues.actualWorkLocations ?? []) as WorkLocations
@@ -553,6 +603,15 @@ export default function WorkLogForm({
   ])
 
   const onSubmit = async (data: WorkLogFormData) => {
+    // 일요일/공휴일 + 근무유형 미선택 차단
+    if (dateCategory === 'sunday_or_holiday' && !data.workTypeLabel) {
+      setSubmitError(
+        koreanHolidayName
+          ? `오늘은 ${koreanHolidayName}입니다. 근무유형을 먼저 선택해주세요.`
+          : '일요일입니다. 근무유형을 먼저 선택해주세요.',
+      )
+      return
+    }
     setIsSubmitting(true)
     setSubmitError(null)
 
@@ -616,6 +675,8 @@ export default function WorkLogForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...data,
+          // 공휴일 근무 sub-type (라벨에서 추출)
+          workSubType,
           // 신규 v2 필드
           actualWorkLocations: actualWasTouched ? submittedActual : null,
           plannedWorkLocations: data.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
@@ -725,10 +786,30 @@ export default function WorkLogForm({
               {...register('workTypeLabel')}
               className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
             >
-              <option value="기본근무 등록">기본근무 등록</option>
-              <option value="간주근로 등록">간주근로 등록</option>
-              <option value="공휴일근로 등록">공휴일근로 등록</option>
+              {dateCategory === 'sunday_or_holiday' && !formValues.workTypeLabel && (
+                <option value="">— 근무유형을 선택해주세요 —</option>
+              )}
+              <option value="(평일) 기본 근무">(평일) 기본 근무</option>
+              <option value="(평일) 간주 근무">(평일) 간주 근무</option>
+              <option value="토요일 근무">토요일 근무</option>
+              <option value="일요일·공휴일 근무 (선택)">일요일·공휴일 근무 (선택)</option>
+              <option value="일요일·공휴일 근무 (필수)">일요일·공휴일 근무 (필수)</option>
+              {/* 레거시 라벨은 편집 모드에서 기존 값 유지용으로 hidden 노출 */}
+              {(formValues.workTypeLabel === '기본근무 등록' ||
+                formValues.workTypeLabel === '간주근로 등록' ||
+                formValues.workTypeLabel === '공휴일근로 등록') && (
+                <option value={formValues.workTypeLabel}>
+                  {formValues.workTypeLabel} (구버전)
+                </option>
+              )}
             </select>
+            {/* 일요일/공휴일 안내 — workType 미선택 시 잠금 알림 */}
+            {dateCategory === 'sunday_or_holiday' && (
+              <p className="mt-1 text-[12px] text-warning-text font-medium">
+                {koreanHolidayName ? `오늘은 ${koreanHolidayName}입니다. ` : '오늘은 일요일입니다. '}
+                근무유형을 먼저 선택해주세요.
+              </p>
+            )}
           </div>
 
           <div className="sm:col-span-2">

@@ -71,6 +71,8 @@ export interface SubmissionLogInput {
   // 공통 메타
   work_type_label?: string | null
   work_type_code?: number | null
+  /** 공휴일 근무 sub-type. 'saturday' | 'sun_optional' | 'sun_required' | null */
+  work_sub_type?: string | null
   attendance_record_type?: string | null
 }
 
