@@ -784,7 +784,7 @@ export default function WorkLogForm({
             <label className="block text-sm font-medium text-text-primary">근무유형 *</label>
             <select
               {...register('workTypeLabel')}
-              className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
+              className="select-tight mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
             >
               {dateCategory === 'sunday_or_holiday' && !formValues.workTypeLabel && (
                 <option value="">— 근무유형을 선택해주세요 —</option>
@@ -918,7 +918,7 @@ export default function WorkLogForm({
             )}
             <select
               {...register('breakTime')}
-              className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
+              className="select-tight mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
             >
               {/* 0:00 ~ 12:00 30분 단위 (총 25개) */}
               {Array.from({ length: 25 }).map((_, i) => {
@@ -976,7 +976,7 @@ export default function WorkLogForm({
             </p>
             <select
               {...register('lateOrAttendanceStatus')}
-              className="block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
+              className="select-tight block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
             >
               <option value="아니오">아니오</option>
               <option value="예">예</option>
@@ -1024,7 +1024,7 @@ export default function WorkLogForm({
             </p>
             <select
               {...register('attendanceRecordType')}
-              className="block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
+              className="select-tight block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
             >
               <option value="출근보고 진행 (주말출근, 휴가 포함)">출근보고 진행 (주말출근, 휴가 포함)</option>
               <option value="스킵(누락퇴근보고, 퇴근보고 수정)">스킵(누락퇴근보고, 퇴근보고 수정)</option>

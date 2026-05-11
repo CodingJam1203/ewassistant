@@ -124,8 +124,10 @@ textarea::placeholder {
 /* ---------------------------------------------------------------------------
  * Custom select chevron
  * Native arrow가 너무 멀거나 OS마다 다르게 렌더되는 문제를 막기 위한 utility.
- * <Select> 컴포넌트가 자동 적용. 다른 곳에서 select에 직접 className 주려면 사용.
+ * 모든 <select> 요소에 자동 적용 (raw <select> 포함 — 클래스 추가 잊어도 OK).
+ * 직접 chevron을 제어하려면 .select-no-tight 클래스로 opt-out.
  * --------------------------------------------------------------------------- */
+select:not(.select-no-tight),
 .select-tight {
   appearance: none;
   -webkit-appearance: none;
@@ -136,6 +138,7 @@ textarea::placeholder {
   background-size: 0.75rem 0.75rem;
   padding-right: 2rem !important;
 }
+select:not(.select-no-tight)::-ms-expand,
 .select-tight::-ms-expand {
   display: none;
 }
