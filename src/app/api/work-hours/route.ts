@@ -79,13 +79,126 @@ export async function GET(request: Request) {
     const baselines = getMonthBaselines(year, month)
     const adminClient = createAdminClient()
 
-    // ── 권한 판정 ─────────────────────────────────────────────────────────────
-    const leaderScope = await requireLeaderOrAdmin()
-    const isLeaderOrAdmin = !!leaderScope
-
-    // ── 대상 프로필 조회 ─────────────────────────────────────────────────────
     // ?mine=true → 권한 무관 본인 row 1건만 (mypage WorkHoursCard용)
     const mineOnly = searchParams.get('mine') === 'true'
+
+    // ── 빠른 경로 — mine=true 일 땐 leader/admin 분기 전부 skip ─────────────────
+    //   기존: requireActiveUser → requireLeaderOrAdmin (내부에서 requireActiveUser
+    //          재호출 + profile role 쿼리) → profile 쿼리 → work_logs → calendar
+    //          (총 직렬 5단계 + Google Sheets API)
+    //   개선: profile + work_logs + calendar batch 를 한 번에 Promise.all.
+    //          → 직렬 round-trip 1번으로 단축. MY PAGE 근로현황 카드 체감 로딩 ↓.
+    if (mineOnly) {
+      const monthStart = `${year}-${String(month).padStart(2, '0')}-01`
+      const lastDay = baselines.daysInMonth
+      const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+      const todayKst = getKstTodayDateString()
+
+      // calendar 후보 날짜 — work_logs 응답 도착 전 미리 계산 (정책: 어제 이전 날짜만)
+      const pastDates: string[] = []
+      for (let day = 1; day <= baselines.daysInMonth; day++) {
+        const d = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+        if (d < todayKst) pastDates.push(d)
+      }
+      const calEnabled = isCalendarEnabled() && pastDates.length > 0
+
+      const [profileRes, workLogsRes, calBatchRes] = await Promise.all([
+        adminClient
+          .from('user_profiles')
+          .select('email, display_name, division, team, is_active')
+          .eq('email', user.email!)
+          .eq('is_active', true)
+          .maybeSingle(),
+        adminClient
+          .from('work_logs')
+          .select('user_email, leave_date, created_at, actual_work_time, leave_timeline, is_deleted')
+          .eq('user_email', user.email!)
+          .gte('leave_date', monthStart)
+          .lte('leave_date', monthEnd)
+          .eq('is_deleted', false)
+          .order('created_at', { ascending: false }),
+        calEnabled
+          ? getCalendarRangeBatch(pastDates).catch(err => {
+              console.warn('[work-hours mine] calendar fetch failed:', err)
+              return null as Awaited<ReturnType<typeof getCalendarRangeBatch>> | null
+            })
+          : Promise.resolve(null),
+      ])
+
+      const me = profileRes.data as ProfileRow | null
+      if (!me) {
+        return NextResponse.json({
+          baselines,
+          users: [],
+          teamSummaries: [],
+          overall: { totalCount: 0, normalCount: 0, cautionCount: 0, dangerCount: 0, overCount: 0, avgRecognizedHours: 0 },
+        })
+      }
+
+      // dedupe by leave_date (가장 최근 created_at만)
+      const seenDates = new Set<string>()
+      const dedupedLogs: WorkLogRow[] = []
+      for (const row of ((workLogsRes.data ?? []) as WorkLogRow[])) {
+        if (seenDates.has(row.leave_date)) continue
+        seenDates.add(row.leave_date)
+        dedupedLogs.push(row)
+      }
+
+      const logRows: UserMonthInputRow[] = dedupedLogs.map(r => ({
+        email: r.user_email,
+        display_name: null,
+        division: null,
+        team: null,
+        actual_work_time: r.actual_work_time,
+        leave_minutes_sum: totalLeaveRoundedMinutes(r.leave_timeline ?? null),
+      }))
+
+      // Google 캘린더 휴가 자동 인정 — work_log 없는 과거 날짜에만
+      const calBatch = calBatchRes
+      if (calBatch && me.display_name && me.division) {
+        for (const date of pastDates) {
+          if (seenDates.has(date)) continue  // work_log 있으면 캘린더 무시
+          const data = calBatch[date]
+          if (!data) continue
+          const deptEntries = data.departments?.[me.division] ?? []
+          const target = deptEntries.find(e => e.name?.trim() === me.display_name!.trim())
+          if (!target) continue
+          const parsed = parseCell(target.cellValue)
+          if (!parsed.leaveType) continue
+          const minutes = LEAVE_TYPE_DEFINITIONS[parsed.leaveType].defaultDeductionMinutes
+          logRows.push({
+            email: user.email!,
+            display_name: null,
+            division: null,
+            team: null,
+            actual_work_time: null,
+            leave_minutes_sum: minutes,
+          })
+        }
+      }
+
+      const userSummary = summarizeUser(
+        { email: me.email, display_name: me.display_name, division: me.division, team: me.team },
+        logRows,
+        baselines,
+      )
+
+      return NextResponse.json({
+        baselines,
+        users: [userSummary],
+        teamSummaries: [],
+        overall: { totalCount: 1, normalCount: 0, cautionCount: 0, dangerCount: 0, overCount: 0, avgRecognizedHours: userSummary.recognizedHours },
+        scope: { kind: null, division: null, team: null },
+      }, {
+        headers: {
+          'Cache-Control': 'private, max-age=30, stale-while-revalidate=300',
+        },
+      })
+    }
+
+    // ── 권한 판정 (mineOnly가 아닌 경우만 — admin/leader 콘솔용) ───────────────
+    const leaderScope = await requireLeaderOrAdmin()
+    const isLeaderOrAdmin = !!leaderScope
 
     let profileQuery = adminClient
       .from('user_profiles')
@@ -183,55 +296,7 @@ export async function GET(request: Request) {
       logsByEmail.set(row.user_email, arr)
     }
 
-    // ── Google 캘린더 자동 휴가 인정 (mineOnly만 적용) ──────────────────────
-    //   정책: 어제 이전(< todayKst) 날짜에 work_log가 없고 Google 시트에
-    //   휴가 키워드(휴가/연차/반차/오전반차/오후반차)가 있으면, 해당 분만큼
-    //   자동 휴가로 인정해서 시간 계산에 합산.
-    //   work_log이 하나라도 있는 날은 Google 무시 (사용자가 휴가 취소한 것으로 해석).
-    if (mineOnly && isCalendarEnabled()) {
-      try {
-        const me = profiles.find(p => p.email === user.email!)
-        if (me?.display_name && me?.division) {
-          const todayKst = getKstTodayDateString()
-          const dateLogged = new Set<string>()
-          for (const row of dedupedLogs) {
-            if (row.user_email === user.email!) dateLogged.add(row.leave_date)
-          }
-          const pastDates: string[] = []
-          for (let day = 1; day <= baselines.daysInMonth; day++) {
-            const d = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-            if (d < todayKst && !dateLogged.has(d)) pastDates.push(d)
-          }
-          if (pastDates.length > 0) {
-            const calBatch = await getCalendarRangeBatch(pastDates)
-            const arr = logsByEmail.get(user.email!) ?? []
-            for (const date of pastDates) {
-              const data = calBatch[date]
-              if (!data) continue
-              const deptEntries = data.departments?.[me.division!] ?? []
-              const target = deptEntries.find(e => e.name?.trim() === me.display_name!.trim())
-              if (!target) continue
-              const parsed = parseCell(target.cellValue)
-              if (!parsed.leaveType) continue
-              const minutes = LEAVE_TYPE_DEFINITIONS[parsed.leaveType].defaultDeductionMinutes
-              arr.push({
-                email: user.email!,
-                display_name: null,
-                division: null,
-                team: null,
-                actual_work_time: null,
-                leave_minutes_sum: minutes,
-              })
-            }
-            if (arr.length > 0) logsByEmail.set(user.email!, arr)
-          }
-        }
-      } catch (err) {
-        console.warn('[work-hours] google calendar auto-leave failed:', err)
-      }
-    }
-
-    // ── 사용자별 요약 ────────────────────────────────────────────────────────
+    // ── 사용자별 요약 ───────────────────────────────────────────────────────────────────
     let users: UserMonthSummary[] = profiles.map(p =>
       summarizeUser(
         { email: p.email, display_name: p.display_name, division: p.division, team: p.team },
