@@ -8,20 +8,30 @@ import NavbarLinks from '@/components/NavbarLinks'
 
 export default async function Navbar() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
 
+  // getSession() — 쿠키 로컬 read (네트워크 X). userId 즉시 확보.
+  const sessionResult = await supabase.auth.getSession()
+  const session = sessionResult.data.session
+  if (!session?.user?.id) return null
+
+  // 인증 검증(getUser) + 프로필 쿼리를 병렬화 — 직렬이었던 2 round-trip을 1 max로 단축.
+  const [userResult, profileResult] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase
+      .from('user_profiles')
+      .select('role, display_name')
+      .eq('id', session.user.id)
+      .single(),
+  ])
+  const user = userResult.data.user
   if (!user) return null
 
   let isAdmin = isBootstrapAdmin(user.email)
   let isLeader = false
   let displayName = ''
   try {
-    const { data: profile, error } = await supabase
-      .from('user_profiles')
-      .select('role, display_name')
-      .eq('id', user.id)
-      .single()
-    if (!error && profile) {
+    const profile = profileResult.data
+    if (!profileResult.error && profile) {
       if (!isAdmin) isAdmin = profile.role === 'admin'
       isLeader = profile.role === 'leader'
       displayName = (profile.display_name || '').trim()
