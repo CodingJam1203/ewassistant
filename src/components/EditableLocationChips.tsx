@@ -104,6 +104,15 @@ function EditableLocationChipsImpl({
     return match >= 0 ? match : 0
   }
 
+  // 저장 실패 시 사용자에게 알림 + 로컬 optimistic 상태 보존 (부모 refetch 트리거 안 함).
+  // refetch가 돌면 옛 서버 데이터로 useEffect가 chips를 덮어버려 "튕기는" UX가 발생함.
+  const showSaveError = (msg: string) => {
+    if (typeof window !== 'undefined') {
+      // eslint-disable-next-line no-alert
+      window.alert(`근무장소 저장 실패\n${msg}\n\n관리자에게 문의해주세요.`)
+    }
+  }
+
   const handleChipsChange = (next: WorkLocations) => {
     const effIdx = localIndex ?? currentIndex
     const newIndex = recomputeIndexAfterChange(chips, next, effIdx)
@@ -118,9 +127,23 @@ function EditableLocationChipsImpl({
         locations: next, location: '',
         currentIndex: newIndex,
       }),
+    }).then(async res => {
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`
+        try {
+          const body = await res.json()
+          if (body?.error) detail = body.error
+        } catch { /* ignore */ }
+        showSaveError(detail)
+        return false
+      }
+      return true
+    }).then(ok => {
+      if (ok) scheduleParentRefresh()
+    }).catch(err => {
+      showSaveError(err instanceof Error ? err.message : String(err))
     }).finally(() => {
       pendingRef.current--
-      scheduleParentRefresh()
     })
   }
 
@@ -134,9 +157,23 @@ function EditableLocationChipsImpl({
         date, target: 'current',
         location: label, currentIndex: index,
       }),
+    }).then(async res => {
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`
+        try {
+          const body = await res.json()
+          if (body?.error) detail = body.error
+        } catch { /* ignore */ }
+        showSaveError(detail)
+        return false
+      }
+      return true
+    }).then(ok => {
+      if (ok) scheduleParentRefresh()
+    }).catch(err => {
+      showSaveError(err instanceof Error ? err.message : String(err))
     }).finally(() => {
       pendingRef.current--
-      scheduleParentRefresh()
     })
   }
 
