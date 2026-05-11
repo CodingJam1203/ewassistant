@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useState, useEffect, useCallback } from 'react'
+import { memo, useState, useEffect, useCallback, useRef } from 'react'
 import { format, addDays, subDays, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { ChevronLeft, ChevronRight, RefreshCw, MapPin, Clock, Coffee, LogIn, LogOut, X, LayoutGrid, List, Check } from 'lucide-react'
@@ -631,11 +631,18 @@ export default function TeamPage() {
     }
   }, [date, mineTeamMode, filterDiv, filterTeam])
 
+  // 중복 fetch 방지 — 동일한 쿼리 조합이면 skip.
+  // (mineTeamMode=true 인 동안 profile 응답으로 filterDiv/filterTeam이 채워져도
+  //  서버에 보내는 쿼리는 동일하므로 재호출 불필요.)
+  const lastQueryKeyRef = useRef('')
   useEffect(() => {
-    // mineTeamMode=true 면 profile 응답 대기 불필요 — 서버가 알아서 본인 팀 매핑.
-    // mineTeamMode=false (사용자 명시 필터) 면 filterDiv/filterTeam 값 확정 후에만 fetch.
+    const queryKey = mineTeamMode
+      ? `mine__${date}`
+      : `manual__${date}__${filterDiv}__${filterTeam}`
+    if (queryKey === lastQueryKeyRef.current) return
+    lastQueryKeyRef.current = queryKey
     fetchCards()
-  }, [fetchCards])
+  }, [fetchCards, mineTeamMode, date, filterDiv, filterTeam])
 
   // 안정 콜백 — memo'd MemberCard/MemberListRow의 prop identity 고정
   const handleOpenCheckIn = useCallback(

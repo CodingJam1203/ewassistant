@@ -30,6 +30,9 @@ export default function HistoryPage() {
   const [editScope,  setEditScope]  = useState<'check_in' | 'check_out' | undefined>(undefined)
   // 새로고침 button — SubmissionsRawTable의 extraQuery dependency 변경 트리거용 카운터.
   const [refreshTick, setRefreshTick] = useState(0)
+  // profile 응답 도착 전엔 SubmissionsRawTable 렌더 보류 — 빈 필터로 첫 fetch 했다가
+  // profile 도착 후 본인 본부/팀으로 재 fetch하는 1초 더블 로딩 방지.
+  const [profileReady, setProfileReady] = useState(false)
 
   // ─── 탭 ─────────────────────────────────────────────────────
   const [tab, setTab] = useState<TabKey>('final')
@@ -45,6 +48,7 @@ export default function HistoryPage() {
       setOrg(orgData as OrgDivision[])
       if (profile?.division) setFilterDivision(profile.division)
       if (profile?.team) setFilterTeam(profile.team)
+      setProfileReady(true)
     })
   }, [])
 
@@ -195,36 +199,30 @@ export default function HistoryPage() {
         </nav>
       </div>
 
-      {/* RAW 탭 */}
-      {tab === 'raw' && (
-        <SubmissionsRawTable
-          mode="raw"
-          mine={filterMine}
-          extraQuery={{
-            ...(filterDivision ? { division: filterDivision } : {}),
-            ...(filterTeam ? { team: filterTeam } : {}),
-            ...(filterName ? { name: filterName } : {}),
-            ...(refreshTick > 0 ? { _t: String(refreshTick) } : {}),
-          }}
-          allowOrgFilter
-          onEditWorkLog={isAdmin ? openEditByWorkLogId : undefined}
-        />
-      )}
-
-      {/* 일자별 최종 탭 */}
-      {tab === 'final' && (
-        <SubmissionsRawTable
-          mode="final"
-          mine={filterMine}
-          extraQuery={{
-            ...(filterDivision ? { division: filterDivision } : {}),
-            ...(filterTeam ? { team: filterTeam } : {}),
-            ...(filterName ? { name: filterName } : {}),
-            ...(refreshTick > 0 ? { _t: String(refreshTick) } : {}),
-          }}
-          allowOrgFilter
-          onEditWorkLog={isAdmin ? openEditByWorkLogId : undefined}
-        />
+      {/* SubmissionsRawTable — profile 도착 전엔 빈 스켈레톤만. 도착 후 1회 fetch. */}
+      {!profileReady ? (
+        <div className="space-y-2">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="h-10 bg-surface-muted rounded-[10px] animate-pulse" />
+          ))}
+        </div>
+      ) : (
+        <>
+          {tab === 'raw' && (
+            <SubmissionsRawTable
+              mode="raw"
+              mine={filterMine}
+              extraQuery={{
+                ...(filterDivision ? { division: filterDivision } : {}),
+                ...(filterTeam ? { team: filterTeam } : {}),
+                ...(filterName ? { name: filterName } : {}),
+                ...(refreshTick > 0 ? { _t: String(refreshTick) } : {}),
+              }}
+              allowOrgFilter
+              onEditWorkLog={isAdmin ? openEditByWorkLogId : undefined}
+            />
+          )}
+        </>
       )}
     </div>
   )
