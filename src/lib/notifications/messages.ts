@@ -352,7 +352,7 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       // 종일 휴가 — 출근이 아니라 휴가 알림
       if (allDay) {
         return [
-          `🍀${p.name} 휴가! / ${p.date}`,
+          `🍀${p.name} 휴가! / ${koreanDate(p.date)}`,
           ...(leaveLines.length === 1
               ? [`🔹휴가/반차 : ${leaveLines[0]}`]
               : ['🔹휴가/반차', ...leaveLines]),
@@ -414,7 +414,7 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       })()
 
       const baseLines = [
-        `📍${p.name} 근무지 변경 / ${p.date}`,
+        `📍${p.name} 근무지 변경 / ${koreanDate(p.date)}`,
         `🔹이전 근무지 : ${p.previousLocation || '미입력'}`,
         `🔹현재 위치(★) : ${current || '미지정'}`,
         `🔹변경 시각 : ${kstHHmm(p.changedAt)}`,
@@ -445,7 +445,7 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
     case 'break_started': {
       const p = payload as BreakNotifyPayload
       return [
-        `☕${p.name} 휴게 시작 / ${p.date}`,
+        `☕${p.name} 휴게 시작 / ${koreanDate(p.date)}`,
         `🔹휴게 시작 시각 : ${kstHHmm(p.breakAt)}`,
         `🔹근무지 : ${p.workLocation || '미입력'}`,
         cta(),
@@ -455,7 +455,7 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
     case 'break_ended': {
       const p = payload as BreakNotifyPayload
       return [
-        `🍵${p.name} 휴게 종료 / ${p.date}`,
+        `🍵${p.name} 휴게 종료 / ${koreanDate(p.date)}`,
         `🔹휴게 종료 시각 : ${kstHHmm(p.breakAt)}`,
         `🔹근무지 : ${p.workLocation || '미입력'}`,
         cta(),
