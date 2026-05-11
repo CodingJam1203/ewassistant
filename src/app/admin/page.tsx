@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Lock, Unlock, RefreshCw, UserPlus, Trash2,
   ChevronDown, ChevronRight, Plus, X, Pencil, Loader2, Building2
@@ -623,6 +623,22 @@ export default function AdminPage() {
   const [highlightActive, setHighlightActive] = useState(false)
   const highlightRowRef = useRef<HTMLTableRowElement | null>(null)
 
+  // 본부/팀 필터 + 컬럼 정렬
+  const [filterDiv, setFilterDiv] = useState('')
+  const [filterTeam, setFilterTeam] = useState('')
+  type SortKey = 'email' | 'display_name' | 'division' | 'team' | 'role' | 'is_active' | 'display_order' | 'last_login_at' | 'last_submitted_at'
+  const [sortKey, setSortKey] = useState<SortKey>('display_order')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
   useEffect(() => {
     if (typeof window === 'undefined') return
     const params = new URLSearchParams(window.location.search)
@@ -671,6 +687,51 @@ export default function AdminPage() {
   }, [highlightEmail, users, highlightActive])
 
   const fmt = (dt: string | null) => dt ? format(new Date(dt), 'MM/dd HH:mm') : '-'
+
+  // 필터된 + 정렬된 사용자 목록
+  const displayedUsers = useMemo(() => {
+    const cmpStr = (a: string | null | undefined, b: string | null | undefined) => {
+      const aa = (a ?? '').trim()
+      const bb = (b ?? '').trim()
+      return aa < bb ? -1 : aa > bb ? 1 : 0
+    }
+    const cmpNum = (a: number | null | undefined, b: number | null | undefined) => {
+      const aa = typeof a === 'number' ? a : Number.MAX_SAFE_INTEGER
+      const bb = typeof b === 'number' ? b : Number.MAX_SAFE_INTEGER
+      return aa - bb
+    }
+    const roleOrder = (r: string | null | undefined) =>
+      r === 'admin' ? 0 : r === 'leader' ? 1 : r === 'user' ? 2 : 3
+
+    const filtered = users.filter(u => {
+      if (filterDiv && (u.division ?? '') !== filterDiv) return false
+      if (filterTeam && (u.team ?? '') !== filterTeam) return false
+      return true
+    })
+    const sorted = [...filtered].sort((a, b) => {
+      let cmp = 0
+      switch (sortKey) {
+        case 'email':            cmp = cmpStr(a.email, b.email); break
+        case 'display_name':     cmp = cmpStr(a.display_name, b.display_name); break
+        case 'division':         cmp = cmpStr(a.division, b.division); break
+        case 'team':             cmp = cmpStr(a.team, b.team); break
+        case 'role':             cmp = roleOrder(a.role) - roleOrder(b.role); break
+        case 'is_active':        cmp = (a.is_active ? 0 : 1) - (b.is_active ? 0 : 1); break
+        case 'display_order':    cmp = cmpNum(a.display_order, b.display_order); break
+        case 'last_login_at':    cmp = cmpStr(a.last_login_at, b.last_login_at); break
+        case 'last_submitted_at': cmp = cmpStr(a.last_submitted_at, b.last_submitted_at); break
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [users, filterDiv, filterTeam, sortKey, sortDir])
+
+  // 필터 옵션 — 본부는 org에서, 팀은 선택된 본부의 팀
+  const divisionOptions = useMemo(() => org.map(d => d.name), [org])
+  const teamOptions = useMemo(() => {
+    if (!filterDiv) return Array.from(new Set(org.flatMap(d => d.teams.map(t => t.name)))).sort()
+    return (org.find(d => d.name === filterDiv)?.teams ?? []).map(t => t.name)
+  }, [org, filterDiv])
 
   const handleUserSave = (updated: UserProfile, oldEmail: string) => {
     setUsers(prev => prev.map(u =>
@@ -769,8 +830,42 @@ export default function AdminPage() {
       )}
 
       {/* 툴바 */}
-      <div className="flex justify-between items-center">
-        <p className="text-sm text-text-secondary">총 <span className="font-semibold text-text-primary tabular-nums">{users.length}</span>명</p>
+      <div className="flex flex-wrap justify-between items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <p className="text-sm text-text-secondary">
+            총 <span className="font-semibold text-text-primary tabular-nums">{displayedUsers.length}</span>
+            {displayedUsers.length !== users.length && (
+              <span className="text-text-muted"> / {users.length}</span>
+            )}명
+          </p>
+          {/* 본부 필터 */}
+          <select
+            value={filterDiv}
+            onChange={e => { setFilterDiv(e.target.value); setFilterTeam('') }}
+            className="h-9 px-3 rounded-[10px] border border-border-strong bg-surface text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
+          >
+            <option value="">전체 본부</option>
+            {divisionOptions.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+          {/* 팀 필터 */}
+          <select
+            value={filterTeam}
+            onChange={e => setFilterTeam(e.target.value)}
+            className="h-9 px-3 rounded-[10px] border border-border-strong bg-surface text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
+          >
+            <option value="">전체 팀</option>
+            {teamOptions.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          {(filterDiv || filterTeam) && (
+            <button
+              type="button"
+              onClick={() => { setFilterDiv(''); setFilterTeam('') }}
+              className="text-[12px] text-text-muted hover:text-text-primary underline"
+            >
+              필터 초기화
+            </button>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -802,16 +897,41 @@ export default function AdminPage() {
             <table className="w-full border-collapse text-[13px]">
               <thead>
                 <tr>
-                  {['이메일','이름','본부','팀','권한','상태','순서','최근 로그인','최근 제출'].map(h => (
-                    <th key={h} className="bg-background border-b border-border px-4 py-3 text-left text-[12px] font-semibold text-text-secondary whitespace-nowrap">{h}</th>
-                  ))}
+                  {([
+                    { key: 'email', label: '이메일' },
+                    { key: 'display_name', label: '이름' },
+                    { key: 'division', label: '본부' },
+                    { key: 'team', label: '팀' },
+                    { key: 'role', label: '권한' },
+                    { key: 'is_active', label: '상태' },
+                    { key: 'display_order', label: '순서' },
+                    { key: 'last_login_at', label: '최근 로그인' },
+                    { key: 'last_submitted_at', label: '최근 제출' },
+                  ] as { key: SortKey; label: string }[]).map(({ key, label }) => {
+                    const active = sortKey === key
+                    return (
+                      <th
+                        key={key}
+                        onClick={() => toggleSort(key)}
+                        className={`bg-background border-b border-border px-4 py-3 text-left text-[12px] font-semibold whitespace-nowrap cursor-pointer select-none transition-colors hover:bg-surface-muted ${active ? 'text-primary-700' : 'text-text-secondary'}`}
+                        title="클릭하여 정렬"
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          {label}
+                          <span className={`text-[10px] ${active ? 'opacity-100' : 'opacity-30'}`}>
+                            {active && sortDir === 'desc' ? '▼' : '▲'}
+                          </span>
+                        </span>
+                      </th>
+                    )
+                  })}
                   {['편집','잠금','삭제'].map(h => (
                     <th key={h} className="bg-background border-b border-border px-4 py-3 text-center text-[12px] font-semibold text-text-secondary whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {users.map(user => {
+                {displayedUsers.map(user => {
                   const isHighlighted = highlightActive && user.email.toLowerCase() === highlightEmail
                   const roleBadge: { variant: 'primary' | 'info' | 'neutral'; label: string } =
                     user.role === 'admin'  ? { variant: 'primary', label: '관리자' }
