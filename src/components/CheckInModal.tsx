@@ -232,9 +232,24 @@ export default function CheckInModal({
 
     setSaving(true)
     try {
+      // 안전망 — caseMode='none' (미보고 첫 작성) + 당일 날짜라면, prefill 누락/race로
+      // actualCheckInTime이 비어있어도 NOW로 채워 보냄. 그래야 서버가 checked_in_at을
+      // 세팅하고 상태가 A → C로 바로 진행 (B 상태 노출 방지).
+      const todayKstStr = (() => {
+        const fmt = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+        })
+        return fmt.format(new Date())
+      })()
+      const isTodaySubmission = date === todayKstStr
+      const safeActualCheckIn =
+        actualCheckInTime ||
+        (caseMode === 'none' && isTodaySubmission && !isAllDayLeave
+          ? nowKstHHmmFloor() : '')
+
       // case A: start_time = actualCheckInTime으로 자동 채움 (출근예정=실제출근 같은 의미)
       const submitStartTime = caseMode === 'none'
-        ? (actualCheckInTime || '09:00')
+        ? (safeActualCheckIn || '09:00')
         : (isAllDayLeave ? null : startTime)
 
       const res = await fetch('/api/team-status/check-in', {
@@ -246,7 +261,7 @@ export default function CheckInModal({
           plannedWorkLocations: isAllDayLeave ? [] : locations,
           start_time: submitStartTime,
           end_time:   isAllDayLeave ? null : endTime,
-          actualCheckInTime: actualCheckInTime || null,
+          actualCheckInTime: safeActualCheckIn || null,
           leaveTimeline,
           break_time: '00:00',
           work_content: workContent.trim() || null,
