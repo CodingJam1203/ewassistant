@@ -53,13 +53,14 @@ export default async function Navbar() {
   return (
     <nav className="bg-surface border-b border-border">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        {/* 상단 행 — 로고 + desktop 메뉴 + 우측 사용자 정보 */}
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center min-w-0">
             <Link href="/home" className="flex items-center shrink-0" aria-label="N-Click 홈">
               <NClickLogo className="h-8 w-auto" />
             </Link>
-            {/* desktop links 일부만 client 분리 — 모바일 chip nav도 같은 컴포넌트가 처리 */}
-            <NavbarLinks links={navLinks} />
+            {/* desktop 메뉴만 상단 행에 (sm 이상) */}
+            <NavbarLinks links={navLinks} placement="desktop" />
           </div>
           <div className="flex items-center gap-3 shrink-0">
             <span
@@ -86,6 +87,8 @@ export default async function Navbar() {
           </div>
         </div>
       </div>
+      {/* 모바일 chip nav — 상단 행 아래 별도 블록 (sm 미만에서만 표시, 가로 스크롤) */}
+      <NavbarLinks links={navLinks} placement="mobile" />
     </nav>
   )
 }

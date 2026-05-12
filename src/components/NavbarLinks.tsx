@@ -10,13 +10,22 @@ const NPM_URL = 'https://intra.univ.me/Approval/AprCreateDoc'
 
 export interface NavbarLinksProps {
   links: Array<{ href: string; label: string }>
+  /**
+   * 렌더 위치 — Navbar에서 두 번 호출.
+   *  - 'desktop': h-16 상단 행 내부, sm 이상에서만 표시 (sm:hidden 아님)
+   *  - 'mobile' : 상단 행 아래 별도 블록, sm 미만에서만 표시 (가로 스크롤 chip)
+   */
+  placement: 'desktop' | 'mobile'
 }
 
 /**
- * Navbar의 메뉴 영역(클라이언트). active 상태 표시를 위해 분리.
- * Layout: desktop은 inline 링크 + border-bottom, mobile은 가로 스크롤 chip.
+ * Navbar 메뉴 영역(클라이언트). active 상태 표시를 위해 분리.
+ *
+ * Desktop은 inline 링크 + border-bottom, Mobile은 별도 행에 가로 스크롤 chip.
+ * 모바일에서 로고가 압축되고 chip이 스크롤 안 되던 버그 fix —
+ * placement 별로 렌더하는 위치를 Navbar에서 명시적으로 분리.
  */
-export default function NavbarLinks({ links }: NavbarLinksProps) {
+export default function NavbarLinks({ links, placement }: NavbarLinksProps) {
   const pathname = usePathname() || ''
 
   const isActive = (href: string) => {
@@ -26,9 +35,8 @@ export default function NavbarLinks({ links }: NavbarLinksProps) {
     return false
   }
 
-  return (
-    <>
-      {/* Desktop links */}
+  if (placement === 'desktop') {
+    return (
       <div className="hidden sm:flex sm:items-center sm:gap-1 sm:ml-2">
         {links.map(({ href, label }) => {
           const active = isActive(href)
@@ -56,48 +64,50 @@ export default function NavbarLinks({ links }: NavbarLinksProps) {
         <ExternalNavLink href={EW_URL}>EW 바로가기</ExternalNavLink>
         <ExternalNavLink href={NPM_URL}>NPM 바로가기</ExternalNavLink>
       </div>
+    )
+  }
 
-      {/* Mobile horizontal chip nav */}
-      <div className="sm:hidden -mx-4 mt-0 border-t border-border bg-surface">
-        <div className="flex overflow-x-auto px-4 py-2 gap-1.5 scrollbar-hide">
-          {links.map(({ href, label }) => {
-            const active = isActive(href)
-            return (
-              <Link
-                key={href}
-                href={href}
-                className={cn(
-                  'inline-flex items-center h-9 px-3 rounded-full text-[13px] font-medium whitespace-nowrap transition-colors shrink-0',
-                  active
-                    ? 'bg-primary-50 text-primary-600 font-semibold'
-                    : 'text-text-secondary hover:bg-surface-muted',
-                )}
-              >
-                {label}
-              </Link>
-            )
-          })}
-          <a
-            href={EW_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 h-9 px-3 rounded-full text-[13px] font-medium whitespace-nowrap text-primary-600 hover:bg-primary-50 transition-colors shrink-0"
-          >
-            EW 바로가기
-            <ExternalLink className="h-3 w-3" aria-hidden />
-          </a>
-          <a
-            href={NPM_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 h-9 px-3 rounded-full text-[13px] font-medium whitespace-nowrap text-primary-600 hover:bg-primary-50 transition-colors shrink-0"
-          >
-            NPM 바로가기
-            <ExternalLink className="h-3 w-3" aria-hidden />
-          </a>
-        </div>
+  // placement === 'mobile'
+  return (
+    <div className="sm:hidden border-t border-border bg-surface">
+      <div className="flex overflow-x-auto px-4 py-2 gap-1.5 scrollbar-hide">
+        {links.map(({ href, label }) => {
+          const active = isActive(href)
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={cn(
+                'inline-flex items-center h-9 px-3 rounded-full text-[13px] font-medium whitespace-nowrap transition-colors shrink-0',
+                active
+                  ? 'bg-primary-50 text-primary-600 font-semibold'
+                  : 'text-text-secondary hover:bg-surface-muted',
+              )}
+            >
+              {label}
+            </Link>
+          )
+        })}
+        <a
+          href={EW_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 h-9 px-3 rounded-full text-[13px] font-medium whitespace-nowrap text-primary-600 hover:bg-primary-50 transition-colors shrink-0"
+        >
+          EW 바로가기
+          <ExternalLink className="h-3 w-3" aria-hidden />
+        </a>
+        <a
+          href={NPM_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 h-9 px-3 rounded-full text-[13px] font-medium whitespace-nowrap text-primary-600 hover:bg-primary-50 transition-colors shrink-0"
+        >
+          NPM 바로가기
+          <ExternalLink className="h-3 w-3" aria-hidden />
+        </a>
       </div>
-    </>
+    </div>
   )
 }
 
