@@ -41,13 +41,20 @@ function nowRoundedTo30(): string {
 }
 
 // ─── 시간 포맷 ────────────────────────────────────────────────────────────────
+// 정책: 모든 시각 표시는 30분 단위. 일부 레거시/외부 경로로 :15, :45 등이
+//       들어와도 표시 시점에서 정합성 유지 (21:23 → 21:00, 21:45 → 21:30).
+function floor30(d: Date): string {
+  const h = d.getHours()
+  const m = d.getMinutes() < 30 ? 0 : 30
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
 function fmtTime(iso: string | null): string {
   if (!iso) return '-'
-  try { return format(new Date(iso), 'HH:mm') } catch { return '-' }
+  try { return floor30(new Date(iso)) } catch { return '-' }
 }
 function toHHmm(iso: string | null | undefined): string | undefined {
   if (!iso) return undefined
-  try { return format(new Date(iso), 'HH:mm') } catch { return undefined }
+  try { return floor30(new Date(iso)) } catch { return undefined }
 }
 
 function colorToBadgeVariant(c: 'green' | 'yellow' | 'red'): BadgeVariant {

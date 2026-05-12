@@ -80,14 +80,30 @@ function computeStatus(
   const checkedOut = !!(daily?.checked_out_at)
   const onBreak = !!(daily?.is_on_break)
 
+  // work_log.leave_timeline 또는 expected_leave_timeline에 종일 휴가가 있으면 휴가로 인식
+  const leaveTimeline =
+    (workLog?.leave_timeline as Array<{ leaveType?: string }> | null | undefined) ??
+    (workLog?.expected_leave_timeline as Array<{ leaveType?: string }> | null | undefined)
+  const hasFullDayLeave =
+    Array.isArray(leaveTimeline) && leaveTimeline.some(it => it?.leaveType === 'full_day')
+
   // 출근보고만 작성된 상태 (다른 날 미리 작성한 사전 보고) — 카드에 yellow + "출근보고 작성됨"
   if (isExpectedOnly && !checkedIn) {
+    if (hasFullDayLeave) {
+      return { color: 'yellow', status_text: '휴가', status: 'on_leave' }
+    }
     return { color: 'yellow', status_text: '출근보고 작성됨', status: 'expected_only' }
   }
 
   // 캘린더에 종일 휴가가 있고 N-Click 보고가 없으면 → 휴가 상태로 표시
   // (반차는 결국 출근보고가 필요하므로 별도 처리하지 않음 — '미제출'로 두고 카드에 반차 배지만)
   if (calendarLeaveType === 'full_day' && !hasLog && !checkedIn) {
+    return { color: 'yellow', status_text: '휴가', status: 'on_leave' }
+  }
+
+  // 종일 휴가가 work_log에 명시된 경우 — checkedIn 여부와 무관하게 '휴가' 우선.
+  // (휴가 중 잠깐 일한 케이스: 일관성을 위해 휴가 표시 — 사용자는 작업 위치 chip에서 추가 정보 확인 가능.)
+  if (hasFullDayLeave) {
     return { color: 'yellow', status_text: '휴가', status: 'on_leave' }
   }
 

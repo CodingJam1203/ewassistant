@@ -63,10 +63,19 @@ function readFinalView(): FinalView {
   }
 }
 
-/** ISO timestamp → 'HH:mm' (KST 사용자 브라우저 기준) */
+/**
+ * ISO timestamp → 'HH:mm' (KST). 30분 단위로 내림.
+ * 정책: 모든 시각 입출력은 30분 배수. 일부 레거시/외부 경로로 :15, :45 등이
+ *      들어와도 표시 시점에서 정합성 유지 (예: 21:23 → 21:00, 21:45 → 21:30).
+ */
 function fmtHHmm(iso: string | null | undefined): string {
   if (!iso) return '-'
-  try { return format(new Date(iso), 'HH:mm') } catch { return '-' }
+  try {
+    const d = new Date(iso)
+    const h = d.getHours()
+    const m = d.getMinutes() < 30 ? 0 : 30
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+  } catch { return '-' }
 }
 
 /** "HH:mm:ss" 또는 "HH:mm" → "HH:mm" */
