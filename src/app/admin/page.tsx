@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Lock, Unlock, RefreshCw, UserPlus, Trash2,
-  ChevronDown, ChevronRight, Plus, X, Pencil, Loader2, Building2
+  ChevronDown, ChevronRight, Plus, X, Pencil, Loader2, Building2, Users
 } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
 import { Badge } from '@/components/ui'
+import BulkRegisterForm from '@/components/admin/BulkRegisterForm'
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
 
@@ -614,6 +615,7 @@ export default function AdminPage() {
   const [org, setOrg] = useState<OrgDivision[]>([])
   const [loading, setLoading] = useState(true)
   const [showRegister, setShowRegister] = useState(false)
+  const [showBulkRegister, setShowBulkRegister] = useState(false)
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null)
   const [togglingEmail, setTogglingEmail] = useState<string | null>(null)
 
@@ -821,11 +823,18 @@ export default function AdminPage() {
         />
       )}
 
-      {/* 사전 등록 폼 */}
+      {/* 사전 등록 폼 (단건) */}
       {showRegister && (
         <RegisterForm
           org={org}
           onDone={() => { setShowRegister(false); fetchUsers() }}
+        />
+      )}
+
+      {/* 사전 등록 폼 (일괄) */}
+      {showBulkRegister && (
+        <BulkRegisterForm
+          onDone={() => { setShowBulkRegister(false); fetchUsers() }}
         />
       )}
 
@@ -876,7 +885,15 @@ export default function AdminPage() {
           </button>
           <button
             type="button"
-            onClick={() => setShowRegister(v => !v)}
+            onClick={() => { setShowBulkRegister(v => !v); if (!showBulkRegister) setShowRegister(false) }}
+            className="inline-flex items-center gap-1.5 h-10 px-4 text-sm font-medium rounded-[10px] border border-border-strong bg-surface text-text-primary hover:bg-surface-muted transition-colors"
+          >
+            <Users className="h-4 w-4" aria-hidden />
+            일괄 등록
+          </button>
+          <button
+            type="button"
+            onClick={() => { setShowRegister(v => !v); if (!showRegister) setShowBulkRegister(false) }}
             className="inline-flex items-center gap-1.5 h-10 px-4 text-sm font-medium rounded-[10px] text-white bg-primary-600 hover:bg-primary-700 transition-colors"
           >
             <UserPlus className="h-4 w-4" aria-hidden />
