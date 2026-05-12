@@ -20,7 +20,7 @@ import { ko } from 'date-fns/locale'
 function dowKo(dateStr: string): string {
   try { return format(parseISO(dateStr), 'eee', { locale: ko }) } catch { return '' }
 }
-import { Pencil, Copy, Check } from 'lucide-react'
+import { Pencil, Copy, Check, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 import Pagination from '@/components/Pagination'
 import {
   Badge,
@@ -184,6 +184,46 @@ function fmtInterval(s: string | null): string {
   return s
 }
 
+// ─── 정렬 ─────────────────────────────────────────────────────────────────────
+type SortKey =
+  | 'report_type'
+  | 'target_date'
+  | 'submitted_at'
+  | 'name'
+  | 'start_time'
+  | 'end_time'
+  | 'break_time'
+  | 'actual_work_time'
+  | 'ew_value'
+type SortDir = 'asc' | 'desc'
+
+/** 정렬용 비교값 추출. 빈 값은 빈 문자열 (오름차순에서 맨 위 / 내림차순에서 맨 아래). */
+function getSortValue(r: SubmissionRow, key: SortKey): string {
+  switch (key) {
+    case 'report_type':  return r.report_type
+    case 'target_date':  return r.target_date
+    case 'submitted_at': return r.submitted_at
+    case 'name':         return r.name ?? ''
+    case 'start_time': {
+      const isCheckOut = r.report_type === 'check_out' || r.report_type === 'check_out_update'
+      return (isCheckOut ? r.start_time : (r.start_time ?? r.expected_work_time)) ?? ''
+    }
+    case 'end_time': {
+      const isCheckOut = r.report_type === 'check_out' || r.report_type === 'check_out_update'
+      return (
+        isCheckOut
+          ? r.end_time
+          : (r.end_time
+              ?? extractExpectedCheckoutTime(r.work_location_timeline)
+              ?? extractExpectedCheckoutTime(r.expected_work_location_timeline))
+      ) ?? ''
+    }
+    case 'break_time':       return r.break_time ?? ''
+    case 'actual_work_time': return r.actual_work_time ?? ''
+    case 'ew_value':         return r.ew_value ?? ''
+  }
+}
+
 // 일자별 최종 추출은 `@/lib/submissions/finalize-by-day`에서 제공.
 // 같은 함수를 캘린더뷰(MyHistoryCalendar)에서도 재사용한다.
 
@@ -226,6 +266,18 @@ export default function SubmissionsRawTable({
 
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
+
+  const [sortKey, setSortKey] = useState<SortKey>('submitted_at')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      // 날짜/시간 계열은 최신 우선 (desc), 그 외는 alphabetical 시작이라 asc 기본
+      setSortDir(key === 'submitted_at' || key === 'target_date' ? 'desc' : 'asc')
+    }
+  }
 
   const fetchRows = async () => {
     setLoading(true)
@@ -273,8 +325,18 @@ export default function SubmissionsRawTable({
       const q = nameQuery.toLowerCase()
       r = r.filter(x => (x.name ?? '').toLowerCase().includes(q))
     }
-    return r
-  }, [rows, mode, nameQuery, reportType])
+    // 정렬 — 빈 값은 항상 맨 아래로
+    const sorted = [...r].sort((a, b) => {
+      const va = getSortValue(a, sortKey)
+      const vb = getSortValue(b, sortKey)
+      if (!va && !vb) return 0
+      if (!va) return 1
+      if (!vb) return -1
+      const cmp = va.localeCompare(vb, 'ko', { numeric: true, sensitivity: 'base' })
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [rows, mode, nameQuery, reportType, sortKey, sortDir])
 
   useEffect(() => { setPage(1) }, [processedRows.length])
   const pageStart = (page - 1) * pageSize
@@ -363,16 +425,16 @@ export default function SubmissionsRawTable({
               <tr>
                 <Th className="text-center">복사</Th>
                 <Th className="text-center">수정</Th>
-                <Th>보고유형</Th>
-                <Th>대상일</Th>
-                <Th>제출일시</Th>
-                <Th>이름</Th>
-                <Th>시작</Th>
-                <Th>종료</Th>
+                <SortableTh sortKey="report_type"     label="보고유형"  currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+                <SortableTh sortKey="target_date"     label="대상일"    currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+                <SortableTh sortKey="submitted_at"    label="제출일시"  currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+                <SortableTh sortKey="name"            label="이름"      currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+                <SortableTh sortKey="start_time"      label="시작"      currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+                <SortableTh sortKey="end_time"        label="종료"      currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
                 <Th>장소</Th>
-                <Th>휴게</Th>
-                <Th>실근무</Th>
-                <Th>EW</Th>
+                <SortableTh sortKey="break_time"       label="휴게"      currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+                <SortableTh sortKey="actual_work_time" label="실근무"    currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+                <SortableTh sortKey="ew_value"         label="EW"        currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
                 <Th>근무내용</Th>
                 <Th>변경 필드</Th>
               </tr>
@@ -495,5 +557,38 @@ export default function SubmissionsRawTable({
         </TableContainer>
       )}
     </div>
+  )
+}
+
+// ─── SortableTh — 정렬 가능 헤더. 클릭 시 onSort 호출. ───────────────────────
+function SortableTh({
+  sortKey: key,
+  label,
+  currentKey,
+  currentDir,
+  onSort,
+}: {
+  sortKey: SortKey
+  label: string
+  currentKey: SortKey
+  currentDir: SortDir
+  onSort: (k: SortKey) => void
+}) {
+  const active = currentKey === key
+  const Icon = active ? (currentDir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown
+  return (
+    <Th>
+      <button
+        type="button"
+        onClick={() => onSort(key)}
+        className={cn(
+          'inline-flex items-center gap-1 transition-colors',
+          active ? 'text-text-primary' : 'text-text-secondary hover:text-text-primary',
+        )}
+      >
+        <span>{label}</span>
+        <Icon className="h-3 w-3" aria-hidden />
+      </button>
+    </Th>
   )
 }
