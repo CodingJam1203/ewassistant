@@ -369,7 +369,7 @@ export async function POST(request: Request) {
     //   - 실제출근만 변경                            → 'check_in_complete'
     //   - 둘 다 변경 시 → 두 행 모두 기록
     if (willCreateNewLog) {
-      void recordSubmission({
+      await recordSubmission({
         user_id: user.id,
         user_email: user.email!,
         name,
@@ -391,7 +391,7 @@ export async function POST(request: Request) {
       })
     } else {
       if (plannedChanged) {
-        void recordSubmission({
+        await recordSubmission({
           user_id: user.id,
           user_email: user.email!,
           name,
@@ -413,7 +413,7 @@ export async function POST(request: Request) {
         })
       }
       if (checkedInChanged) {
-        void recordSubmission({
+        await recordSubmission({
           user_id: user.id,
           user_email: user.email!,
           name,

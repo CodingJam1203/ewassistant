@@ -197,7 +197,7 @@ export async function POST(request: Request) {
       createdDates.push(date)
 
       // submission 로그 기록 (퇴근보고 family로 기록 — 휴가는 퇴근 family에 매칭)
-      void recordSubmission({
+      await recordSubmission({
         user_id: user.id,
         user_email: user.email!,
         name: displayName,

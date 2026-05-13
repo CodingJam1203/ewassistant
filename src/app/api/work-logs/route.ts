@@ -509,7 +509,7 @@ export async function POST(request: Request) {
 
     // ─── submissions 로그 ─────────────────────────────────────────
     const submittedNow = new Date().toISOString()
-    void recordSubmission({
+    await recordSubmission({
       user_id: user.id,
       user_email: user.email!,
       name: body.name ?? null,
@@ -549,7 +549,7 @@ export async function POST(request: Request) {
     })
 
     if (isCheckInProgress && body.expectedStartDate) {
-      void recordSubmission({
+      await recordSubmission({
         user_id: user.id,
         user_email: user.email!,
         name: body.name ?? null,

@@ -581,7 +581,7 @@ export async function PATCH(
       const submittedNow2 = new Date().toISOString()
 
       if (checkInChanges.length > 0) {
-        void recordSubmission({
+        await recordSubmission({
           user_id: log.user_id ?? null,
           user_email: log.user_email ?? user.email ?? '',
           name: body.name ?? log.name ?? null,
@@ -606,7 +606,7 @@ export async function PATCH(
       }
 
       if (checkOutChanges.length > 0) {
-        void recordSubmission({
+        await recordSubmission({
           user_id: log.user_id ?? null,
           user_email: log.user_email ?? user.email ?? '',
           name: body.name ?? log.name ?? null,
