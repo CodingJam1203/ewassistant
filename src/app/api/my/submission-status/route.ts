@@ -82,9 +82,18 @@ function pickLeaveType(tl: LeaveTimeline | null | undefined): DayStatusEntry['le
 }
 
 export async function GET(request: Request) {
+  // 504 디버깅용 단계별 타이밍 — Vercel function logs에서 어디서 시간이 새는지 추적
+  const t0 = Date.now()
+  const log = (label: string) => {
+    console.log(`[submission-status][${Date.now() - t0}ms] ${label}`)
+  }
+
   try {
+    log('start')
     const supabase = await createClient()
+    log('createClient done')
     const { data: { user } } = await supabase.auth.getUser()
+    log(`auth.getUser done user=${user?.email ?? 'null'}`)
     if (!user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -100,6 +109,7 @@ export async function GET(request: Request) {
     }
 
     const adminClient = createAdminClient()
+    log('adminClient created')
 
     // 본인 user_profile.created_at — 가입(첫 로그인) 이전 날짜는 'pre_signup'으로 분류
     const { data: profileRow } = await adminClient
@@ -107,6 +117,7 @@ export async function GET(request: Request) {
       .select('created_at')
       .eq('email', user.email)
       .maybeSingle()
+    log('profile lookup done')
     const signupDate: string | null = profileRow?.created_at
       ? new Date(profileRow.created_at).toISOString().slice(0, 10)
       : null
@@ -136,6 +147,7 @@ export async function GET(request: Request) {
         .lte('leave_date', to)
         .order('leave_date', { ascending: false }),
     ])
+    log(`work_logs queries done (checkin=${resCheckin.data?.length ?? 'err'} checkout=${resCheckout.data?.length ?? 'err'})`)
     // 한쪽만 실패한 경우 — 남은 쪽 결과로 부분 응답.
     // 두 쪽 다 실패한 경우에만 500. (1개 fail 시 UI가 완전히 깨지는 것보다는 부분 정보가 낫다)
     if (resCheckin.error && resCheckout.error) {
@@ -271,6 +283,7 @@ export async function GET(request: Request) {
       days,
       summary: { totalWorkdays, complete, missingCheckout, missingAll, onLeave },
     }
+    log(`response ready (days=${days.length})`)
     return NextResponse.json(body, {
       headers: {
         // 30초 캐시 (work_logs 갱신 빈도 고려)
