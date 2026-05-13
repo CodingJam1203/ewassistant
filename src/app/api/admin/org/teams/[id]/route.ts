@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/admin-check'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-// PATCH /api/admin/org/teams/[id] — 팀명 수정
+// PATCH /api/admin/org/teams/[id] — 팀명 또는 use_check_in_complete 수정
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -11,18 +11,34 @@ export async function PATCH(
   if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { id } = await params
-  const { name } = await request.json()
-  if (typeof name !== 'string' || !name.trim()) {
-    return NextResponse.json({ error: '팀명을 입력해주세요.' }, { status: 400 })
+  const body = await request.json()
+  const updates: { name?: string; use_check_in_complete?: boolean } = {}
+
+  if ('name' in body) {
+    if (typeof body.name !== 'string' || !body.name.trim()) {
+      return NextResponse.json({ error: '팀명을 입력해주세요.' }, { status: 400 })
+    }
+    if (body.name.trim().length > 100) {
+      return NextResponse.json({ error: '팀명은 100자 이하로 입력해주세요.' }, { status: 400 })
+    }
+    updates.name = body.name.trim()
   }
-  if (name.trim().length > 100) {
-    return NextResponse.json({ error: '팀명은 100자 이하로 입력해주세요.' }, { status: 400 })
+
+  if ('use_check_in_complete' in body) {
+    if (typeof body.use_check_in_complete !== 'boolean') {
+      return NextResponse.json({ error: 'use_check_in_complete must be boolean' }, { status: 400 })
+    }
+    updates.use_check_in_complete = body.use_check_in_complete
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: '변경할 항목이 없습니다.' }, { status: 400 })
   }
 
   const adminClient = createAdminClient()
   const { data, error } = await adminClient
     .from('org_teams')
-    .update({ name: name.trim() })
+    .update(updates)
     .eq('id', id)
     .select()
     .single()

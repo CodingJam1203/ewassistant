@@ -22,7 +22,7 @@ export async function GET() {
 
     const { data: teams, error: teamError } = await supabase
       .from('org_teams')
-      .select('id, division_id, name, sort_order')
+      .select('id, division_id, name, sort_order, use_check_in_complete')
       .order('sort_order', { ascending: true })
       .order('name', { ascending: true })
 
