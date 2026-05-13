@@ -115,6 +115,9 @@ export async function GET(request: Request) {
     //   - .or() with and() 중첩은 PostgREST에서 인덱스 못 타고 풀스캔 → 10s timeout 위험
     //   - 분리하면 각각 (user_email, expected_start_date) / (user_email, leave_date) 인덱스 활용 가능
     const SELECT_COLS = 'id, expected_start_date, leave_date, end_time, leave_timeline, expected_leave_timeline'
+    // 정렬은 검색 컬럼과 같은 컬럼으로 — 인덱스 (user_email, <date>) 활용 가능.
+    // created_at desc 정렬은 별도 인덱스 필요해서 풀스캔 유발 → 504. 여기서는 굳이 created_at desc 필요 없음.
+    // (날짜별 dedupe만 하면 되고, 같은 날짜에 여러 row가 있어도 id가 있는 것만 keep)
     const [resCheckin, resCheckout] = await Promise.all([
       adminClient
         .from('work_logs')
@@ -123,7 +126,7 @@ export async function GET(request: Request) {
         .eq('is_deleted', false)
         .gte('expected_start_date', from)
         .lte('expected_start_date', to)
-        .order('created_at', { ascending: false }),
+        .order('expected_start_date', { ascending: false }),
       adminClient
         .from('work_logs')
         .select(SELECT_COLS)
@@ -131,7 +134,7 @@ export async function GET(request: Request) {
         .eq('is_deleted', false)
         .gte('leave_date', from)
         .lte('leave_date', to)
-        .order('created_at', { ascending: false }),
+        .order('leave_date', { ascending: false }),
     ])
     // 한쪽만 실패한 경우 — 남은 쪽 결과로 부분 응답.
     // 두 쪽 다 실패한 경우에만 500. (1개 fail 시 UI가 완전히 깨지는 것보다는 부분 정보가 낫다)
