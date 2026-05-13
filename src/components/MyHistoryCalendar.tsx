@@ -39,6 +39,7 @@ import type { SubmissionRow } from '@/components/SubmissionsRawTable'
 import type { UserCalendarLookup } from '@/types/leave-calendar'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import type { LeaveTimeline, LeaveTimelineItem } from '@/types/leave-timeline'
+import type { DayStatus, SubmissionStatusResponse } from '@/app/api/my/submission-status/route'
 
 interface MyHistoryCalendarProps {
   /** 셀 / 상세 모달의 ✏ 수정 버튼이 트리거하는 콜백 (부모가 WorkLogModal 띄움) */
@@ -120,6 +121,8 @@ export default function MyHistoryCalendar({ onEditWorkLog, onCreateCheckIn, onCr
   const [cursor, setCursor] = useState<Date>(() => startOfMonth(new Date()))
   const [rows, setRows] = useState<SubmissionRow[]>([])
   const [calendar, setCalendar] = useState<Record<string, UserCalendarLookup>>({})
+  const [statusMap, setStatusMap] = useState<Map<string, DayStatus>>(new Map())
+  const [statusSummary, setStatusSummary] = useState<SubmissionStatusResponse['summary'] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -184,6 +187,25 @@ export default function MyHistoryCalendar({ onEditWorkLog, onCreateCheckIn, onCr
         }
         return prev
       })
+    }
+
+    // 1.5) 본인 일자별 보고 상태 (미보고 가시화용 — best-effort, 실패해도 무시)
+    try {
+      const res = await fetch(
+        `/api/my/submission-status?from=${from}&to=${to}`,
+        { credentials: 'same-origin' },
+      )
+      if (res.ok) {
+        const data = await res.json().catch(() => null) as SubmissionStatusResponse | null
+        if (data && Array.isArray(data.days)) {
+          const map = new Map<string, DayStatus>()
+          for (const d of data.days) map.set(d.date, d.status)
+          setStatusMap(map)
+          setStatusSummary(data.summary)
+        }
+      }
+    } catch (err) {
+      console.warn('[calendar] submission-status fetch failed (ignored):', err)
     }
 
     // 2) Google 캘린더 일정 (best-effort)
@@ -256,6 +278,31 @@ export default function MyHistoryCalendar({ onEditWorkLog, onCreateCheckIn, onCr
           </div>
         </FilterBar.Field>
 
+        {statusSummary && (
+          <FilterBar.Field label="이번 달">
+            <div className="flex items-center gap-1.5 flex-wrap text-[12px]">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-success-bg text-success-text border border-success-border">
+                ✓ <span className="tabular-nums font-semibold">{statusSummary.complete}</span>
+              </span>
+              {statusSummary.missingCheckout > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning-bg text-warning-text border border-warning-border">
+                  ⚠ 퇴근누락 <span className="tabular-nums font-semibold">{statusSummary.missingCheckout}</span>
+                </span>
+              )}
+              {statusSummary.missingAll > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-danger-bg text-danger-text border border-danger-border">
+                  🚫 미보고 <span className="tabular-nums font-semibold">{statusSummary.missingAll}</span>
+                </span>
+              )}
+              {statusSummary.onLeave > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-info-bg text-info-text border border-info-border">
+                  🛬 휴가 <span className="tabular-nums font-semibold">{statusSummary.onLeave}</span>
+                </span>
+              )}
+            </div>
+          </FilterBar.Field>
+        )}
+
         <div className="ml-auto flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={fetchAll}>
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden />
@@ -296,6 +343,7 @@ export default function MyHistoryCalendar({ onEditWorkLog, onCreateCheckIn, onCr
             <DayCell
               key={day.date}
               data={day}
+              status={statusMap.get(day.date) ?? null}
               onClick={() => setSelectedDate(day.date)}
             />
           ))}
@@ -371,7 +419,16 @@ export default function MyHistoryCalendar({ onEditWorkLog, onCreateCheckIn, onCr
 
 // ─── 날짜 셀 (PC) ──────────────────────────────────────────────────────────────
 
-function DayCell({ data, onClick }: { data: DayData; onClick: () => void }) {
+const STATUS_BAR_COLOR: Record<DayStatus, string> = {
+  complete:         'bg-success-text',
+  missing_checkout: 'bg-warning-text',
+  missing_all:      'bg-danger-text',
+  leave:            'bg-info-text',
+  weekend:          'bg-transparent',
+  holiday:          'bg-transparent',
+}
+
+function DayCell({ data, status, onClick }: { data: DayData; status: DayStatus | null; onClick: () => void }) {
   const items = buildDisplayItems(data)
   const dayNum = getDate(new Date(data.date + 'T00:00:00'))
 
@@ -386,6 +443,12 @@ function DayCell({ data, onClick }: { data: DayData; onClick: () => void }) {
         !data.inMonth && 'bg-background/40',
       )}
     >
+      {data.inMonth && status && status !== 'weekend' && status !== 'holiday' && (
+        <span
+          className={cn('absolute left-0 top-0 bottom-0 w-1', STATUS_BAR_COLOR[status])}
+          aria-hidden
+        />
+      )}
       <div className="flex items-center justify-between">
         <span
           className={cn(

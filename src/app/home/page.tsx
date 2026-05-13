@@ -25,6 +25,7 @@ import type { MonthBaselines, UserMonthSummary } from '@/lib/utils/work-hours'
 import type { TeamMemberCard } from '@/app/api/team-status/route'
 import { computeWorkLogState, buttonsForState } from '@/lib/work-log-state'
 import EditableLocationChips from '@/components/EditableLocationChips'
+import MissingReportsSummary from '@/components/MissingReportsSummary'
 import { resolveDisplayLocations, resolvePlannedLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 
 // 무거운 컴포넌트는 dynamic import — 초기 번들에서 빠지고 사용 시점에만 로드.
@@ -812,20 +813,6 @@ export default function HomePage() {
             >
               <button
                 type="button"
-                onClick={() => setFinalView('list')}
-                className={cn(
-                  'inline-flex items-center gap-1 h-8 px-2.5 rounded-[8px] text-[12px] font-medium transition-colors',
-                  finalView === 'list'
-                    ? 'bg-surface-muted text-text-primary'
-                    : 'text-text-muted hover:text-text-primary',
-                )}
-                aria-pressed={finalView === 'list'}
-              >
-                <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
-                리스트
-              </button>
-              <button
-                type="button"
                 onClick={() => setFinalView('calendar')}
                 className={cn(
                   'inline-flex items-center gap-1 h-8 px-2.5 rounded-[8px] text-[12px] font-medium transition-colors',
@@ -838,14 +825,36 @@ export default function HomePage() {
                 <CalendarIcon className="h-3.5 w-3.5" aria-hidden />
                 캘린더
               </button>
+              <button
+                type="button"
+                onClick={() => setFinalView('list')}
+                className={cn(
+                  'inline-flex items-center gap-1 h-8 px-2.5 rounded-[8px] text-[12px] font-medium transition-colors',
+                  finalView === 'list'
+                    ? 'bg-surface-muted text-text-primary'
+                    : 'text-text-muted hover:text-text-primary',
+                )}
+                aria-pressed={finalView === 'list'}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
+                리스트
+              </button>
             </div>
           </div>
 
           {finalView === 'list' ? (
-            <SubmissionsRawTable
-              mine mode="final"
-              onEditWorkLog={openEditByWorkLogId}
-            />
+            <div className="space-y-3">
+              <MissingReportsSummary
+                from={(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01` })()}
+                to={(() => { const d = new Date(); const last = new Date(d.getFullYear(), d.getMonth()+1, 0); return `${last.getFullYear()}-${String(last.getMonth()+1).padStart(2,'0')}-${String(last.getDate()).padStart(2,'0')}` })()}
+                onOpenCheckIn={(date) => setCalendarCheckInDate(date)}
+                onOpenCheckOut={(date) => setCalendarCheckOutDate(date)}
+              />
+              <SubmissionsRawTable
+                mine mode="final"
+                onEditWorkLog={openEditByWorkLogId}
+              />
+            </div>
           ) : (
             <MyHistoryCalendar
               onEditWorkLog={openEditByWorkLogId}
