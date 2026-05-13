@@ -247,6 +247,8 @@ export default function HomePage() {
 
   // 미완료 퇴근보고 알림 — 가장 최근 미완료 1건
   const [missedCheckoutDate, setMissedCheckoutDate] = useState<string | null>(null)
+  // 팝업의 "더이상 물어보지 않기" 체크박스 — 기본 false (열 때마다 reset)
+  const [missedDontAskAgain, setMissedDontAskAgain] = useState(false)
 
   // ─── 본인 이번 달 근로현황 ──────────────────────────────────────
   useEffect(() => {
@@ -457,16 +459,28 @@ export default function HomePage() {
                 </p>
               </div>
             </div>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={missedDontAskAgain}
+                onChange={e => setMissedDontAskAgain(e.target.checked)}
+                className="h-4 w-4 rounded border-border-strong text-primary-600 focus:ring-primary-500"
+              />
+              <span className="text-[12px] text-text-secondary">해당 일자에 대해서 더이상 물어보지 않기</span>
+            </label>
             <div className="flex items-center justify-end gap-2 pt-2">
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  // 같은 날짜는 다시 묻지 않도록 기록 (퇴근보고 완료되면 API가 알아서 다음 미완료로 넘어감)
-                  try {
-                    localStorage.setItem(`missed-checkout-dismissed-${missedCheckoutDate}`, 'true')
-                  } catch { /* ignore */ }
+                  // 체크박스 켜진 경우에만 영구 dismiss로 기록 — 안 켜져 있으면 다음 진입 때 다시 묻기
+                  if (missedDontAskAgain) {
+                    try {
+                      localStorage.setItem(`missed-checkout-dismissed-${missedCheckoutDate}`, 'true')
+                    } catch { /* ignore */ }
+                  }
                   setMissedCheckoutDate(null)
+                  setMissedDontAskAgain(false)
                 }}
               >
                 나중에
