@@ -73,7 +73,25 @@ export interface ButtonVisibility {
   showBreakEnd: boolean        // [휴게 종료]
 }
 
-export function buttonsForState(state: WorkLogState): ButtonVisibility {
+/**
+ * 팀 설정 옵션.
+ * useCheckInComplete=false면 [출근 완료] 버튼 항상 숨김 (B 상태에서도).
+ * 이 경우 출근보고 제출과 동시에 서버가 checked_in_at을 자동 세팅하므로
+ * 사용자는 C 상태로 직행 — B 상태가 잠시도 노출되지 않음 (이론상).
+ */
+export interface ButtonOptions {
+  useCheckInComplete?: boolean
+}
+
+export function buttonsForState(state: WorkLogState, opts: ButtonOptions = {}): ButtonVisibility {
+  const v = buttonsForStateRaw(state)
+  if (opts.useCheckInComplete === false) {
+    v.showCheckInComplete = false
+  }
+  return v
+}
+
+function buttonsForStateRaw(state: WorkLogState): ButtonVisibility {
   switch (state) {
     case 'A':
       return {

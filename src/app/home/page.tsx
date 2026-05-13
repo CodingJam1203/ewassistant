@@ -512,7 +512,7 @@ export default function HomePage() {
             checkedOutAt: myCard?.checked_out_at ?? null,
             isOnBreak: !!myCard?.is_on_break,
           })
-          const buttons = buttonsForState(state)
+          const buttons = buttonsForState(state, { useCheckInComplete: myCard?.use_check_in_complete ?? true })
           return (
             <div className="flex flex-wrap items-center gap-2">
               {/* 출근보고 작성 (A 상태) */}

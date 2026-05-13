@@ -12,7 +12,12 @@ import BulkRegisterForm from '@/components/admin/BulkRegisterForm'
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
 
-interface OrgTeam { id: string; division_id: string; name: string }
+interface OrgTeam {
+  id: string
+  division_id: string
+  name: string
+  use_check_in_complete?: boolean
+}
 interface OrgDivision { id: string; name: string; teams: OrgTeam[] }
 
 interface UserProfile {
@@ -140,6 +145,26 @@ function OrgManager({
     setBusy(false)
   }
 
+  /** 팀의 use_check_in_complete 토글 */
+  const toggleTeamCheckInComplete = async (team: OrgTeam) => {
+    const current = team.use_check_in_complete ?? true
+    const next = !current
+    const msg = next
+      ? `"${team.name}" 팀은 앞으로 [출근 완료] 버튼 단계를 사용합니다.\n출근보고 후 [출근 완료] 클릭 시점이 실제 출근시각으로 기록됩니다.`
+      : `"${team.name}" 팀은 앞으로 [출근 완료] 버튼 단계를 사용하지 않습니다.\n출근보고 제출 시점에 예정 출근시각(예: 09:00)이 자동으로 실제 출근시각으로 기록됩니다.\n지각/조기출근은 본인이 출근보고 수정으로 변경합니다.\n\n계속하시겠습니까?`
+    if (!confirm(msg)) return
+    setBusy(true)
+    const res = await fetch(`/api/admin/org/teams/${team.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ use_check_in_complete: next }),
+    })
+    const data = await res.json()
+    if (!res.ok) { alert(data.error ?? '설정 변경 실패'); setBusy(false); return }
+    onOrgChange()
+    setBusy(false)
+  }
+
   return (
     <div className="bg-surface border border-border rounded-lg shadow-sm">
       {/* 헤더 (토글) */}
@@ -236,6 +261,23 @@ function OrgManager({
                       ) : (
                         <>
                           <span className="flex-1 text-sm text-text-primary">{team.name}</span>
+                          <button
+                            onClick={() => toggleTeamCheckInComplete(team)}
+                            disabled={busy}
+                            className={
+                              'text-[10px] px-1.5 py-0.5 rounded-full border transition-colors ' +
+                              ((team.use_check_in_complete ?? true)
+                                ? 'border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100'
+                                : 'border-warning-border bg-warning-bg text-warning-text hover:opacity-80')
+                            }
+                            title={
+                              (team.use_check_in_complete ?? true)
+                                ? '출근 완료 단계 사용 중 (클릭해서 미사용으로 변경)'
+                                : '출근 완료 단계 미사용 (클릭해서 사용으로 변경)'
+                            }
+                          >
+                            {(team.use_check_in_complete ?? true) ? '출근완료 ON' : '출근완료 OFF'}
+                          </button>
                           <button
                             onClick={() => { setEditingTeam(team.id); setEditTeamName(team.name) }}
                             className="opacity-0 group-hover:opacity-100 text-text-disabled hover:text-primary-600 p-0.5 transition-all"

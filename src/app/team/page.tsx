@@ -262,7 +262,7 @@ const MemberCard = memo(function MemberCard({
           checkedOutAt: card.checked_out_at,
           isOnBreak: !!card.is_on_break,
         })
-        const buttons = buttonsForState(state)
+        const buttons = buttonsForState(state, { useCheckInComplete: card.use_check_in_complete ?? true })
         return (
           <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border">
             {/* 출근보고 작성 (A) */}
@@ -508,7 +508,7 @@ const MemberListRow = memo(function MemberListRow({
             checkedOutAt: card.checked_out_at,
             isOnBreak: !!card.is_on_break,
           })
-          const buttons = buttonsForState(state)
+          const buttons = buttonsForState(state, { useCheckInComplete: card.use_check_in_complete ?? true })
           return (
             <div className="flex flex-wrap gap-1">
               {buttons.showCheckInCreate && (

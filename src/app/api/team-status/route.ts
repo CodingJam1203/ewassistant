@@ -65,6 +65,14 @@ export interface TeamMemberCard {
   calendar_leave_label: string | null
   /** 외부 캘린더(Google Sheets) 일반 일정 — 카드에 표시 */
   calendar_events: CalendarEventChunk[]
+
+  /**
+   * 팀 설정: 출근 후 [출근 완료] 버튼 사용 여부.
+   *  - true (기본): 출근보고 → 별도 [출근 완료] 클릭 → 근무 중
+   *  - false : 출근보고 제출 시 자동으로 출근 처리됨. [출근 완료] 버튼 숨김.
+   *           프로필에 팀 매칭 안 되면 true (기본).
+   */
+  use_check_in_complete: boolean
 }
 
 // ─── 상태/색상 계산 ───────────────────────────────────────────────────────────
@@ -213,6 +221,8 @@ export async function GET(request: Request) {
       dailyStatusesRes,
       lastEventsRes,
       calendarBatchRes,
+      orgTeamsRes,
+      orgDivisionsRes,
     ] = await Promise.all([
       adminClient
         .from('work_logs')
@@ -245,7 +255,21 @@ export async function GET(request: Request) {
             return null as CalendarBatchResponse | null
           })
         : Promise.resolve(null as CalendarBatchResponse | null),
+      adminClient.from('org_teams').select('division_id, name, use_check_in_complete'),
+      adminClient.from('org_divisions').select('id, name'),
     ])
+
+    // 팀별 use_check_in_complete 매핑 — (division_name, team_name) → boolean
+    const divIdToName = new Map<string, string>()
+    for (const d of ((orgDivisionsRes.data ?? []) as Array<{ id: string; name: string }>)) {
+      divIdToName.set(d.id, d.name)
+    }
+    const teamSettings = new Map<string, boolean>()
+    for (const t of ((orgTeamsRes.data ?? []) as Array<{ division_id: string; name: string; use_check_in_complete: boolean | null }>)) {
+      const divName = divIdToName.get(t.division_id)
+      if (!divName) continue
+      teamSettings.set(`${divName}::${t.name}`, t.use_check_in_complete ?? true)
+    }
 
     const workLogsLeave    = workLogsLeaveRes.data
     const workLogsExpected = workLogsExpectedRes.data
@@ -390,6 +414,8 @@ export async function GET(request: Request) {
         calendar_leave_type:  calLeave.leaveType,
         calendar_leave_label: calLeave.label,
         calendar_events:      calLeave.events,
+
+        use_check_in_complete: teamSettings.get(`${division ?? ''}::${(profile.team as string | null) ?? ''}`) ?? true,
       }
     })
 
