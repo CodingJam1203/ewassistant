@@ -17,6 +17,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
+import { isKoreanHoliday, isSaturday, isSunday } from '@/lib/kr-holidays'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
 const LOOKBACK_DAYS = 30  // 30일 이전까지만 알림 (그 이상 오래되면 무시)
@@ -90,9 +91,13 @@ export async function GET() {
       Array.isArray(tl) && tl.some(it => it?.leaveType === 'full_day')
 
     // 4) candidates는 expected_start_date desc 정렬 — 가장 최근 미완료 1건 찾기
+    //   토/일/공휴일은 미보고 알림 대상 X (사용자가 그 날 자발적으로 근무했으면
+    //   본인이 인지하고 있다고 가정 — 평일만 알림)
     for (const c of candidates) {
       const date = c.expected_start_date as string
       if (completedSet.has(date)) continue
+      if (isSaturday(date) || isSunday(date)) continue
+      if (isKoreanHoliday(date)) continue
       // 출근보고 row의 expected_leave_timeline 또는 leave_timeline 검사
       if (isFullDayLeave(c.expected_leave_timeline as LeaveTimeline | null)) continue
       if (isFullDayLeave(c.leave_timeline as LeaveTimeline | null)) continue
