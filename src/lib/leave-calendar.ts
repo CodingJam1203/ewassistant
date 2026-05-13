@@ -24,12 +24,12 @@ import type {
   UserCalendarLookup,
 } from '@/types/leave-calendar'
 
-const TTL_MS = 30 * 60 * 1000  // 30분
+const TTL_MS = 6 * 60 * 60 * 1000  // 6시간 — Apps Script 느릴 때 stale fallback 윈도우 확장
 // 사용자 요청 핫패스(getCalendarForDate)에서 사용. 평소엔 캐시 hit이라 영향 없고,
 // cache miss(첫 진입/TTL 만료)에서만 fetch. 너무 길면 페이지 로드가 같이 막혀서 짧게 둠.
 // cron 강제 갱신은 별도 timeout 사용.
-const APPS_SCRIPT_TIMEOUT_MS = 7_000
-const APPS_SCRIPT_TIMEOUT_MS_CRON = 15_000
+const APPS_SCRIPT_TIMEOUT_MS = 15_000      // 7s → 15s. Apps Script가 종종 10s+ 걸려 cold cache miss 시에도 잡힘
+const APPS_SCRIPT_TIMEOUT_MS_CRON = 30_000  // cron은 더 여유 (재시도 없음)
 
 function cacheKey(date: string): string {
   return `calendar:${date}`
@@ -195,7 +195,8 @@ function triggerBackgroundRefresh(date: string): void {
  *   { 'YYYY-MM-DD': CalendarBatchResponse, ... }
  */
 export async function getCalendarRangeBatch(
-  dates: string[]
+  dates: string[],
+  opts?: { timeoutMs?: number },
 ): Promise<Record<string, CalendarBatchResponse | null>> {
   if (!isCalendarEnabled()) {
     return Object.fromEntries(dates.map(d => [d, null]))
@@ -259,7 +260,7 @@ export async function getCalendarRangeBatch(
     if (token) params.set('token', token)
     const fullUrl = url.includes('?') ? `${url}&${params}` : `${url}?${params}`
 
-    const timeoutMs = 12_000
+    const timeoutMs = opts?.timeoutMs ?? 12_000
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
 

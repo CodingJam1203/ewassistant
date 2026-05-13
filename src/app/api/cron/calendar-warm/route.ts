@@ -19,7 +19,6 @@
 
 import { NextResponse } from 'next/server'
 import {
-  forceRefreshCalendar,
   getCalendarRangeBatch,
   isCalendarEnabled,
 } from '@/lib/leave-calendar'
@@ -65,22 +64,17 @@ export async function GET(request: Request) {
   let batchFailed = 0
 
   try {
-    const batchResult = await getCalendarRangeBatch(dates)
+    // cron은 Apps Script 느림 (30~100s) → 50초까지 대기. Vercel maxDuration=60s 안에 끝.
+    const batchResult = await getCalendarRangeBatch(dates, { timeoutMs: 50_000 })
     for (const date of dates) {
       if (batchResult[date]) batchSucceeded++
       else batchFailed++
     }
 
-    // 3) batch 실패한 날짜만 force-refresh로 개별 재시도 (구 Apps Script fallback).
-    //    실제로는 batch 모두 성공이 정상 — 실패 날짜가 대량이면 Apps Script 측 점검 필요.
-    if (batchFailed > 0 && batchFailed < dates.length / 2) {
-      const stillMissing = dates.filter(d => !batchResult[d])
-      console.warn(`[cron/calendar-warm] ${stillMissing.length} dates missing from batch, retrying individually`)
-      for (const date of stillMissing.slice(0, 10)) {
-        // 너무 오래 걸리지 않도록 최대 10건만 retry
-        const fresh = await forceRefreshCalendar(date)
-        if (fresh) batchSucceeded++, batchFailed--
-      }
+    // 3) batch 실패한 날짜는 다음 cron(1시간 후) 재시도. 즉시 per-date fallback은 안 함.
+    //    이유: per-date 호출이 Apps Script 부하 N배. 다음 시간에 batch로 재시도가 더 효율적.
+    if (batchFailed > 0) {
+      console.warn(`[cron/calendar-warm] ${batchFailed} dates failed in batch — will retry next hour`)
     }
 
     const elapsedMs = Date.now() - startedAt
