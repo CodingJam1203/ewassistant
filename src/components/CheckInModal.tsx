@@ -48,7 +48,7 @@ interface CheckInModalProps {
   onSuccess: () => void
 }
 
-type CaseMode = 'none' | 'prior' | 'today'
+type CaseMode = 'none' | 'prior' | 'today' | 'future'
 
 function formatEventLine(ev: CalendarEventChunk): string {
   if (ev.startTime && ev.endTime) return `${ev.startTime}~${ev.endTime} ${ev.title}`
@@ -123,6 +123,15 @@ export default function CheckInModal({
         if (cancelled) return
 
         // 케이스 판별
+        // todayKst 비교용 — KST yyyy-mm-dd
+        const todayKstStr = (() => {
+          const fmt = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+          })
+          return fmt.format(new Date())
+        })()
+        const isFutureDate = date > todayKstStr
+
         let mode: CaseMode = 'none'
         if (data.hasExisting) {
           mode = 'today'
@@ -132,6 +141,11 @@ export default function CheckInModal({
           || (Array.isArray(data.timeline) && data.timeline.length > 0)
         ) {
           mode = 'prior'
+        }
+        // 미래 일자는 무조건 'future' 모드로 — 실제 출근시간 입력 무의미.
+        // 사전 prefill이 있어도 모든 planned 필드 editable로 보여줌.
+        if (isFutureDate) {
+          mode = 'future'
         }
         setCaseMode(mode)
 
@@ -163,6 +177,9 @@ export default function CheckInModal({
         if (mode === 'today') {
           // today 모드 — 기존 daily.checked_in_at 값
           if (data.checkedInAt) setActualCheckInTime(data.checkedInAt)
+        } else if (mode === 'future') {
+          // future 모드 — 실제 출근시간 입력 안 받음. 빈 값으로 둠.
+          setActualCheckInTime('')
         } else {
           // none/prior — 자동 prefill: 현재 시각 floor (사용자가 그대로 제출 = 출근 완료)
           setActualCheckInTime(nowKstHHmmFloor())
@@ -217,7 +234,7 @@ export default function CheckInModal({
       if (!startTime || !isHalfHour(startTime)) timeErrors.push('출근예정시간을 30분 단위로 선택해주세요.')
     }
     if (!endTime || !isHalfHour(endTime)) timeErrors.push('퇴근예정시간을 30분 단위로 선택해주세요.')
-    if (!actualCheckInTime || !isHalfHour(actualCheckInTime)) {
+    if (caseMode !== 'future' && (!actualCheckInTime || !isHalfHour(actualCheckInTime))) {
       timeErrors.push('실제 출근시간을 30분 단위로 선택해주세요.')
     }
   }
@@ -244,9 +261,11 @@ export default function CheckInModal({
       })()
       const isTodaySubmission = date === todayKstStr
       const safeActualCheckIn =
-        actualCheckInTime ||
-        (caseMode === 'none' && isTodaySubmission && !isAllDayLeave
-          ? nowKstHHmmFloor() : '')
+        caseMode === 'future'
+          ? ''  // 미래 일자 — 실제 출근시간 안 보냄, 서버가 팀 설정에 따라 처리
+          : actualCheckInTime ||
+            (caseMode === 'none' && isTodaySubmission && !isAllDayLeave
+              ? nowKstHHmmFloor() : '')
 
       // case A: start_time = actualCheckInTime으로 자동 채움 (출근예정=실제출근 같은 의미)
       const submitStartTime = caseMode === 'none'
@@ -285,6 +304,7 @@ export default function CheckInModal({
   const headerTitle =
     caseMode === 'today'  ? '출근보고 수정'
     : caseMode === 'prior' ? '출근 완료'
+    : caseMode === 'future' ? '사전 출근보고'
     : '출근보고 작성'
   const dateWithDow = (() => {
     const dow = dowKo(date)
@@ -293,11 +313,13 @@ export default function CheckInModal({
   const headerSubtitle =
     caseMode === 'today'  ? `${dateWithDow} — 모든 항목 자유롭게 수정`
     : caseMode === 'prior' ? `${dateWithDow} — 사전 등록된 정보 + 실제 출근시간 입력`
+    : caseMode === 'future' ? `${dateWithDow} — 이 날의 출근 예정 정보를 미리 등록합니다`
     : `${dateWithDow} — 시간과 근무장소를 입력해주세요`
 
   const submitLabel =
     caseMode === 'today'  ? '수정 저장'
     : caseMode === 'prior' ? '출근 완료'
+    : caseMode === 'future' ? '사전 출근보고 등록'
     : '출근보고 작성'
 
   return (
@@ -536,6 +558,44 @@ export default function CheckInModal({
                         </button>
                       )}
                     </div>
+                  </div>
+                </>
+              )}
+
+              {/* 케이스 future: 미래 일자 — 모든 planned 필드 editable, 실제출근 없음 */}
+              {caseMode === 'future' && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">출근예정시간 *</label>
+                      <HalfHourTimeSelect
+                        value={startTime}
+                        onChange={setStartTime}
+                        allowNextDay
+                        ariaLabel="출근예정시간"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">퇴근예정시간 *</label>
+                      <HalfHourTimeSelect
+                        value={endTime}
+                        onChange={setEndTime}
+                        allowNextDay
+                        ariaLabel="퇴근예정시간"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">근무장소 (예정) *</label>
+                    <p className="text-[12px] text-text-muted mb-2">
+                      하루 중 들를 장소를 순서대로 추가하세요.
+                    </p>
+                    <WorkLocationChipsInput
+                      value={locations}
+                      onChange={setLocations}
+                      errors={locErrors}
+                    />
                   </div>
                 </>
               )}
