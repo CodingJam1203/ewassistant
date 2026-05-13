@@ -245,6 +245,9 @@ export default function HomePage() {
   const [calendarCheckInDate, setCalendarCheckInDate] = useState<string | null>(null)
   const [calendarCheckOutDate, setCalendarCheckOutDate] = useState<string | null>(null)
 
+  // 미완료 퇴근보고 알림 — 가장 최근 미완료 1건
+  const [missedCheckoutDate, setMissedCheckoutDate] = useState<string | null>(null)
+
   // ─── 본인 이번 달 근로현황 ──────────────────────────────────────
   useEffect(() => {
     const now = new Date()
@@ -256,6 +259,22 @@ export default function HomePage() {
           baselines: d.baselines,
           me: d.users[0] ?? null,
         })
+      })
+      .catch(() => {})
+  }, [])
+
+  // ─── 미완료 퇴근보고 알림 (가장 최근 1건) ────────────────────────
+  // localStorage로 dismiss 기억 — 같은 날짜에 대해 한 번 [나중에] 클릭하면 재팝업 안 함.
+  useEffect(() => {
+    fetch('/api/my/missed-checkout')
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { targetDate: string | null } | null) => {
+        if (!d?.targetDate) return
+        try {
+          const dismissed = localStorage.getItem(`missed-checkout-dismissed-${d.targetDate}`)
+          if (dismissed === 'true') return
+        } catch { /* SSR / private mode 등 */ }
+        setMissedCheckoutDate(d.targetDate)
       })
       .catch(() => {})
   }, [])
@@ -411,6 +430,62 @@ export default function HomePage() {
           onClose={() => setCalendarCheckOutDate(null)}
           onSuccess={() => { setCalendarCheckOutDate(null); fetchMyCard() }}
         />
+      )}
+
+      {/* 미완료 퇴근보고 알림 팝업 — 가장 최근 미완료 1건 */}
+      {missedCheckoutDate && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="missed-checkout-title"
+        >
+          <div className="bg-surface rounded-2xl shadow-[var(--shadow-popover)] w-full max-w-md p-5 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-warning-bg text-warning-text">
+                <ChevronRight className="h-5 w-5 rotate-180" aria-hidden />
+              </div>
+              <div className="min-w-0">
+                <h3 id="missed-checkout-title" className="text-base font-semibold text-text-primary">
+                  퇴근보고 미완료
+                </h3>
+                <p className="mt-1 text-[13px] text-text-secondary leading-relaxed">
+                  <span className="font-semibold text-text-primary">{missedCheckoutDate}</span> 일자의
+                  퇴근보고가 아직 진행되지 않았습니다.
+                  <br />
+                  퇴근보고 및 EW 상신을 진행하시겠어요?
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  // 같은 날짜는 다시 묻지 않도록 기록 (퇴근보고 완료되면 API가 알아서 다음 미완료로 넘어감)
+                  try {
+                    localStorage.setItem(`missed-checkout-dismissed-${missedCheckoutDate}`, 'true')
+                  } catch { /* ignore */ }
+                  setMissedCheckoutDate(null)
+                }}
+              >
+                나중에
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  const date = missedCheckoutDate
+                  setMissedCheckoutDate(null)
+                  // 기존 calendarCheckOutDate 흐름 재사용 → WorkLogModal이 그 날짜로 자동 prefill
+                  setCalendarCheckOutDate(date)
+                }}
+              >
+                퇴근보고 진행
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ─── 본인 오늘 상태 헤더 ────────────────────────────────────── */}
