@@ -38,6 +38,18 @@ export async function GET() {
 
     const adminClient = createAdminClient()
 
+    // 0) 본인 user_profile.created_at — 가입(첫 로그인) 시점 전의 미보고는 후보 제외
+    const { data: profileRow } = await adminClient
+      .from('user_profiles')
+      .select('created_at')
+      .eq('email', user.email)
+      .maybeSingle()
+    const signupDate = profileRow?.created_at
+      ? new Date(profileRow.created_at).toISOString().slice(0, 10)
+      : null
+    // 가입일이 30일 한도(earliest)보다 늦으면 그 날짜를 lower bound로 사용
+    const lowerBound = signupDate && signupDate > earliest ? signupDate : earliest
+
     // 1) 본인의 최근 출근보고 (expected_start_date < today) — 날짜 desc, 30일 한도
     const { data: candidates, error: candErr } = await adminClient
       .from('work_logs')
@@ -46,7 +58,7 @@ export async function GET() {
       .eq('is_deleted', false)
       .not('expected_start_date', 'is', null)
       .lt('expected_start_date', today)
-      .gte('expected_start_date', earliest)
+      .gte('expected_start_date', lowerBound)
       .order('expected_start_date', { ascending: false })
 
     if (candErr) {

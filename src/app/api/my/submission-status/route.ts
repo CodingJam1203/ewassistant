@@ -29,6 +29,7 @@ export type DayStatus =
   | 'leave'
   | 'weekend'
   | 'holiday'
+  | 'pre_signup'
 
 export interface DayStatusEntry {
   date: string
@@ -96,6 +97,16 @@ export async function GET(request: Request) {
     }
 
     const adminClient = createAdminClient()
+
+    // 본인 user_profile.created_at — 가입(첫 로그인) 이전 날짜는 'pre_signup'으로 분류
+    const { data: profileRow } = await adminClient
+      .from('user_profiles')
+      .select('created_at')
+      .eq('email', user.email)
+      .maybeSingle()
+    const signupDate: string | null = profileRow?.created_at
+      ? new Date(profileRow.created_at).toISOString().slice(0, 10)
+      : null
 
     // 본인 work_logs 일괄 조회 (출근보고 + 퇴근보고 모두)
     //   - expected_start_date in [from, to] → 출근보고
@@ -182,7 +193,9 @@ export async function GET(request: Request) {
       let status: DayStatus
       let leaveType: DayStatusEntry['leaveType'] = per?.leaveType ?? null
 
-      if (sat || sun) {
+      if (signupDate && d < signupDate) {
+        status = 'pre_signup'
+      } else if (sat || sun) {
         status = 'weekend'
       } else if (holiday) {
         status = 'holiday'

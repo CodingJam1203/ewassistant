@@ -267,15 +267,18 @@ export default function HomePage() {
   }, [])
 
   // ─── 미완료 퇴근보고 알림 (가장 최근 1건) ────────────────────────
-  // localStorage로 dismiss 기억 — 같은 날짜에 대해 한 번 [나중에] 클릭하면 재팝업 안 함.
+  // localStorage에 마지막으로 [더이상 묻지 않기]한 일자(YYYY-MM-DD) 기록.
+  // 새 미보고 targetDate가 그 일자 이하면 팝업 skip — 1~3일 미보고 시 3일을 dismiss하면
+  // 1·2일도 자동으로 안 뜸 (사용자 의도: "거기까지는 안 보겠다").
+  // 그 일자보다 더 미래 미보고가 새로 생기면 다시 뜸.
   useEffect(() => {
     fetch('/api/my/missed-checkout')
       .then(r => r.ok ? r.json() : null)
       .then((d: { targetDate: string | null } | null) => {
         if (!d?.targetDate) return
         try {
-          const dismissed = localStorage.getItem(`missed-checkout-dismissed-${d.targetDate}`)
-          if (dismissed === 'true') return
+          const dismissedUntil = localStorage.getItem('missed-checkout-dismissed-until')
+          if (dismissedUntil && d.targetDate <= dismissedUntil) return
         } catch { /* SSR / private mode 등 */ }
         setMissedCheckoutDate(d.targetDate)
       })
@@ -474,10 +477,14 @@ export default function HomePage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  // 체크박스 켜진 경우에만 영구 dismiss로 기록 — 안 켜져 있으면 다음 진입 때 다시 묻기
-                  if (missedDontAskAgain) {
+                  // 체크박스 켜진 경우에만 dismissed-until 누적 — 그 일자까지의 모든 미보고 팝업 skip
+                  if (missedDontAskAgain && missedCheckoutDate) {
                     try {
-                      localStorage.setItem(`missed-checkout-dismissed-${missedCheckoutDate}`, 'true')
+                      const prev = localStorage.getItem('missed-checkout-dismissed-until') ?? ''
+                      // 더 최신 dismiss는 덮어쓰기, 과거 dismiss는 무시 (단조증가)
+                      if (!prev || missedCheckoutDate > prev) {
+                        localStorage.setItem('missed-checkout-dismissed-until', missedCheckoutDate)
+                      }
                     } catch { /* ignore */ }
                   }
                   setMissedCheckoutDate(null)
