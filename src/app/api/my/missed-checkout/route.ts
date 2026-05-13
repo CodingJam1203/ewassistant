@@ -35,7 +35,9 @@ export async function GET() {
 
     const today = getKstTodayDateString()
     const earliest = (() => {
-      const d = new Date(`${today}T00:00:00+09:00`)
+      // UTC로 파싱해야 setUTCDate가 KST 날짜 단위로 정확히 동작.
+      // (+09:00로 파싱하면 UTC에선 전날 15시가 되어 1일 어긋남)
+      const d = new Date(`${today}T00:00:00Z`)
       d.setUTCDate(d.getUTCDate() - LOOKBACK_DAYS)
       return d.toISOString().slice(0, 10)
     })()

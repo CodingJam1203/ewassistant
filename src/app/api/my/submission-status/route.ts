@@ -61,7 +61,10 @@ export interface SubmissionStatusResponse {
 }
 
 function addDays(date: string, days: number): string {
-  const d = new Date(`${date}T00:00:00+09:00`)
+  // ❗ BUG FIX: 기존 코드는 `${date}T00:00:00+09:00`로 파싱했는데, 이러면 UTC에서 전날 15시가 되어
+  // setUTCDate(getUTCDate() + 1) 결과가 같은 날짜로 돌아옴 → 무한 루프 → 30s timeout.
+  // UTC로 통일해서 처리. (date string은 timezone-free라 UTC 파싱이 안전)
+  const d = new Date(`${date}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + days)
   return d.toISOString().slice(0, 10)
 }
@@ -224,7 +227,9 @@ export async function GET(request: Request) {
     let onLeave = 0
 
     for (let d = from; d <= to; d = addDays(d, 1)) {
-      const weekday = new Date(`${d}T00:00:00+09:00`).getUTCDay()
+      // YYYY-MM-DD를 UTC로 파싱해서 그 날의 요일을 계산.
+      // KST offset(+09:00)으로 파싱하면 UTC에선 전날 15시가 되어 UTCDay가 하루 어긋남.
+      const weekday = new Date(`${d}T00:00:00Z`).getUTCDay()
       const sat = isSaturday(d)
       const sun = isSunday(d)
       const holiday = isKoreanHoliday(d)
