@@ -20,6 +20,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isKoreanHoliday, getKoreanHolidayName, isSaturday, isSunday } from '@/lib/kr-holidays'
+import { getKstTodayDateString } from '@/lib/utils/date'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
 // Vercel Hobby 기본 10s — 1개월치 work_logs 2번 쿼리가 콜드스타트에서 종종 타임아웃 → 30s로 여유
@@ -33,6 +34,7 @@ export type DayStatus =
   | 'weekend'
   | 'holiday'
   | 'pre_signup'
+  | 'future'  // 오늘 이후 — 보고 의무 X (사전 등록만 가능)
 
 export interface DayStatusEntry {
   date: string
@@ -219,6 +221,7 @@ export async function GET(request: Request) {
     }
 
     // 날짜 범위 순회하면서 status 결정
+    const today = getKstTodayDateString()
     const days: DayStatusEntry[] = []
     let totalWorkdays = 0
     let complete = 0
@@ -246,9 +249,13 @@ export async function GET(request: Request) {
       } else if (holiday) {
         status = 'holiday'
       } else if (leaveType === 'full_day') {
+        // 휴가는 미래여도 leave로 표시 (사전 등록된 휴가 가시화)
         status = 'leave'
         onLeave++
         totalWorkdays++
+      } else if (d > today) {
+        // 오늘 이후 + 휴가 아님 → 미래. 보고 의무 없음 (사전 등록만 가능).
+        status = 'future'
       } else {
         // 평일 + 휴일 아님 + 종일 휴가 아님 → 보고 의무 있음
         totalWorkdays++

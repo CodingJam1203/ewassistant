@@ -428,6 +428,7 @@ const STATUS_BAR_COLOR: Record<DayStatus, string> = {
   weekend:          'bg-transparent',
   holiday:          'bg-transparent',
   pre_signup:       'bg-transparent',
+  future:           'bg-transparent',
 }
 
 function DayCell({ data, status, onClick }: { data: DayData; status: DayStatus | null; onClick: () => void }) {
@@ -445,7 +446,7 @@ function DayCell({ data, status, onClick }: { data: DayData; status: DayStatus |
         !data.inMonth && 'bg-background/40',
       )}
     >
-      {data.inMonth && status && status !== 'weekend' && status !== 'holiday' && status !== 'pre_signup' && (
+      {data.inMonth && status && status !== 'weekend' && status !== 'holiday' && status !== 'pre_signup' && status !== 'future' && (
         <span
           className={cn('absolute left-0 top-0 bottom-0 w-1', STATUS_BAR_COLOR[status])}
           aria-hidden
@@ -520,7 +521,7 @@ function DayListItem({
       )}
     >
       {/* 좌측 컬러바 — PC 셀과 동일한 시각 신호 */}
-      {status && status !== 'weekend' && status !== 'holiday' && status !== 'pre_signup' && (
+      {status && status !== 'weekend' && status !== 'holiday' && status !== 'pre_signup' && status !== 'future' && (
         <span
           className={cn('absolute left-0 top-0 bottom-0 w-1', STATUS_BAR_COLOR[status])}
           aria-hidden
