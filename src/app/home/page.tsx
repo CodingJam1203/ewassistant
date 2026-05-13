@@ -217,6 +217,8 @@ export default function HomePage() {
   const [logs, setLogs] = useState<WorkLog[]>([])
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null)
   const [editScope, setEditScope] = useState<'check_in' | 'check_out' | undefined>(undefined)
+  // 캘린더뷰 외부 새로고침 트리거 — 모달 onSuccess에서 ++ 하면 MyHistoryCalendar가 재fetch
+  const [calendarRefreshTick, setCalendarRefreshTick] = useState(0)
 
   const [tab, setTab] = useState<TabKey>('final')
   const [finalView, setFinalView] = useState<FinalView>(readFinalView)
@@ -381,7 +383,7 @@ export default function HomePage() {
           editingLog={editingLog}
           editScope={editScope}
           onClose={() => { setEditingLog(null); setEditScope(undefined) }}
-          onSuccess={() => { handleEditSuccess(); setEditScope(undefined) }}
+          onSuccess={() => { handleEditSuccess(); setEditScope(undefined); setCalendarRefreshTick(t => t + 1) }}
         />
       )}
 
@@ -392,7 +394,7 @@ export default function HomePage() {
           userName={userName}
           mode={checkInMode}
           onClose={() => { setShowCheckIn(false); setCheckInMode(undefined) }}
-          onSuccess={() => { setShowCheckIn(false); setCheckInMode(undefined); fetchMyCard() }}
+          onSuccess={() => { setShowCheckIn(false); setCheckInMode(undefined); fetchMyCard(); setCalendarRefreshTick(t => t + 1) }}
         />
       )}
 
@@ -414,7 +416,7 @@ export default function HomePage() {
           initialEndTime={trimToHHmm(checkOutTarget.end_time) || undefined}
           resubmitWorkLogId={checkOutTarget.work_log_id ?? null}
           onClose={() => setCheckOutTarget(null)}
-          onSuccess={() => { setCheckOutTarget(null); fetchMyCard() }}
+          onSuccess={() => { setCheckOutTarget(null); fetchMyCard(); setCalendarRefreshTick(t => t + 1) }}
         />
       )}
 
@@ -424,7 +426,7 @@ export default function HomePage() {
           date={calendarCheckInDate}
           userName={userName}
           onClose={() => setCalendarCheckInDate(null)}
-          onSuccess={() => { setCalendarCheckInDate(null); fetchMyCard() }}
+          onSuccess={() => { setCalendarCheckInDate(null); fetchMyCard(); setCalendarRefreshTick(t => t + 1) }}
         />
       )}
 
@@ -434,7 +436,7 @@ export default function HomePage() {
           date={calendarCheckOutDate}
           userName={userName}
           onClose={() => setCalendarCheckOutDate(null)}
-          onSuccess={() => { setCalendarCheckOutDate(null); fetchMyCard() }}
+          onSuccess={() => { setCalendarCheckOutDate(null); fetchMyCard(); setCalendarRefreshTick(t => t + 1) }}
         />
       )}
 
@@ -867,6 +869,7 @@ export default function HomePage() {
               onEditWorkLog={openEditByWorkLogId}
               onCreateCheckIn={(date) => setCalendarCheckInDate(date)}
               onCreateCheckOut={(date) => setCalendarCheckOutDate(date)}
+              refreshKey={calendarRefreshTick}
             />
           )}
         </>

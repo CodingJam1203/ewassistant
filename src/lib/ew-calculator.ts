@@ -335,7 +335,13 @@ export function calculateEw(input: EwInput): EwCalculationResult {
     deemedWorkEwValue = getDeemedWorkEwValue(actualWorkMinutes, acMinutes, ewEndMinutes);
   }
 
-  const ewValue = getFinalEwValue(workTypeCode, ewStartMinutes, ewEndMinutes, deemedWorkEwValue);
+  // 종일 휴가: EW는 NPM(휴가 상신)으로만 보내야 하므로 EW 시간/코드는 '휴가'로 명시.
+  //   기존엔 09:00~10:00 같은 1시간짜리 EW가 자동으로 들어가서 사용자가 헷갈렸음.
+  const ewValue = input.isFullDayLeave
+    ? '휴가'
+    : getFinalEwValue(workTypeCode, ewStartMinutes, ewEndMinutes, deemedWorkEwValue);
+  // 종일 휴가면 점심도 안 먹으니 X(자동 점심 차감)도 0으로 표시.
+  const effectiveDeductionMinutes = input.isFullDayLeave ? 0 : deductionMinutes;
   // workSubType — explicit input 우선, 없으면 라벨에서 추출
   const workSubType: WorkSubType =
     input.workSubType !== undefined ? input.workSubType : getWorkSubTypeFromLabel(input.workTypeLabel);
@@ -367,14 +373,15 @@ export function calculateEw(input: EwInput): EwCalculationResult {
   //   1) 실근무 4h 이하 (= 240분 이하)
   //   2) 공휴일근로 (workTypeCode=3): X=0
   // → 사용자가 직접 휴게/점심 시간 검토 후 EW 상신하도록 안내 + copyText에도 명시.
-  const showLunchAdvisory = actualWorkMinutes <= 4 * 60 || workTypeCode === 3;
+  // 종일 휴가는 EW 자체가 NPM으로 가므로 advisory 무관 — 끔.
+  const showLunchAdvisory = !input.isFullDayLeave && (actualWorkMinutes <= 4 * 60 || workTypeCode === 3);
   const lunchAdvisorySuffix = showLunchAdvisory ? ' / 휴게시간 주의하여 상신' : '';
   const copyText = baseCopyText + getCopyTextSuffix(workSubType) + lunchAdvisorySuffix;
 
   return {
     workTypeCode,
     workSubType,
-    deductionMinutes,
+    deductionMinutes: effectiveDeductionMinutes,
     actualWorkMinutes,
     actualWorkText,
     dateText,

@@ -48,6 +48,8 @@ interface MyHistoryCalendarProps {
   onCreateCheckIn?: (date: string) => void
   /** 상세 모달의 "퇴근보고 작성" 버튼 — 부모가 그 날짜로 WorkLogModal 신규 제출 띄움 */
   onCreateCheckOut?: (date: string) => void
+  /** 외부에서 데이터 새로고침 트리거 — 부모의 모달 onSuccess에서 ++ */
+  refreshKey?: number
 }
 
 interface DayData {
@@ -116,7 +118,9 @@ function extractCheckoutTime(
   return null
 }
 
-export default function MyHistoryCalendar({ onEditWorkLog, onCreateCheckIn, onCreateCheckOut }: MyHistoryCalendarProps) {
+export default function MyHistoryCalendar({
+  onEditWorkLog, onCreateCheckIn, onCreateCheckOut, refreshKey = 0,
+}: MyHistoryCalendarProps) {
   // 현재 보고 있는 월 (그 월의 1일 기준 Date 객체)
   const [cursor, setCursor] = useState<Date>(() => startOfMonth(new Date()))
   const [rows, setRows] = useState<SubmissionRow[]>([])
@@ -228,7 +232,7 @@ export default function MyHistoryCalendar({ onEditWorkLog, onCreateCheckIn, onCr
     setLoading(false)
   }, [monthStart, monthEnd, gridStart, gridEnd])
 
-  useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => { fetchAll() }, [fetchAll, refreshKey])
 
   /** rows → date → finals 인덱스 */
   const finalsByDate = useMemo(() => indexFinalsByDate(rows), [rows])
