@@ -14,6 +14,7 @@ import type {
   BreakNotifyPayload,
   AccountPendingNotifyPayload,
   DailyCheckinReminderData,
+  MissingReportNudgePayload,
   MorningSummaryData,
 } from './types'
 import { formatTimelineForTeams, getWorkLocations } from '@/lib/work-location-timeline'
@@ -596,6 +597,25 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
         return acc
       }, [])
       return compact.join('\n')
+    }
+
+    case 'missing_report_nudge': {
+      const p = payload as MissingReportNudgePayload
+      const what =
+        p.missingType === 'missing_all' ? '출근/퇴근보고 미작성' : '퇴근보고 미작성'
+      const action =
+        p.missingType === 'missing_all'
+          ? '출근/퇴근보고 작성 부탁드립니다.'
+          : '퇴근보고 작성 부탁드립니다.'
+      const lines: string[] = []
+      lines.push(`📢 ${p.name}님, ${koreanDate(p.date)} ${what}`)
+      lines.push('')
+      lines.push(action)
+      lines.push('')
+      lines.push(`— ${p.senderName} 드림`)
+      lines.push('')
+      lines.push(cta())
+      return lines.join('\n')
     }
 
     default:

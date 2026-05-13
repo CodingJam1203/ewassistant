@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { RefreshCw } from 'lucide-react'
 import WorkLogModal from '@/components/WorkLogModal'
 import SubmissionsRawTable from '@/components/SubmissionsRawTable'
+import MissingReportsListView from '@/components/MissingReportsListView'
 import {
   Button,
   FilterBar,
@@ -14,13 +15,27 @@ import {
 import { cn } from '@/lib/utils/cn'
 import type { WorkLog } from '@/types/work-log'
 
-type TabKey = 'final' | 'raw'
+type TabKey = 'final' | 'missing' | 'raw'
+
+/** 이번 달 시작/끝 (KST, YYYY-MM-DD) */
+function thisMonthRange(): { from: string; to: string } {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  const last = new Date(y, m + 1, 0).getDate()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return {
+    from: `${y}-${pad(m + 1)}-01`,
+    to:   `${y}-${pad(m + 1)}-${pad(last)}`,
+  }
+}
 
 interface OrgTeam { id: string; division_id: string; name: string }
 interface OrgDivision { id: string; name: string; teams: OrgTeam[] }
 
 export default function HistoryPage() {
   const [isAdmin, setIsAdmin] = useState(false)
+  const [isLeader, setIsLeader] = useState(false)
   const [org, setOrg] = useState<OrgDivision[]>([])
   const [filterMine, setFilterMine] = useState(false)
   const [filterDivision, setFilterDivision] = useState('')
@@ -37,6 +52,10 @@ export default function HistoryPage() {
   // ─── 탭 ─────────────────────────────────────────────────────
   const [tab, setTab] = useState<TabKey>('final')
 
+  // 미보고 탭용 — 이번 달 default
+  const [missingFrom, setMissingFrom] = useState(() => thisMonthRange().from)
+  const [missingTo,   setMissingTo]   = useState(() => thisMonthRange().to)
+
   // 관리자 여부 + 조직 + 내 프로필 기본값 — 병렬 호출
   useEffect(() => {
     Promise.all([
@@ -45,6 +64,7 @@ export default function HistoryPage() {
       fetch('/api/auth/profile').then(r => r.ok ? r.json() : null).catch(() => null),
     ]).then(([adminData, orgData, profile]) => {
       setIsAdmin(adminData?.isAdmin ?? false)
+      setIsLeader(profile?.role === 'leader' || profile?.role === 'admin' || adminData?.isAdmin)
       setOrg(orgData as OrgDivision[])
       if (profile?.division) setFilterDivision(profile.division)
       if (profile?.team) setFilterTeam(profile.team)
@@ -180,8 +200,9 @@ export default function HistoryPage() {
       <div className="border-b border-border">
         <nav className="-mb-px flex gap-6" aria-label="탭">
           {[
-            { key: 'final' as TabKey, label: '일자별 최종 보고' },
-            { key: 'raw'   as TabKey, label: 'RAW 제출 내역' },
+            { key: 'final'   as TabKey, label: '일자별 최종 보고' },
+            { key: 'missing' as TabKey, label: '미보고 현황' },
+            { key: 'raw'     as TabKey, label: 'RAW 제출 내역' },
           ].map(t => (
             <button
               key={t.key}
@@ -199,7 +220,42 @@ export default function HistoryPage() {
         </nav>
       </div>
 
-      {/* SubmissionsRawTable — profile 도착 전엔 빈 스켈레톤만. 도착 후 1회 fetch. */}
+      {/* 미보고 현황 탭 — 기간 필터 (탭 전용) */}
+      {tab === 'missing' && profileReady && (
+        <FilterBar>
+          <FilterBar.Field label="시작일">
+            <Input
+              type="date"
+              value={missingFrom}
+              onChange={e => setMissingFrom(e.target.value)}
+              className="w-44"
+            />
+          </FilterBar.Field>
+          <FilterBar.Field label="종료일">
+            <Input
+              type="date"
+              value={missingTo}
+              onChange={e => setMissingTo(e.target.value)}
+              className="w-44"
+            />
+          </FilterBar.Field>
+          <div className="ml-auto">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const { from, to } = thisMonthRange()
+                setMissingFrom(from)
+                setMissingTo(to)
+              }}
+            >
+              이번 달
+            </Button>
+          </div>
+        </FilterBar>
+      )}
+
+      {/* 본문 — profile 도착 전엔 빈 스켈레톤만. 도착 후 1회 fetch. */}
       {!profileReady ? (
         <div className="space-y-2">
           {[...Array(6)].map((_, i) => (
@@ -235,6 +291,18 @@ export default function HistoryPage() {
               }}
               allowOrgFilter
               onEditWorkLog={isAdmin ? openEditByWorkLogId : undefined}
+            />
+          )}
+
+          {tab === 'missing' && (
+            <MissingReportsListView
+              from={missingFrom}
+              to={missingTo}
+              division={filterDivision}
+              team={filterTeam}
+              name={filterName}
+              refreshKey={refreshTick}
+              canSendNotify={isLeader || isAdmin}
             />
           )}
         </>

@@ -28,6 +28,7 @@ import type {
   BreakNotifyPayload,
   AccountPendingNotifyPayload,
   DailyCheckinReminderData,
+  MissingReportNudgePayload,
   MorningSummaryData,
 } from './types'
 
@@ -46,6 +47,7 @@ const EVENT_ENV_MAP: Record<EventType, string> = {
   daily_checkin_reminder_20:  'ENABLE_DAILY_REMINDER_NOTIFY',
   daily_checkin_reminder_22:  'ENABLE_DAILY_REMINDER_NOTIFY',
   daily_morning_summary:      'ENABLE_DAILY_REMINDER_NOTIFY',
+  missing_report_nudge:       'ENABLE_MISSING_REPORT_NUDGE_NOTIFY',
 }
 
 function toTeamsHtml(text: string): string {
@@ -409,4 +411,65 @@ export async function notifyDailyCheckinReminder(
 
 export async function notifyMorningSummary(payload: MorningSummaryData): Promise<void> {
   return routeAndSend('daily_morning_summary', payload.division, payload.team, '출근보고', payload)
+}
+
+/**
+ * 미보고 알림 — 미보고 현황 탭에서 리더/관리자가 수동 발송.
+ *
+ * 라우팅:
+ *   - missing_all (전체 미보고) → 출근보고 채널
+ *   - missing_checkout (퇴근만 누락) → 퇴근보고 채널
+ *
+ * 실패 시 호출자에게 상태 전달해야 하므로 동기 await + 결과 반환.
+ */
+export async function notifyMissingReport(
+  payload: MissingReportNudgePayload,
+): Promise<{ ok: boolean; reason?: string }> {
+  const reportType: ReportType =
+    payload.missingType === 'missing_all' ? '출근보고' : '퇴근보고'
+
+  if (!isEnabled('missing_report_nudge')) {
+    return { ok: false, reason: '알림 기능 비활성 (env)' }
+  }
+  if (!payload.division || !payload.team) {
+    return { ok: false, reason: '대상자 본부/팀 정보 없음' }
+  }
+
+  const normalizedTeam = normalizeTeamName(payload.team)
+  const target = await getTeamsReplyTarget({
+    department: payload.division,
+    teamName: normalizedTeam,
+    reportType,
+  })
+  if (!target) {
+    return { ok: false, reason: `라우팅 대상 없음 (${payload.division} / ${normalizedTeam} / ${reportType})` }
+  }
+
+  try {
+    const messageRaw = buildMessage('missing_report_nudge', payload)
+    const messageHtml = toTeamsHtml(messageRaw)
+    const messageText = toPlainText(messageRaw)
+    await sendToMake(
+      'missing_report_nudge',
+      {
+        ...target,
+        message: messageHtml,
+        messageHtml,
+        messageText,
+        eventType: 'missing_report_nudge',
+      },
+      payload.division,
+      normalizedTeam,
+    )
+    return { ok: true }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn('[Teams] missing_report_nudge failed:', msg)
+    await logNotification(
+      'missing_report_nudge', 'FAILURE',
+      payload.division, normalizedTeam, target.channelId,
+      payload, 'send failed: ' + msg,
+    )
+    return { ok: false, reason: '발송 실패: ' + msg }
+  }
 }

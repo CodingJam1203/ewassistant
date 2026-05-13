@@ -19,6 +19,7 @@ export type EventType =
   | 'daily_checkin_reminder_20'
   | 'daily_checkin_reminder_22'
   | 'daily_morning_summary'
+  | 'missing_report_nudge'      // 미보고 현황에서 리더/관리자가 수동 발송하는 알림
 
 // ─── 페이로드 타입 ────────────────────────────────────────────────────────────
 
@@ -187,6 +188,23 @@ export interface DailyCheckinReminderData {
     endTime: string | null
     title: string
   }>
+}
+
+/**
+ * 미보고 알림 — 수동 발송.
+ * 미보고 현황 탭에서 리더/관리자가 [팀즈 알림] 버튼을 누르면 해당 사용자의
+ * 팀 출근/퇴근보고 채널 스레드에 reply로 발송됨.
+ */
+export interface MissingReportNudgePayload {
+  name: string
+  /** 미보고 일자 (YYYY-MM-DD) */
+  date: string
+  /** 무엇이 누락됐는지 */
+  missingType: 'missing_all' | 'missing_checkout'
+  division: string
+  team: string
+  /** 알림을 보낸 사람 표시명 (이메일 노출 금지) */
+  senderName: string
 }
 
 export interface MorningSummaryData {
