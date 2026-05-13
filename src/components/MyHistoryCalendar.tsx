@@ -356,6 +356,7 @@ export default function MyHistoryCalendar({ onEditWorkLog, onCreateCheckIn, onCr
           <DayListItem
             key={day.date}
             data={day}
+            status={statusMap.get(day.date) ?? null}
             onClick={() => setSelectedDate(day.date)}
           />
         ))}
@@ -450,7 +451,7 @@ function DayCell({ data, status, onClick }: { data: DayData; status: DayStatus |
           aria-hidden
         />
       )}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-1">
         <span
           className={cn(
             'inline-flex items-center justify-center text-[12px] font-semibold tabular-nums',
@@ -463,6 +464,19 @@ function DayCell({ data, status, onClick }: { data: DayData; status: DayStatus |
         >
           {dayNum}
         </span>
+        {/* 미보고 상태 칩 — 좌측 컬러바와 같은 색을 텍스트 형태로 명시 표기 */}
+        {data.inMonth && (status === 'missing_all' || status === 'missing_checkout') && (
+          <span
+            className={cn(
+              'inline-flex items-center text-[10px] font-semibold px-1.5 rounded-full leading-[16px] shrink-0',
+              status === 'missing_all'
+                ? 'bg-danger-text text-white'
+                : 'bg-warning-text text-white',
+            )}
+          >
+            {status === 'missing_all' ? '미보고' : '퇴근누락'}
+          </span>
+        )}
       </div>
       <div className="flex flex-col gap-0.5">
         {items.slice(0, 3).map((it, i) => (
@@ -488,20 +502,30 @@ function DayCell({ data, status, onClick }: { data: DayData; status: DayStatus |
 
 // ─── 날짜 리스트 항목 (모바일) ────────────────────────────────────────────────
 
-function DayListItem({ data, onClick }: { data: DayData; onClick: () => void }) {
+function DayListItem({
+  data, status, onClick,
+}: { data: DayData; status: DayStatus | null; onClick: () => void }) {
   const items = buildDisplayItems(data)
   const dayDate = new Date(data.date + 'T00:00:00')
+  const showMissingChip = status === 'missing_all' || status === 'missing_checkout'
 
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'w-full text-left bg-surface border border-border rounded-2xl p-3',
+        'relative w-full text-left bg-surface border border-border rounded-2xl p-3 overflow-hidden',
         'flex items-start gap-3',
         'transition-colors hover:bg-surface-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500',
       )}
     >
+      {/* 좌측 컬러바 — PC 셀과 동일한 시각 신호 */}
+      {status && status !== 'weekend' && status !== 'holiday' && status !== 'pre_signup' && (
+        <span
+          className={cn('absolute left-0 top-0 bottom-0 w-1', STATUS_BAR_COLOR[status])}
+          aria-hidden
+        />
+      )}
       <div
         className={cn(
           'shrink-0 w-12 text-center',
@@ -520,7 +544,19 @@ function DayListItem({ data, onClick }: { data: DayData; onClick: () => void }) 
         </div>
       </div>
       <div className="flex-1 min-w-0 flex flex-col gap-1">
-        {items.length === 0 ? (
+        {showMissingChip && (
+          <span
+            className={cn(
+              'inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full self-start',
+              status === 'missing_all'
+                ? 'bg-danger-text text-white'
+                : 'bg-warning-text text-white',
+            )}
+          >
+            {status === 'missing_all' ? '미보고' : '퇴근 누락'}
+          </span>
+        )}
+        {items.length === 0 && !showMissingChip ? (
           <span className="text-[12px] text-text-muted">기록 없음</span>
         ) : items.map((it, i) => (
           <span
