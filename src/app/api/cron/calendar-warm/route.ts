@@ -65,7 +65,10 @@ export async function GET(request: Request) {
 
   try {
     // cron은 Apps Script 느림 (30~100s) → 50초까지 대기. Vercel maxDuration=60s 안에 끝.
-    const batchResult = await getCalendarRangeBatch(dates, { timeoutMs: 50_000 })
+    const batchResult = await getCalendarRangeBatch(dates, {
+      timeoutMs: 50_000,
+      allowAppsScriptFallback: true,  // cron 전용 — Apps Script 호출 OK
+    })
     for (const date of dates) {
       if (batchResult[date]) batchSucceeded++
       else batchFailed++

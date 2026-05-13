@@ -186,17 +186,22 @@ function triggerBackgroundRefresh(date: string): void {
 }
 
 /**
- * Batch 호출 — Apps Script ?from=&to= 한 번에 여러 날짜 fetch.
+ * Batch 호출 — DB 캐시에서 한 번에 여러 날짜 fetch.
  *
- * 캐시 hit인 날짜는 내부적으로 배치 호출에서 제외하고 cached 반환.
- * 미스인 날짜만 모아서 1회의 Apps Script 호출로 처리 → 시트 read 1회.
+ * 정책 (2026-05 변경):
+ *   - 기본은 cache-only. Apps Script 호출 안 함.
+ *   - 사용자 트래픽 path(/api/calendar/range 등)는 절대 Apps Script 호출 X.
+ *   - 캐시 freshness는 Apps Script 측 Time Trigger(매시간)가 N-Click write-cache endpoint로 PUSH해서 유지.
+ *   - opt.allowAppsScriptFallback=true 일 때만 누락분을 Apps Script로 채움 (cron 전용).
+ *
+ * 캐시 read는 IN 쿼리 1회로 묶어서 N round-trip 회피.
  *
  * 응답 형식:
- *   { 'YYYY-MM-DD': CalendarBatchResponse, ... }
+ *   { 'YYYY-MM-DD': CalendarBatchResponse | null, ... }
  */
 export async function getCalendarRangeBatch(
   dates: string[],
-  opts?: { timeoutMs?: number },
+  opts?: { timeoutMs?: number; allowAppsScriptFallback?: boolean },
 ): Promise<Record<string, CalendarBatchResponse | null>> {
   if (!isCalendarEnabled()) {
     return Object.fromEntries(dates.map(d => [d, null]))
@@ -206,23 +211,47 @@ export async function getCalendarRangeBatch(
   const missing: string[] = []
   const now = Date.now()
 
-  // 1) 캐시 우선 체크 — 90개를 병렬로 읽어서 sequential overhead 제거.
-  //    fresh hit는 즉시 채움, stale은 fallback + missing에 추가.
-  const cacheChecks = await Promise.all(
-    dates.map(async (date) => ({ date, cached: await readCache(date) }))
-  )
-  for (const { date, cached } of cacheChecks) {
-    if (cached && now - cached.updatedAtMs < TTL_MS) {
-      result[date] = cached.data
-    } else {
-      if (cached) result[date] = cached.data
-      missing.push(date)
+  // 1) 캐시 전체 1회 IN 쿼리 — 91개 round-trip → 1번으로 압축
+  try {
+    const adminClient = createAdminClient()
+    const keys = dates.map(d => cacheKey(d))
+    const { data: rows } = await adminClient
+      .from('leave_calendar_cache')
+      .select('key, data, updated_at')
+      .in('key', keys)
+    const byKey = new Map<string, { data: CalendarBatchResponse; updatedAtMs: number }>()
+    for (const r of (rows ?? []) as Array<{ key: string; data: CalendarBatchResponse; updated_at: string }>) {
+      byKey.set(r.key, {
+        data: r.data,
+        updatedAtMs: new Date(r.updated_at).getTime(),
+      })
     }
+    for (const date of dates) {
+      const c = byKey.get(cacheKey(date))
+      if (c) {
+        result[date] = c.data
+        if (now - c.updatedAtMs >= TTL_MS) missing.push(date)
+      } else {
+        result[date] = null
+        missing.push(date)
+      }
+    }
+  } catch (err) {
+    console.warn('[leave-calendar] cache bulk read failed:', err)
+    for (const date of dates) {
+      if (!(date in result)) result[date] = null
+    }
+    // 캐시 자체 실패면 더 진행해도 비싸기만 함 → 그대로 반환
+    return result
   }
 
-  if (missing.length === 0) return result
+  // 2) 사용자 트래픽 path는 여기서 종료 (Apps Script 호출 안 함).
+  //    Apps Script push가 1시간마다 캐시를 갱신하므로 stale이어도 그대로 반환.
+  if (!opts?.allowAppsScriptFallback || missing.length === 0) {
+    return result
+  }
 
-  // 2) 누락분 batch 호출 — Apps Script의 MAX_RANGE_DAYS=90 한도에 맞춰 chunk
+  // 3) (cron 전용) 누락분 batch 호출 — Apps Script의 MAX_RANGE_DAYS=90 한도에 맞춰 chunk
   const url = process.env.LEAVE_CALENDAR_WEBHOOK_URL
   if (!url) return result
   const token = process.env.LEAVE_CALENDAR_TOKEN

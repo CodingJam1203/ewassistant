@@ -22,6 +22,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { isKoreanHoliday, getKoreanHolidayName, isSaturday, isSunday } from '@/lib/kr-holidays'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
+// Vercel Hobby 기본 10s — 1개월치 work_logs 2번 쿼리가 콜드스타트에서 종종 타임아웃 → 30s로 여유
+export const maxDuration = 30
+
 export type DayStatus =
   | 'complete'
   | 'missing_checkout'
@@ -108,24 +111,47 @@ export async function GET(request: Request) {
       ? new Date(profileRow.created_at).toISOString().slice(0, 10)
       : null
 
-    // 본인 work_logs 일괄 조회 (출근보고 + 퇴근보고 모두)
-    //   - expected_start_date in [from, to] → 출근보고
-    //   - leave_date in [from, to] → 퇴근보고 (end_time 있어야 진짜 퇴근)
-    // 양쪽 모두 한 쿼리에 OR로 모음
-    const { data: rows, error } = await adminClient
-      .from('work_logs')
-      .select('id, expected_start_date, leave_date, end_time, leave_timeline, expected_leave_timeline')
-      .eq('user_email', user.email)
-      .eq('is_deleted', false)
-      .or(
-        `and(expected_start_date.gte.${from},expected_start_date.lte.${to}),` +
-        `and(leave_date.gte.${from},leave_date.lte.${to})`
-      )
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      console.warn('[submission-status] fetch error:', error.message)
+    // 본인 work_logs 일괄 조회 — 출근보고 / 퇴근보고 각각 별도 쿼리 후 client-side 병합.
+    //   - .or() with and() 중첩은 PostgREST에서 인덱스 못 타고 풀스캔 → 10s timeout 위험
+    //   - 분리하면 각각 (user_email, expected_start_date) / (user_email, leave_date) 인덱스 활용 가능
+    const SELECT_COLS = 'id, expected_start_date, leave_date, end_time, leave_timeline, expected_leave_timeline'
+    const [resCheckin, resCheckout] = await Promise.all([
+      adminClient
+        .from('work_logs')
+        .select(SELECT_COLS)
+        .eq('user_email', user.email)
+        .eq('is_deleted', false)
+        .gte('expected_start_date', from)
+        .lte('expected_start_date', to)
+        .order('created_at', { ascending: false }),
+      adminClient
+        .from('work_logs')
+        .select(SELECT_COLS)
+        .eq('user_email', user.email)
+        .eq('is_deleted', false)
+        .gte('leave_date', from)
+        .lte('leave_date', to)
+        .order('created_at', { ascending: false }),
+    ])
+    // 한쪽만 실패한 경우 — 남은 쪽 결과로 부분 응답.
+    // 두 쪽 다 실패한 경우에만 500. (1개 fail 시 UI가 완전히 깨지는 것보다는 부분 정보가 낫다)
+    if (resCheckin.error && resCheckout.error) {
+      console.warn('[submission-status] both queries failed:', resCheckin.error.message, resCheckout.error.message)
       return NextResponse.json({ error: '조회 실패' }, { status: 500 })
+    }
+    if (resCheckin.error) {
+      console.warn('[submission-status] checkin query failed (continuing with checkout only):', resCheckin.error.message)
+    }
+    if (resCheckout.error) {
+      console.warn('[submission-status] checkout query failed (continuing with checkin only):', resCheckout.error.message)
+    }
+    // 두 결과 합치고 id 기준 중복 제거 (같은 row가 두 쿼리에 다 잡힐 수 있음)
+    const seenIds = new Set<string>()
+    const rows: NonNullable<typeof resCheckin.data> = []
+    for (const r of [...(resCheckin.data ?? []), ...(resCheckout.data ?? [])]) {
+      if (seenIds.has(r.id)) continue
+      seenIds.add(r.id)
+      rows.push(r)
     }
 
     // 날짜별 매핑 — 같은 날짜에 여러 row 있을 수 있음 (출근/퇴근 분리 + 재제출 등)

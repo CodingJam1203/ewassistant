@@ -24,6 +24,9 @@ import type { UserCalendarLookup } from '@/types/leave-calendar'
 
 const MAX_DAYS = 45
 
+// 캐시 IN 쿼리 1회로 끝남 → 보통 100~300ms. 콜드스타트 여유 두고 30s.
+export const maxDuration = 30
+
 export async function GET(request: Request) {
   try {
     const supabase = await createClient()

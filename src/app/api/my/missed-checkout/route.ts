@@ -22,6 +22,9 @@ import type { LeaveTimeline } from '@/types/leave-timeline'
 
 const LOOKBACK_DAYS = 30  // 30일 이전까지만 알림 (그 이상 오래되면 무시)
 
+// Vercel Hobby 기본 10s — work_logs 쿼리 2건이 콜드스타트에서 종종 타임아웃 → 30s로 여유
+export const maxDuration = 30
+
 export async function GET() {
   try {
     const supabase = await createClient()
