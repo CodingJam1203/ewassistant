@@ -1,23 +1,25 @@
 'use client'
 
 /**
- * 날짜 input — 요일을 input 박스 안에 함께 표시.
+ * 날짜 input — 트리거 button + popover 캘린더 (react-day-picker 기반).
  *
- * 네이티브 `<input type="date">`는 텍스트 옆에 라벨을 끼워넣을 수 없어,
- * 시각적 디스플레이는 별도로 그리고 native input은 overlay로 깔아 picker를 호출.
+ * Mac native <input type="date"> picker가 자동 닫히지 않는 문제를 해결하기 위해
+ * react-day-picker로 교체. 선택 즉시 닫힘 / 외부 클릭 닫힘 / ESC 닫힘 일관 동작.
  *
- * 사용:
- *   <DateInputWithDow value={date} onChange={setDate} />
- *
- * react-hook-form 제어용 변형이 필요하면 `register('field')` 결과를
- * inputProps prop으로 그대로 전달:
- *   <DateInputWithDow value={watch('field')} inputProps={register('field')} />
+ * Props 인터페이스는 기존 native 버전과 호환 — 호출부 수정 불필요.
+ *   - value (YYYY-MM-DD), onChange (next: string)
+ *   - inputProps (RHF register 결과 spread — hidden input에 전달돼서 form submit 포함됨)
+ *   - min/max (YYYY-MM-DD), disabled, size, className 등
  */
 
-import React, { forwardRef, useRef } from 'react'
+import React, { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { DayPicker } from 'react-day-picker'
+import { ko } from 'date-fns/locale'
+import { format, parseISO } from 'date-fns'
 import { Calendar } from 'lucide-react'
 import { dowKo } from '@/lib/utils/date'
 import { cn } from '@/lib/utils/cn'
+import 'react-day-picker/style.css'
 
 type Size = 'sm' | 'md'
 
@@ -26,7 +28,7 @@ export interface DateInputWithDowProps {
   value?: string
   /** 변경 콜백 — value를 직접 전달받음 */
   onChange?: (next: string) => void
-  /** native input에 직접 spread (RHF register 결과 등). ref도 받음. */
+  /** RHF register 결과 등 (hidden input에 spread). ref도 받음. */
   inputProps?: React.InputHTMLAttributes<HTMLInputElement> & {
     ref?: React.Ref<HTMLInputElement>
   }
@@ -35,7 +37,6 @@ export interface DateInputWithDowProps {
   disabled?: boolean
   min?: string
   max?: string
-  /** 빈 값일 때 표시 텍스트 (기본 'YYYY-MM-DD') */
   placeholder?: string
   ariaLabel?: string
   id?: string
@@ -47,6 +48,16 @@ const SIZE_CLASS: Record<Size, string> = {
   md: 'h-10 px-3 text-sm',
 }
 
+function parseYMD(s: string | undefined): Date | null {
+  if (!s) return null
+  try {
+    const d = parseISO(s)
+    return isNaN(d.getTime()) ? null : d
+  } catch {
+    return null
+  }
+}
+
 const DateInputWithDow = forwardRef<HTMLInputElement, DateInputWithDowProps>(
   function DateInputWithDow(
     {
@@ -56,9 +67,11 @@ const DateInputWithDow = forwardRef<HTMLInputElement, DateInputWithDowProps>(
     },
     externalRef,
   ) {
-    const localRef = useRef<HTMLInputElement>(null)
+    const [open, setOpen] = useState(false)
+    const containerRef = useRef<HTMLDivElement>(null)
+    const inputRef = useRef<HTMLInputElement>(null)
     const setRef = (el: HTMLInputElement | null) => {
-      localRef.current = el
+      inputRef.current = el
       if (typeof externalRef === 'function') externalRef(el)
       else if (externalRef) (externalRef as React.MutableRefObject<HTMLInputElement | null>).current = el
       const ipRef = inputProps?.ref
@@ -66,64 +79,104 @@ const DateInputWithDow = forwardRef<HTMLInputElement, DateInputWithDowProps>(
       else if (ipRef) (ipRef as React.MutableRefObject<HTMLInputElement | null>).current = el
     }
 
-    const open = () => {
-      if (disabled || inputProps?.disabled) return
-      const el = localRef.current
-      if (!el) return
-      // showPicker는 사용자 제스처 안에서만 동작 — 버튼 onClick에서 호출하면 OK
-      type WithShowPicker = HTMLInputElement & { showPicker?: () => void }
-      const withPicker = el as WithShowPicker
-      if (typeof withPicker.showPicker === 'function') {
-        try { withPicker.showPicker(); return } catch { /* fallback */ }
+    // 외부 클릭 / ESC 닫힘
+    useEffect(() => {
+      if (!open) return
+      const handleClick = (e: MouseEvent) => {
+        if (!containerRef.current?.contains(e.target as Node)) setOpen(false)
       }
-      el.focus()
-    }
+      const handleKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') setOpen(false)
+      }
+      document.addEventListener('mousedown', handleClick)
+      document.addEventListener('keydown', handleKey)
+      return () => {
+        document.removeEventListener('mousedown', handleClick)
+        document.removeEventListener('keydown', handleKey)
+      }
+    }, [open])
 
+    const isDisabled = !!(disabled || inputProps?.disabled)
     const dow = value ? dowKo(value) : ''
     const hasValue = !!value
 
+    const selectedDate = useMemo(() => parseYMD(value), [value])
+    const minDate = useMemo(() => parseYMD(min), [min])
+    const maxDate = useMemo(() => parseYMD(max), [max])
+
+    const handleSelect = (date: Date | undefined) => {
+      if (!date) return
+      const s = format(date, 'yyyy-MM-dd')
+      // RHF register의 onChange 호환
+      if (inputProps?.onChange) {
+        const ev = {
+          target: { value: s, name: name ?? inputProps.name ?? '' },
+          currentTarget: { value: s, name: name ?? inputProps.name ?? '' },
+        } as unknown as React.ChangeEvent<HTMLInputElement>
+        inputProps.onChange(ev)
+      }
+      onChange?.(s)
+      setOpen(false)
+    }
+
     return (
-      <button
-        type="button"
-        onClick={open}
-        disabled={disabled || inputProps?.disabled}
-        aria-label={ariaLabel ?? '날짜 선택'}
-        className={cn(
-          'relative inline-flex items-center justify-between rounded-[10px] border bg-surface',
-          'border-border-strong hover:border-text-muted transition-colors',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/20 focus-visible:border-primary-500',
-          'disabled:opacity-50 disabled:cursor-not-allowed',
-          SIZE_CLASS[size],
-          className,
-        )}
-      >
-        <span className="flex items-center gap-1.5 min-w-0">
-          <span className={cn('tabular-nums truncate', !hasValue && 'text-text-muted')}>
-            {value || placeholder}
+      <div ref={containerRef} className={cn('relative inline-block', className)}>
+        <button
+          type="button"
+          onClick={() => !isDisabled && setOpen(o => !o)}
+          disabled={isDisabled}
+          aria-label={ariaLabel ?? '날짜 선택'}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          className={cn(
+            'w-full inline-flex items-center justify-between rounded-[10px] border bg-surface',
+            'border-border-strong hover:border-text-muted transition-colors',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/20 focus-visible:border-primary-500',
+            'disabled:opacity-50 disabled:cursor-not-allowed',
+            SIZE_CLASS[size],
+          )}
+        >
+          <span className="flex items-center gap-1.5 min-w-0">
+            <span className={cn('tabular-nums truncate', !hasValue && 'text-text-muted')}>
+              {value || placeholder}
+            </span>
+            {dow && <span className="text-text-muted shrink-0">({dow})</span>}
           </span>
-          {dow && <span className="text-text-muted shrink-0">({dow})</span>}
-        </span>
-        <Calendar className="h-4 w-4 text-text-muted ml-2 shrink-0" aria-hidden />
-        {/* 실제 native date input — 시각적으로 숨기고 picker만 사용 */}
+          <Calendar className="h-4 w-4 text-text-muted ml-2 shrink-0" aria-hidden />
+        </button>
+
+        {/* hidden input — RHF register / form submit 호환 */}
         <input
           {...inputProps}
           ref={setRef}
           id={id ?? inputProps?.id}
           name={name ?? inputProps?.name}
-          type="date"
-          value={value}
-          min={min ?? inputProps?.min}
-          max={max ?? inputProps?.max}
-          disabled={disabled || inputProps?.disabled}
-          tabIndex={-1}
-          aria-hidden
-          onChange={e => {
-            inputProps?.onChange?.(e)
-            onChange?.(e.target.value)
-          }}
-          className="sr-only"
+          type="hidden"
+          value={value ?? ''}
+          onChange={() => { /* hidden — 변경은 popover 선택으로만 */ }}
+          disabled={isDisabled}
         />
-      </button>
+
+        {open && (
+          <div
+            role="dialog"
+            className="absolute z-[100] mt-1 left-0 rounded-[10px] border border-border-strong bg-surface shadow-lg p-2"
+          >
+            <DayPicker
+              mode="single"
+              locale={ko}
+              selected={selectedDate ?? undefined}
+              onSelect={handleSelect}
+              disabled={[
+                ...(minDate ? [{ before: minDate }] : []),
+                ...(maxDate ? [{ after: maxDate }] : []),
+              ]}
+              showOutsideDays
+              weekStartsOn={0}
+            />
+          </div>
+        )}
+      </div>
     )
   },
 )
