@@ -12,11 +12,11 @@
  * - 타인 row + 일반 사용자: 조회만
  */
 
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { AlertCircle, CheckCircle2, Send, Loader2, ExternalLink } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
-import { Button } from '@/components/ui'
+import Pagination from '@/components/Pagination'
 import type {
   MissingReportItem,
   MissingReportsResponse,
@@ -36,8 +36,6 @@ interface Props {
   canSendNotify: boolean
 }
 
-const PAGE_SIZE = 50
-
 function dowKo(dateStr: string): string {
   try { return format(parseISO(dateStr), 'eee', { locale: ko }) } catch { return '' }
 }
@@ -46,6 +44,7 @@ export default function MissingReportsListView({
   from, to, division, team, name, refreshKey = 0, canSendNotify,
 }: Props) {
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
   const [data, setData] = useState<MissingReportsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -66,7 +65,7 @@ export default function MissingReportsListView({
     const params = new URLSearchParams({
       from, to,
       page: String(page),
-      limit: String(PAGE_SIZE),
+      limit: String(pageSize),
     })
     if (division) params.set('division', division)
     if (team) params.set('team', team)
@@ -89,7 +88,7 @@ export default function MissingReportsListView({
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [from, to, division, team, name, page, refreshKey])
+  }, [from, to, division, team, name, page, pageSize, refreshKey])
 
   const rowKey = (it: MissingReportItem) => `${it.email}|${it.date}|${it.status}`
 
@@ -146,11 +145,6 @@ export default function MissingReportsListView({
     }
   }, [])
 
-  const totalPages = useMemo(() => {
-    if (!data) return 1
-    return Math.max(1, Math.ceil(data.total / data.limit))
-  }, [data])
-
   // ─── 렌더링 ────────────────────────────────────────────────────────────────
   if (loading && !data) {
     return (
@@ -187,13 +181,10 @@ export default function MissingReportsListView({
         <AlertCircle className="h-4 w-4 text-danger-text shrink-0" aria-hidden />
         <h3 className="text-[13px] font-semibold text-danger-text">
           미보고 {data.total}건
-          <span className="ml-2 font-normal text-[12px] text-text-secondary">
-            (페이지 {data.page} / {totalPages})
-          </span>
         </h3>
       </div>
 
-      {/* 리스트 */}
+      {/* 리스트 + 페이지네이션 (한 박스) */}
       <div className="rounded-2xl border border-border bg-surface overflow-hidden">
         <ul className="divide-y divide-border">
           {data.items.map(it => (
@@ -208,29 +199,14 @@ export default function MissingReportsListView({
             />
           ))}
         </ul>
-      </div>
-
-      {/* 페이지네이션 */}
-      <div className="flex items-center justify-center gap-3 pt-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={page <= 1 || loading}
-          onClick={() => setPage(p => Math.max(1, p - 1))}
-        >
-          ← 이전
-        </Button>
-        <span className="text-[13px] text-text-secondary tabular-nums">
-          {data.page} / {totalPages}
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={page >= totalPages || loading}
-          onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-        >
-          다음 →
-        </Button>
+        <Pagination
+          totalCount={data.total}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          unit="건"
+        />
       </div>
     </div>
   )
