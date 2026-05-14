@@ -1030,6 +1030,9 @@ export default function WorkLogForm({
       </div>
       )}
 
+      {/* ─── 부가 영역 wrapper — 4(출근보고)/5(기타)를 묶어서 본문(1~3)과 시각 분리 ─── */}
+      <div className="mt-8 pt-6 border-t-[3px] border-border-strong rounded-xl bg-background p-4 sm:p-6 -mx-1 sm:-mx-2 space-y-8">
+
       {/* 4. 출근보고 — showCheckInSections일 때만 표시 (퇴근보고 수정에서는 hidden 유지) */}
       {showCheckInSections && (
       <div>
@@ -1183,6 +1186,9 @@ export default function WorkLogForm({
           </div>
         </div>
       </div>
+
+      </div>
+      {/* ─── 부가 영역 wrapper 끝 ─── */}
 
       {submitError && (
         <div className="rounded-md bg-danger-bg p-4">
