@@ -102,10 +102,12 @@ const formSchema = z.object({
   // 본문 휴가/반차
   leaveTimeline: z.array(leaveItemZ).optional(),
 
-  /** 휴게시간 (= 점심 외 추가 휴게). 점심 1h는 워크타입에 따라 자동 차감. */
-  breakTime: z.string().min(1, '휴게시간을 선택해주세요'),
+  /** 휴게시간 (= 점심 외 추가 휴게). 점심 1h는 워크타입에 따라 자동 차감.
+      base는 optional — 출근보고 수정 모드(_editScope='check_in')에서는 본문 영역이
+      UI에 없어 빈 채로 들어옴. 본문 케이스 검증은 superRefine에서 분기. */
+  breakTime: z.string().optional(),
   breakReason: z.string().optional(),
-  workContent: z.string().min(1, '근무내용을 입력해주세요'),
+  workContent: z.string().optional(),
 
   lateOrAttendanceStatus: z.enum(['아니오', '예']),
   previousReportTime: z.string().optional(),
@@ -122,11 +124,17 @@ const formSchema = z.object({
 
   thanksMacaron: z.string().optional(),
   sendTeams: z.boolean().optional(),
+
+  /** 메타 — 편집 모드 + scope. UI는 showCheckIn/Out으로 분기되는데, schema도
+      같은 분기를 알아야 본문 영역이 노출 안 된 케이스(check_in 수정)에서 빈 본문을
+      validation으로 막지 않음. 형식상 form field지만 input은 없고 default로 주입. */
+  _editScope: z.enum(['check_in', 'check_out']).optional(),
 }).superRefine((data, ctx) => {
   const leaveTl = (data.leaveTimeline ?? []) as LeaveTimeline
   const isAllDay = isFullDayLeave(leaveTl)
+  const isCheckInOnly = data._editScope === 'check_in'
 
-  // 휴가 자체 검증
+  // 휴가 자체 검증 — 항상
   const leaveErrors = validateLeaveTimeline(leaveTl)
   leaveErrors.forEach(err => {
     ctx.addIssue({
@@ -138,26 +146,34 @@ const formSchema = z.object({
     })
   })
 
-  // 본문 — 종일 휴가 아닐 때 시간 + 칩 검증
-  if (!isAllDay) {
-    if (!data.startTime || !/^(\d{1,2}):(00|30)$/.test(data.startTime)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '출근시간을 30분 단위로 선택해주세요.', path: ['startTime'] })
+  // 본문(퇴근보고 영역) 검증 — 출근보고 수정 모드면 UI에 없으므로 skip
+  if (!isCheckInOnly) {
+    if (!data.breakTime || data.breakTime.length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '휴게시간을 선택해주세요', path: ['breakTime'] })
     }
-    if (!data.endTime || !/^(\d{1,2}):(00|30)$/.test(data.endTime)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '퇴근시간을 30분 단위로 선택해주세요.', path: ['endTime'] })
+    if (!data.workContent || data.workContent.trim().length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '근무내용을 입력해주세요', path: ['workContent'] })
     }
+    if (!isAllDay) {
+      if (!data.startTime || !/^(\d{1,2}):(00|30)$/.test(data.startTime)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: '출근시간을 30분 단위로 선택해주세요.', path: ['startTime'] })
+      }
+      if (!data.endTime || !/^(\d{1,2}):(00|30)$/.test(data.endTime)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: '퇴근시간을 30분 단위로 선택해주세요.', path: ['endTime'] })
+      }
 
-    const actual = (data.actualWorkLocations ?? []) as WorkLocations
-    const locErrors = validateWorkLocations(actual)
-    locErrors.forEach(err => {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: err.message,
-        path: typeof err.index === 'number'
-          ? ['actualWorkLocations', err.index]
-          : ['actualWorkLocations'],
+      const actual = (data.actualWorkLocations ?? []) as WorkLocations
+      const locErrors = validateWorkLocations(actual)
+      locErrors.forEach(err => {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: err.message,
+          path: typeof err.index === 'number'
+            ? ['actualWorkLocations', err.index]
+            : ['actualWorkLocations'],
+        })
       })
-    })
+    }
   }
 
   if (data.lateOrAttendanceStatus === '예') {
@@ -435,6 +451,7 @@ export default function WorkLogForm({
           expectedLeaveTimeline: (editingLog.expected_leave_timeline ?? []) as LeaveTimeline,
           thanksMacaron: (editingLog.thanks_macaron as string | null) ?? '',
           sendTeams: true,
+          _editScope: editScope,
         }
       : {
           name: userName || '',
@@ -461,6 +478,7 @@ export default function WorkLogForm({
           plannedWorkLocations: defaultPlannedLocations,
           expectedLeaveTimeline: [] as LeaveTimeline,
           sendTeams: true,
+          _editScope: editScope,
         },
   })
 
@@ -770,8 +788,16 @@ export default function WorkLogForm({
       <div>
         <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">기본 정보</h3>
         <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-2">
-          {/* 이름은 userName prop으로 자동 세팅 — UI 노출 X (수정 불가) */}
-          <input type="hidden" {...register('name')} />
+          {/* 이름은 userName prop으로 자동 세팅 — UI 노출 X.
+              type="hidden" 대신 readOnly + sr-only로 RHF 동기화 안전 보장. */}
+          <input
+            type="text"
+            {...register('name')}
+            readOnly
+            tabIndex={-1}
+            aria-hidden
+            className="sr-only"
+          />
 
           <div>
             <label className="block text-sm font-medium text-text-primary">근무유형 *</label>
