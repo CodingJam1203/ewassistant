@@ -368,68 +368,88 @@ export async function PATCH(
       )
     }
 
+    // ─── 영역별 update 분기 ──────────────────────────────────────────────────
+    // _editScope 메타로 사용자가 어느 영역만 수정했는지 구분.
+    //   'check_in'  → 출근보고(D+1 expected_*) 영역만 수정. 본문(퇴근보고) 영역은 그대로 유지.
+    //   'check_out' → 본문(퇴근보고) 영역만 수정. 출근보고 영역은 그대로 유지.
+    //   undefined   → 양쪽 모두 (전체 수정 / 신규).
+    // 이 분기 없이 무지성 update면 출근보고만 수정해도 본문 default값(09:00, 18:00,
+    // 사무실 등)이 함께 set돼서 사용자가 작성하지 않은 퇴근보고가 강제 생성됨.
+    const editScope = body._editScope as 'check_in' | 'check_out' | undefined
+    const isCheckInOnly  = editScope === 'check_in'
+    const isCheckOutOnly = editScope === 'check_out'
+
     const updates: Record<string, unknown> = {
       name: body.name,
       work_type_label: body.workTypeLabel,
-      work_type_code: calcResult.workTypeCode,
       leave_date: body.leaveDate,
-      start_time: mod24HHmm(finalStartTime),
-      end_time:   mod24HHmm(finalEndTime),
-      break_time: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
-      break_reason: body.breakReason || null,
-      work_content: body.workContent || null,
-      work_location: finalWorkLocation,
-      work_location_type: body.workLocationType || null,
-      deduction_time: `${calcResult.deductionMinutes} minutes`,
-      actual_work_time: `${snappedActualMin} minutes`,
-      ew_start: calcResult.ewStartText,
-      ew_end: calcResult.ewEndText,
-      ew_value: calcResult.ewValue,
-      copy_text: calcResult.copyText,
       updated_at: new Date().toISOString(),
       updated_by: user.id,
     }
 
-    if (workLocationTimelinePatch !== undefined) {
-      updates.work_location_timeline = workLocationTimelinePatch
+    // 본문(퇴근보고) 영역 — check_in 전용 수정이 아닐 때만 update
+    if (!isCheckInOnly) {
+      Object.assign(updates, {
+        work_type_code: calcResult.workTypeCode,
+        start_time: mod24HHmm(finalStartTime),
+        end_time:   mod24HHmm(finalEndTime),
+        break_time: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
+        break_reason: body.breakReason || null,
+        work_content: body.workContent || null,
+        work_location: finalWorkLocation,
+        work_location_type: body.workLocationType || null,
+        deduction_time: `${calcResult.deductionMinutes} minutes`,
+        actual_work_time: `${snappedActualMin} minutes`,
+        ew_start: calcResult.ewStartText,
+        ew_end: calcResult.ewEndText,
+        ew_value: calcResult.ewValue,
+        copy_text: calcResult.copyText,
+      })
+      if (workLocationTimelinePatch !== undefined) {
+        updates.work_location_timeline = workLocationTimelinePatch
+      }
+      if (actualWorkLocationsPatch !== undefined) {
+        updates.actual_work_locations = actualWorkLocationsPatch
+      }
+      if (leaveTimelinePatch !== undefined) {
+        updates.leave_timeline = leaveTimelinePatch
+      }
+      if (body.breakAutoActualMinutes !== undefined) {
+        updates.break_auto_actual_minutes = breakAutoActualMin
+      }
+      if (body.breakAutoRoundedMinutes !== undefined) {
+        updates.break_auto_rounded_minutes = breakAutoRoundedMin
+      }
+      if (body.breakManualRoundedMinutes !== undefined) {
+        updates.break_manual_rounded_minutes = breakManualRoundedMin
+      }
+      if (body.breakFinalRoundedMinutes !== undefined) {
+        updates.break_final_rounded_minutes = breakFinalRoundedMin
+      }
     }
-    if (actualWorkLocationsPatch !== undefined) {
-      updates.actual_work_locations = actualWorkLocationsPatch
-    }
-    if (plannedWorkLocationsPatch !== undefined) {
-      updates.planned_work_locations = plannedWorkLocationsPatch
-    }
-    if (leaveTimelinePatch !== undefined) {
-      updates.leave_timeline = leaveTimelinePatch
-    }
-    if (expectedLeaveTimelinePatch !== undefined) {
-      updates.expected_leave_timeline = expectedLeaveTimelinePatch
-    }
-    if (body.breakAutoActualMinutes !== undefined) {
-      updates.break_auto_actual_minutes = breakAutoActualMin
-    }
-    if (body.breakAutoRoundedMinutes !== undefined) {
-      updates.break_auto_rounded_minutes = breakAutoRoundedMin
-    }
-    if (body.breakManualRoundedMinutes !== undefined) {
-      updates.break_manual_rounded_minutes = breakManualRoundedMin
-    }
-    if (body.breakFinalRoundedMinutes !== undefined) {
-      updates.break_final_rounded_minutes = breakFinalRoundedMin
-    }
-    if (expectedTimelinePatch !== undefined) {
-      updates.expected_work_location_timeline = expectedTimelinePatch
-    }
-    if (mirrorExpectedWorkLocation !== undefined) {
-      updates.expected_work_location = mirrorExpectedWorkLocation
-    }
-    if (mirrorExpectedWorkTime !== undefined) {
-      updates.expected_work_time = mirrorExpectedWorkTime
-    }
-    if (body.attendanceRecordType !== undefined && body.expectedStartDate !== undefined) {
-      updates.expected_start_date = body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
-        ? body.expectedStartDate
-        : null
+
+    // 출근보고(D+1 expected_*) 영역 — check_out 전용 수정이 아닐 때만 update
+    if (!isCheckOutOnly) {
+      if (plannedWorkLocationsPatch !== undefined) {
+        updates.planned_work_locations = plannedWorkLocationsPatch
+      }
+      if (expectedLeaveTimelinePatch !== undefined) {
+        updates.expected_leave_timeline = expectedLeaveTimelinePatch
+      }
+      if (expectedTimelinePatch !== undefined) {
+        updates.expected_work_location_timeline = expectedTimelinePatch
+      }
+      if (mirrorExpectedWorkLocation !== undefined) {
+        updates.expected_work_location = mirrorExpectedWorkLocation
+      }
+      if (mirrorExpectedWorkTime !== undefined) {
+        updates.expected_work_time = mirrorExpectedWorkTime
+      }
+      if (body.attendanceRecordType !== undefined && body.expectedStartDate !== undefined) {
+        updates.expected_start_date = body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
+          ? body.expectedStartDate
+          : null
+      }
     }
 
     const { data, error } = await adminClient
