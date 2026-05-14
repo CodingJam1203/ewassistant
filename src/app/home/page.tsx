@@ -540,20 +540,24 @@ export default function HomePage() {
       <StatusCard tone={headerTone} padding="lg">
         {/* 1행: 이름 + 상태 배지 / 날짜 + 새로고침 */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="min-w-0">
-              <div className="text-[11px] font-semibold tracking-[0.08em] text-text-muted uppercase">
-                MY PAGE
-              </div>
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold tracking-[0.08em] text-text-muted uppercase">
+              MY PAGE
+            </div>
+            <div className="flex items-center gap-2.5 min-w-0">
               <h2 className="text-xl sm:text-2xl font-bold text-text-primary leading-tight truncate">
                 {userName ? `${userName}님` : '내 업무'}
               </h2>
+              {myCard && (
+                <Badge
+                  variant={colorToBadgeVariant(myCard.color)}
+                  dot
+                  className="h-7 px-3 text-[13px] shrink-0"
+                >
+                  {myCard.status_text}
+                </Badge>
+              )}
             </div>
-            {myCard && (
-              <Badge variant={colorToBadgeVariant(myCard.color)} dot>
-                {myCard.status_text}
-              </Badge>
-            )}
           </div>
           {/* 날짜 이동 + 강조 영역 */}
           <div className="flex items-center gap-1.5">
