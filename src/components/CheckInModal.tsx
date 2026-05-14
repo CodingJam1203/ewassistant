@@ -366,7 +366,7 @@ export default function CheckInModal({
                   {calendarLookup.leaveType && (
                     <li>
                       <span className="font-semibold text-warning-text">{calendarLookup.leaveLabel}</span>
-                      <span className="ml-1 text-text-muted">— 아래 휴가/반차에 자동 반영됨</span>
+                      <span className="ml-1 text-text-muted">— 아래 휴가에 자동 반영됨</span>
                     </li>
                   )}
                   {calendarLookup.events.map((ev, i) => (
@@ -377,9 +377,9 @@ export default function CheckInModal({
             </div>
           )}
 
-          {/* 휴가/반차 */}
+          {/* 휴가 */}
           <div>
-            <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">휴가/반차</label>
+            <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">휴가</label>
             <LeaveTimelineInput value={leaveTimeline} onChange={setLeaveTimeline} />
           </div>
 

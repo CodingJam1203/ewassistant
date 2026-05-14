@@ -822,13 +822,7 @@ export default function WorkLogForm({
       {/* 2. 휴가/반차 (퇴근보고 영역) */}
       {showCheckOutSections && (
       <div>
-        <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">휴가/반차</h3>
-        {hasReducedLeave && (
-          <div className="mb-2 rounded-[10px] border border-info-border bg-info-bg px-3 py-2 text-[12px] text-info-text">
-            ⓘ 반차 사용 시 출퇴근시간은 <span className="font-semibold">09:00~18:00</span> 표준 폭으로 자동 계산됩니다.
-            (회사 EW 시트 정책 — 휴가시간 차감으로 실근무 4H 인정)
-          </div>
-        )}
+        <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">휴가</h3>
         <LeaveTimelineInput
           value={(formValues.leaveTimeline ?? []) as LeaveTimeline}
           onChange={next => setValue('leaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
