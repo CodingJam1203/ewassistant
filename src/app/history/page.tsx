@@ -162,23 +162,30 @@ export default function HistoryPage() {
 
         <FilterBar.Field label="이름 검색">
           <div className="flex items-center gap-1">
-            <Input
-              type="text"
-              placeholder="이름 입력 후 Enter"
-              value={pendingName}
-              onChange={e => setPendingName(e.target.value)}
-              onKeyDown={e => {
-                // 한글 IME 합성 중 Enter는 변환 확정용 — submit 트리거 X
-                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                  e.preventDefault()
-                  submitName()
-                }
-              }}
-              className="w-40"
-            />
-            <Button variant="primary" iconOnly onClick={submitName} aria-label="이름 검색">
-              <Search className="h-4 w-4" aria-hidden />
-            </Button>
+            <div className="relative">
+              <Input
+                type="text"
+                placeholder="이름 입력 후 Enter"
+                value={pendingName}
+                onChange={e => setPendingName(e.target.value)}
+                onKeyDown={e => {
+                  // 한글 IME 합성 중 Enter는 변환 확정용 — submit 트리거 X
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                    e.preventDefault()
+                    submitName()
+                  }
+                }}
+                className="w-44 pr-10"
+              />
+              <button
+                type="button"
+                onClick={submitName}
+                aria-label="이름 검색"
+                className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-8 w-8 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-muted transition-colors"
+              >
+                <Search className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
             {(pendingName || filterName) && (
               <Button variant="ghost" iconOnly onClick={clearName} aria-label="이름 검색 초기화">
                 <X className="h-4 w-4" aria-hidden />
