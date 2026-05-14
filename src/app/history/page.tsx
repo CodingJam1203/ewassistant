@@ -41,6 +41,13 @@ export default function HistoryPage() {
   const [filterDivision, setFilterDivision] = useState('')
   const [filterTeam, setFilterTeam] = useState('')
   const [filterName, setFilterName] = useState('')
+  // 한글 IME 합성 중 매 commit마다 fetch 나가는 걸 막는 debounce.
+  // input value는 즉시 반영되고, API 쿼리 키만 250ms 지연됨 → race + 트래픽 감소.
+  const [debouncedFilterName, setDebouncedFilterName] = useState('')
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedFilterName(filterName), 250)
+    return () => clearTimeout(id)
+  }, [filterName])
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null)
   const [editScope,  setEditScope]  = useState<'check_in' | 'check_out' | undefined>(undefined)
   // 새로고침 button — SubmissionsRawTable의 extraQuery dependency 변경 트리거용 카운터.
@@ -271,7 +278,7 @@ export default function HistoryPage() {
               extraQuery={{
                 ...(filterDivision ? { division: filterDivision } : {}),
                 ...(filterTeam ? { team: filterTeam } : {}),
-                ...(filterName ? { name: filterName } : {}),
+                ...(debouncedFilterName ? { name: debouncedFilterName } : {}),
                 ...(refreshTick > 0 ? { _t: String(refreshTick) } : {}),
               }}
               allowOrgFilter
@@ -286,7 +293,7 @@ export default function HistoryPage() {
               extraQuery={{
                 ...(filterDivision ? { division: filterDivision } : {}),
                 ...(filterTeam ? { team: filterTeam } : {}),
-                ...(filterName ? { name: filterName } : {}),
+                ...(debouncedFilterName ? { name: debouncedFilterName } : {}),
                 ...(refreshTick > 0 ? { _t: String(refreshTick) } : {}),
               }}
               allowOrgFilter
@@ -300,7 +307,7 @@ export default function HistoryPage() {
               to={missingTo}
               division={filterDivision}
               team={filterTeam}
-              name={filterName}
+              name={debouncedFilterName}
               refreshKey={refreshTick}
               canSendNotify={isLeader || isAdmin}
             />

@@ -12,7 +12,7 @@
  * 스타일은 DESIGN.md 기준 — 색상은 디자인 토큰만, 컴포넌트는 ui/* 사용.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
 
@@ -279,7 +279,15 @@ export default function SubmissionsRawTable({
     }
   }
 
+  // 이전 in-flight fetch 취소용. 빠른 타이핑(특히 한글 IME 합성 중)으로
+  // 여러 fetch가 겹칠 때 오래된 응답이 새 응답을 덮어쓰는 race를 막는다.
+  const abortRef = useRef<AbortController | null>(null)
+
   const fetchRows = async () => {
+    abortRef.current?.abort()
+    const ac = new AbortController()
+    abortRef.current = ac
+
     setLoading(true)
     setError(null)
     try {
@@ -299,21 +307,24 @@ export default function SubmissionsRawTable({
       // 조직 전체 조회는 더 많아질 수 있어 500.
       params.set('limit', mine ? '200' : '500')
 
-      const res = await fetch(`${endpoint}?${params}`)
+      const res = await fetch(`${endpoint}?${params}`, { signal: ac.signal })
       const json = await res.json()
+      if (ac.signal.aborted) return
       if (!res.ok) {
         setError(json.error ?? '조회 실패')
         return
       }
       setRows(json.rows ?? [])
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return
       setError(err instanceof Error ? err.message : '네트워크 오류')
     } finally {
-      setLoading(false)
+      if (!ac.signal.aborted) setLoading(false)
     }
   }
 
   useEffect(() => { fetchRows() }, [reportType, updatedOnly, from, to, mine, mode, JSON.stringify(extraQuery)]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   const processedRows = useMemo(() => {
     let r = rows
