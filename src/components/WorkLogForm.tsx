@@ -898,18 +898,7 @@ export default function WorkLogForm({
         </div>
       </div>
 
-      {/* 2. 휴가/반차 (퇴근보고 영역) */}
-      {showCheckOutSections && (
-      <div>
-        <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">휴가</h3>
-        <LeaveTimelineInput
-          value={(formValues.leaveTimeline ?? []) as LeaveTimeline}
-          onChange={next => setValue('leaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
-        />
-      </div>
-      )}
-
-      {/* 3. 출퇴근 시간 + 근무장소 (퇴근보고 영역) — 종일 휴가 아닐 때만 */}
+      {/* 2. 출퇴근 시간 + 근무장소 (퇴근보고 영역) — 종일 휴가 아닐 때만 */}
       {showCheckOutSections && !isAllDay && (
         <div>
           <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">출퇴근 시간 / 근무장소</h3>
@@ -963,7 +952,7 @@ export default function WorkLogForm({
         </div>
       )}
 
-      {/* 4. 휴게/근무내용 (퇴근보고 영역) */}
+      {/* 3. 휴게 및 근무내용 (퇴근보고 영역) — 휴게/휴가/근무내용 통합 */}
       {showCheckOutSections && (
       <div>
         <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">휴게 및 근무내용</h3>
@@ -1015,6 +1004,18 @@ export default function WorkLogForm({
             </div>
           )}
 
+          {/* 휴가/반차 — 위계 정리: 기존 별도 섹션에서 휴게/근무내용 섹션 안으로 이동 */}
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-medium text-text-primary">휴가/반차</label>
+            <p className="mt-1 mb-2 text-xs text-text-secondary">
+              ※ 휴게와 동일한 차감 정책이 적용됩니다.
+            </p>
+            <LeaveTimelineInput
+              value={(formValues.leaveTimeline ?? []) as LeaveTimeline}
+              onChange={next => setValue('leaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
+            />
+          </div>
+
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-text-primary">근무내용 *</label>
             <textarea
@@ -1029,9 +1030,98 @@ export default function WorkLogForm({
       </div>
       )}
 
-      {/* 5. 출근보고 / 지각수정 */}
+      {/* 4. 출근보고 — showCheckInSections일 때만 표시 (퇴근보고 수정에서는 hidden 유지) */}
+      {showCheckInSections && (
       <div>
         <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">출근보고</h3>
+
+        <div className="p-4 bg-surface-muted rounded-lg border border-border">
+          <label className="block text-sm font-medium text-text-primary mb-1">출근보고 진행 여부</label>
+          <p className="mb-2 text-xs text-warning-text">
+            ※ 휴가자는 아래 출근보고에 <span className="font-medium">휴가 복귀날</span>을 선택 후 출근 보고 진행
+          </p>
+          <select
+            {...register('attendanceRecordType')}
+            className="select-tight block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
+          >
+            <option value="출근보고 진행 (주말출근, 휴가 포함)">출근보고 진행 (주말출근, 휴가 포함)</option>
+            <option value="스킵(누락퇴근보고, 퇴근보고 수정)">스킵(누락퇴근보고, 퇴근보고 수정)</option>
+          </select>
+
+          {formValues.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' && (
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-text-secondary">출근 예정 날짜 *</label>
+                <p className="text-xs text-text-muted mt-0.5">내일 출근 날짜를 입력해주세요</p>
+                <div className="mt-1">
+                  <DateInputWithDow
+                    value={formValues.expectedStartDate}
+                    inputProps={register('expectedStartDate')}
+                    className="w-full sm:w-1/2"
+                  />
+                </div>
+                {errors.expectedStartDate && <p className="mt-1 text-xs text-danger-text">{errors.expectedStartDate.message as string}</p>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary">출근예정시간 *</label>
+                  <HalfHourTimeSelect
+                    value={formValues.expectedStartTime ?? ''}
+                    onChange={(v) => setValue('expectedStartTime', v, { shouldValidate: true, shouldDirty: true })}
+                    ariaLabel="출근예정시간"
+                  />
+                  {(errors as { expectedStartTime?: { message?: string } }).expectedStartTime?.message && (
+                    <p className="mt-1 text-xs text-danger-text">
+                      {(errors as { expectedStartTime?: { message?: string } }).expectedStartTime?.message}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary">퇴근예정시간 *</label>
+                  <HalfHourTimeSelect
+                    value={formValues.expectedEndTime ?? ''}
+                    onChange={(v) => setValue('expectedEndTime', v, { shouldValidate: true, shouldDirty: true })}
+                    allowNextDay
+                    ariaLabel="퇴근예정시간"
+                  />
+                  {(errors as { expectedEndTime?: { message?: string } }).expectedEndTime?.message && (
+                    <p className="mt-1 text-xs text-danger-text">
+                      {(errors as { expectedEndTime?: { message?: string } }).expectedEndTime?.message}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* 위계 정리: 근무장소가 다음 출근일 휴가여부 앞으로 */}
+              <div>
+                <label className="block text-xs font-medium text-text-secondary mb-1">근무장소 *</label>
+                <p className="text-[12px] text-text-muted mb-2">
+                  내일 들를 장소를 순서대로 추가하세요. 시간과 무관합니다.
+                </p>
+                <WorkLocationChipsInput
+                  value={(formValues.plannedWorkLocations ?? []) as WorkLocations}
+                  onChange={next => setValue('plannedWorkLocations', next, { shouldValidate: false, shouldDirty: true })}
+                  errors={validateWorkLocations((formValues.plannedWorkLocations ?? []) as WorkLocations)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-text-secondary mb-1">다음 출근일 휴가/반차</label>
+                <LeaveTimelineInput
+                  value={(formValues.expectedLeaveTimeline ?? []) as LeaveTimeline}
+                  onChange={next => setValue('expectedLeaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      )}
+
+      {/* 5. 기타 — 지각/당일수정 + 감사 마카롱 */}
+      <div>
+        <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">기타</h3>
 
         <div className="space-y-6">
           {showCheckOutSections && (
@@ -1082,90 +1172,7 @@ export default function WorkLogForm({
           </div>
           )}
 
-          {showCheckInSections && (
-          <div className="p-4 bg-surface-muted rounded-lg border border-border">
-            <label className="block text-sm font-medium text-text-primary mb-1">출근보고 진행 여부</label>
-            <p className="mb-2 text-xs text-warning-text">
-              ※ 휴가자는 아래 출근보고에 <span className="font-medium">휴가 복귀날</span>을 선택 후 출근 보고 진행
-            </p>
-            <select
-              {...register('attendanceRecordType')}
-              className="select-tight block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
-            >
-              <option value="출근보고 진행 (주말출근, 휴가 포함)">출근보고 진행 (주말출근, 휴가 포함)</option>
-              <option value="스킵(누락퇴근보고, 퇴근보고 수정)">스킵(누락퇴근보고, 퇴근보고 수정)</option>
-            </select>
-
-            {formValues.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' && (
-              <div className="mt-4 space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-text-secondary">출근 예정 날짜 *</label>
-                  <p className="text-xs text-text-muted mt-0.5">내일 출근 날짜를 입력해주세요</p>
-                  <div className="mt-1">
-                    <DateInputWithDow
-                      value={formValues.expectedStartDate}
-                      inputProps={register('expectedStartDate')}
-                      className="w-full sm:w-1/2"
-                    />
-                  </div>
-                  {errors.expectedStartDate && <p className="mt-1 text-xs text-danger-text">{errors.expectedStartDate.message as string}</p>}
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-text-secondary">출근예정시간 *</label>
-                    <HalfHourTimeSelect
-                      value={formValues.expectedStartTime ?? ''}
-                      onChange={(v) => setValue('expectedStartTime', v, { shouldValidate: true, shouldDirty: true })}
-                      ariaLabel="출근예정시간"
-                    />
-                    {(errors as { expectedStartTime?: { message?: string } }).expectedStartTime?.message && (
-                      <p className="mt-1 text-xs text-danger-text">
-                        {(errors as { expectedStartTime?: { message?: string } }).expectedStartTime?.message}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-text-secondary">퇴근예정시간 *</label>
-                    <HalfHourTimeSelect
-                      value={formValues.expectedEndTime ?? ''}
-                      onChange={(v) => setValue('expectedEndTime', v, { shouldValidate: true, shouldDirty: true })}
-                      allowNextDay
-                      ariaLabel="퇴근예정시간"
-                    />
-                    {(errors as { expectedEndTime?: { message?: string } }).expectedEndTime?.message && (
-                      <p className="mt-1 text-xs text-danger-text">
-                        {(errors as { expectedEndTime?: { message?: string } }).expectedEndTime?.message}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-text-secondary mb-1">다음 출근일 휴가/반차</label>
-                  <LeaveTimelineInput
-                    value={(formValues.expectedLeaveTimeline ?? []) as LeaveTimeline}
-                    onChange={next => setValue('expectedLeaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-text-secondary mb-1">근무장소 *</label>
-                  <p className="text-[12px] text-text-muted mb-2">
-                    내일 들를 장소를 순서대로 추가하세요. 시간과 무관합니다.
-                  </p>
-                  <WorkLocationChipsInput
-                    value={(formValues.plannedWorkLocations ?? []) as WorkLocations}
-                    onChange={next => setValue('plannedWorkLocations', next, { shouldValidate: false, shouldDirty: true })}
-                    errors={validateWorkLocations((formValues.plannedWorkLocations ?? []) as WorkLocations)}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-          )}
-
-          <div className="sm:col-span-2">
+          <div>
             <label className="block text-sm font-medium text-text-primary">감사 마카롱 메시지 (선택)</label>
             <textarea
               rows={2}

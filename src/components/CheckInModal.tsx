@@ -345,7 +345,9 @@ export default function CheckInModal({
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
           {/* 날짜 */}
           <div>
-            <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">날짜 *</label>
+            <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
+              {caseMode === 'future' ? '출근 예정 날짜' : '날짜'} *
+            </label>
             <DateInputWithDow
               value={date}
               onChange={v => setDate(v || initialDate)}
@@ -379,12 +381,6 @@ export default function CheckInModal({
               )}
             </div>
           )}
-
-          {/* 휴가 */}
-          <div>
-            <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">휴가</label>
-            <LeaveTimelineInput value={leaveTimeline} onChange={setLeaveTimeline} />
-          </div>
 
           {/* ─── 케이스별 분기 ─── */}
           {!isAllDayLeave && (
@@ -595,6 +591,14 @@ export default function CheckInModal({
               )}
             </>
           )}
+
+          {/* 휴가 — 메모 직전 위치 (위계 정리: 시간/장소 영역 뒤) */}
+          <div>
+            <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
+              {caseMode === 'future' ? '다음 출근일 휴가여부' : '휴가'}
+            </label>
+            <LeaveTimelineInput value={leaveTimeline} onChange={setLeaveTimeline} />
+          </div>
 
           {/* 메모 */}
           <div>
