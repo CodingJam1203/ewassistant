@@ -7,15 +7,16 @@
  *
  * 사용자는 "휴가 시간"만 입력하고, 내부 leaveType 분류(morning_half / full_day)는
  * 시간 기반 자동 매핑:
- *   - 0min                  → none (빈 timeline)
- *   - 30min  ~ 240min (≤4h) → morning_half (반차)
- *   - 270min ~ 480min (>4h) → full_day (종일 휴가)
+ *   - 0min                    → none (빈 timeline)
+ *   - 30min ~ 450min (≤7.5h) → morning_half (반차 — 차감 정확 계산)
+ *   - 480min        (= 8h)   → full_day (종일 휴가)
  *
- * 검증 근거 (EW 영향 분석):
- *   - EW 계산기는 isFullDayLeave (= leaveType === 'full_day')만 분기에 사용
- *   - 그 외 morning_half / afternoon_half 구분은 표시 라벨에만 영향
- *   - 따라서 시간만 보고 morning_half / full_day 자동 분류해도 차감 시간(roundedMinutes)
- *     기반 EW 계산은 그대로 정상 동작
+ * 정확히 정규 근무 길이(8h)만 종일로 분류. 4.5h, 6h, 7.5h 등 "긴 부분 휴가"는
+ * morning_half로 둬야 EW 계산기가 (출퇴근 폭) - (점심) - (휴가)로 정확히 차감.
+ * (이전: ≤4h 반차, >4h 종일 → 6h 휴가가 종일로 잘못 분류돼 actualWork=0 버그.)
+ *
+ * EW 계산기는 isFullDayLeave (= leaveType === 'full_day')만 분기에 사용.
+ * full_day면 actualWork=0, EW="휴가" 강제. 따라서 종일 분류는 신중해야 함.
  */
 
 import { Plane } from 'lucide-react'
@@ -45,11 +46,13 @@ const TIME_OPTIONS: { minutes: number; label: string }[] = (() => {
   return opts
 })()
 
-/** 휴가 시간(분) → leaveType 자동 매핑 */
+/** 휴가 시간(분) → leaveType 자동 매핑.
+ *  정규 근무 길이(480min = 8h)일 때만 full_day. 그 외는 morning_half로 둬서
+ *  차감 시간이 EW 계산에 정확히 반영되게 한다. */
 function minutesToLeaveType(minutes: number): LeaveType | null {
   if (minutes <= 0) return null
-  if (minutes <= 240) return 'morning_half'
-  return 'full_day'
+  if (minutes >= 480) return 'full_day'
+  return 'morning_half'
 }
 
 function timelineToMinutes(timeline: LeaveTimeline): number {
