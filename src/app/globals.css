@@ -144,6 +144,17 @@ select:not(.select-no-tight)::-ms-expand,
 }
 
 /* ---------------------------------------------------------------------------
+ * Cursor — 클릭 가능한 요소는 손가락 포인터로 통일
+ * 브라우저 기본은 <button>이 default 커서라 명시적으로 pointer 지정.
+ * disabled 상태는 그대로 컴포넌트가 cursor-not-allowed 처리.
+ * --------------------------------------------------------------------------- */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+label[for] {
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------------------
  * Focus ring — 모든 interactive 요소가 동일 ring 색상
  * --------------------------------------------------------------------------- */
 :where(button, a, input, select, textarea, [role="button"]):focus-visible {

@@ -81,6 +81,7 @@ const BASE = cn(
   'transition-colors',
   'select-none',
   'whitespace-nowrap',
+  'cursor-pointer',
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-500',
 )
 
