@@ -324,9 +324,13 @@ export async function POST(request: Request) {
 
     let savedLog: Record<string, unknown> | null = null
     if (workLogId) {
+      // UPDATE: 폼의 출퇴근 시간은 daily_work_status(실제 출퇴근)로만 저장.
+      // work_logs.start_time/end_time(=출근예정/퇴근예정)은 보존 — 사용자 의도.
+      const { start_time: _st, end_time: _et, ...dDayDataForUpdate } = dDayData
+      void _st; void _et
       const { data, error: updErr } = await adminClient
         .from('work_logs')
-        .update({ ...dDayData, updated_at: new Date().toISOString(), updated_by: user.id })
+        .update({ ...dDayDataForUpdate, updated_at: new Date().toISOString(), updated_by: user.id })
         .eq('id', workLogId)
         .select()
         .single()
@@ -434,9 +438,11 @@ export async function POST(request: Request) {
       }
     }
 
-    // ─── daily_work_status: checked_out_at 갱신 (퇴근보고이므로) ─────────────
+    // ─── daily_work_status: 폼의 출퇴근 시간 = 실제 출퇴근으로 저장 ─────────────
+    // (정책: 사용자가 폼에 입력한 startTime/endTime은 "예정"이 아닌 "실제"로 반영)
     {
-      const checkedOutAtIso = new Date(`${body.leaveDate}T${(finalEndTime || '18:00').padStart(5, '0')}:00+09:00`).toISOString()
+      const checkedInAtIso  = new Date(`${body.leaveDate}T${(finalStartTime || '09:00').padStart(5, '0')}:00+09:00`).toISOString()
+      const checkedOutAtIso = new Date(`${body.leaveDate}T${(finalEndTime   || '18:00').padStart(5, '0')}:00+09:00`).toISOString()
       await adminClient
         .from('daily_work_status')
         .upsert({
@@ -445,6 +451,7 @@ export async function POST(request: Request) {
           user_profile_id:  null,  // 모를 수 있음
           work_log_id:      workLogId,
           status:           'checked_out',
+          checked_in_at:    checkedInAtIso,
           checked_out_at:   checkedOutAtIso,
           updated_at:       new Date().toISOString(),
         }, { onConflict: 'work_date,user_email' })

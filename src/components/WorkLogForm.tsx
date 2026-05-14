@@ -904,7 +904,7 @@ export default function WorkLogForm({
           <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">출퇴근 시간 / 근무장소</h3>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">출근시간 *</label>
+              <label className="block text-sm font-medium text-text-primary mb-1">실제 출근시간 *</label>
               <HalfHourTimeSelect
                 value={formValues.startTime ?? ''}
                 onChange={(v) => setValue('startTime', v, { shouldValidate: true, shouldDirty: true })}

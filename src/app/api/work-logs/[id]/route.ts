@@ -389,10 +389,10 @@ export async function PATCH(
 
     // 본문(퇴근보고) 영역 — check_in 전용 수정이 아닐 때만 update
     if (!isCheckInOnly) {
+      // 정책: 폼의 출퇴근 시간은 daily_work_status(실제 출퇴근)로만 저장.
+      // work_logs.start_time/end_time(=출근예정/퇴근예정)은 보존.
       Object.assign(updates, {
         work_type_code: calcResult.workTypeCode,
-        start_time: mod24HHmm(finalStartTime),
-        end_time:   mod24HHmm(finalEndTime),
         break_time: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
         break_reason: body.breakReason || null,
         work_content: body.workContent || null,
@@ -469,6 +469,17 @@ export async function PATCH(
       const dailySyncUpdates: Record<string, unknown> = { updated_at: new Date().toISOString() }
       if (body.workLocationType || body.workLocation || actualWorkLocationsPatch !== undefined) {
         dailySyncUpdates.current_location = finalWorkLocation
+      }
+      // 정책 A: 폼의 출퇴근 시간 = 실제 출퇴근 → daily에 저장.
+      // check_in 전용 수정(=출근보고만 수정)이면 본문 시간 안 받았으므로 skip.
+      if (!isCheckInOnly) {
+        const targetDate = body.leaveDate ?? log.leave_date ?? getKstTodayDateString()
+        if (body.startTime) {
+          dailySyncUpdates.checked_in_at = new Date(`${targetDate}T${(body.startTime as string).padStart(5, '0')}:00+09:00`).toISOString()
+        }
+        if (body.endTime) {
+          dailySyncUpdates.checked_out_at = new Date(`${targetDate}T${(body.endTime as string).padStart(5, '0')}:00+09:00`).toISOString()
+        }
       }
       if (Object.keys(dailySyncUpdates).length > 1) {
         await adminClient
