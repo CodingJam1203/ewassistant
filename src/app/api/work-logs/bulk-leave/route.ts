@@ -141,7 +141,7 @@ export async function POST(request: Request) {
 
       const calcResult = calculateEw({
         name: displayName,
-        workTypeLabel: '기본근무 등록',
+        workTypeLabel: '(평일) 기본 근무',
         leaveDate: date,
         startTime,
         endTime,
@@ -158,7 +158,7 @@ export async function POST(request: Request) {
         division: userDivision,
         team: userTeam,
         name: displayName,
-        work_type_label: '기본근무 등록',
+        work_type_label: '(평일) 기본 근무',
         work_type_code: calcResult.workTypeCode,
         leave_date: date,
         start_time: startTime,

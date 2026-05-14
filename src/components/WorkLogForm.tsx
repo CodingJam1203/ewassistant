@@ -415,10 +415,15 @@ export default function WorkLogForm({
           name: editingLog.name,
           workTypeLabel: ((): WorkTypeLabelValue => {
             const stored = editingLog.work_type_label ?? ''
+            // 레거시 라벨은 신규 5종으로 자동 매핑 — 사용자에게 "(구버전)" 표시 노출 X.
+            // 매핑 후 submit 시 새 라벨로 재저장돼 데이터가 자연스럽게 마이그레이션됨.
+            // (workTypeCode는 동일하므로 EW 계산 영향 없음.)
+            if (stored === '기본근무 등록') return '(평일) 기본 근무'
+            if (stored === '간주근로 등록') return '(평일) 간주 근무'
+            if (stored === '공휴일근로 등록') return '일요일·공휴일 근무 (선택)'
             const validNewLabels = [
               '(평일) 기본 근무', '(평일) 간주 근무', '토요일 근무',
               '일요일·공휴일 근무 (선택)', '일요일·공휴일 근무 (필수)',
-              '기본근무 등록', '간주근로 등록', '공휴일근로 등록',
             ] as const
             if ((validNewLabels as readonly string[]).includes(stored)) {
               return stored as WorkTypeLabelValue
@@ -826,12 +831,13 @@ export default function WorkLogForm({
               <option value="토요일 근무">토요일 근무</option>
               <option value="일요일·공휴일 근무 (선택)">일요일·공휴일 근무 (선택)</option>
               <option value="일요일·공휴일 근무 (필수)">일요일·공휴일 근무 (필수)</option>
-              {/* 레거시 라벨은 편집 모드에서 기존 값 유지용으로 hidden 노출 */}
+              {/* 레거시 라벨은 defaultValues에서 자동 매핑되므로 select에는 노출 X.
+                  혹시 매핑이 누락된 케이스에 대비한 안전장치로만 hidden 표시. */}
               {(formValues.workTypeLabel === '기본근무 등록' ||
                 formValues.workTypeLabel === '간주근로 등록' ||
                 formValues.workTypeLabel === '공휴일근로 등록') && (
                 <option value={formValues.workTypeLabel}>
-                  {formValues.workTypeLabel} (구버전)
+                  {formValues.workTypeLabel}
                 </option>
               )}
             </select>
