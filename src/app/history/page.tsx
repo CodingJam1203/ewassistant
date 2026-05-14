@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, Search, X } from 'lucide-react'
 import WorkLogModal from '@/components/WorkLogModal'
 import SubmissionsRawTable from '@/components/SubmissionsRawTable'
 import MissingReportsListView from '@/components/MissingReportsListView'
@@ -40,14 +40,13 @@ export default function HistoryPage() {
   const [filterMine, setFilterMine] = useState(false)
   const [filterDivision, setFilterDivision] = useState('')
   const [filterTeam, setFilterTeam] = useState('')
+  // pendingName: input 박스가 자유롭게 편집되는 값 (UI only)
+  // filterName: Enter / 검색 버튼으로 명시적으로 적용된 값 (API 쿼리 키)
+  // 데이터가 늘어날수록 매 키스트로크 fetch는 부담 → explicit submit으로 비용 통제.
+  const [pendingName, setPendingName] = useState('')
   const [filterName, setFilterName] = useState('')
-  // 한글 IME 합성 중 매 commit마다 fetch 나가는 걸 막는 debounce.
-  // input value는 즉시 반영되고, API 쿼리 키만 250ms 지연됨 → race + 트래픽 감소.
-  const [debouncedFilterName, setDebouncedFilterName] = useState('')
-  useEffect(() => {
-    const id = setTimeout(() => setDebouncedFilterName(filterName), 250)
-    return () => clearTimeout(id)
-  }, [filterName])
+  const submitName = () => setFilterName(pendingName.trim())
+  const clearName = () => { setPendingName(''); setFilterName('') }
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null)
   const [editScope,  setEditScope]  = useState<'check_in' | 'check_out' | undefined>(undefined)
   // 새로고침 button — SubmissionsRawTable의 extraQuery dependency 변경 트리거용 카운터.
@@ -162,13 +161,30 @@ export default function HistoryPage() {
         </FilterBar.Field>
 
         <FilterBar.Field label="이름 검색">
-          <Input
-            type="text"
-            placeholder="이름 일부..."
-            value={filterName}
-            onChange={e => setFilterName(e.target.value)}
-            className="w-40"
-          />
+          <div className="flex items-center gap-1">
+            <Input
+              type="text"
+              placeholder="이름 입력 후 Enter"
+              value={pendingName}
+              onChange={e => setPendingName(e.target.value)}
+              onKeyDown={e => {
+                // 한글 IME 합성 중 Enter는 변환 확정용 — submit 트리거 X
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  submitName()
+                }
+              }}
+              className="w-40"
+            />
+            <Button variant="primary" iconOnly onClick={submitName} aria-label="이름 검색">
+              <Search className="h-4 w-4" aria-hidden />
+            </Button>
+            {(pendingName || filterName) && (
+              <Button variant="ghost" iconOnly onClick={clearName} aria-label="이름 검색 초기화">
+                <X className="h-4 w-4" aria-hidden />
+              </Button>
+            )}
+          </div>
         </FilterBar.Field>
 
         <FilterBar.Field label="범위">
@@ -191,7 +207,7 @@ export default function HistoryPage() {
             onClick={() => {
               setFilterDivision('')
               setFilterTeam('')
-              setFilterName('')
+              clearName()
               setFilterMine(false)
             }}
           >
@@ -278,7 +294,7 @@ export default function HistoryPage() {
               extraQuery={{
                 ...(filterDivision ? { division: filterDivision } : {}),
                 ...(filterTeam ? { team: filterTeam } : {}),
-                ...(debouncedFilterName ? { name: debouncedFilterName } : {}),
+                ...(filterName ? { name: filterName } : {}),
                 ...(refreshTick > 0 ? { _t: String(refreshTick) } : {}),
               }}
               allowOrgFilter
@@ -293,7 +309,7 @@ export default function HistoryPage() {
               extraQuery={{
                 ...(filterDivision ? { division: filterDivision } : {}),
                 ...(filterTeam ? { team: filterTeam } : {}),
-                ...(debouncedFilterName ? { name: debouncedFilterName } : {}),
+                ...(filterName ? { name: filterName } : {}),
                 ...(refreshTick > 0 ? { _t: String(refreshTick) } : {}),
               }}
               allowOrgFilter
@@ -307,7 +323,7 @@ export default function HistoryPage() {
               to={missingTo}
               division={filterDivision}
               team={filterTeam}
-              name={debouncedFilterName}
+              name={filterName}
               refreshKey={refreshTick}
               canSendNotify={isLeader || isAdmin}
             />
