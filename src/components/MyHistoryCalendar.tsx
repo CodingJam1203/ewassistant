@@ -43,7 +43,7 @@ import type { DayStatus, SubmissionStatusResponse } from '@/app/api/my/submissio
 
 interface MyHistoryCalendarProps {
   /** 셀 / 상세 모달의 ✏ 수정 버튼이 트리거하는 콜백 (부모가 WorkLogModal 띄움) */
-  onEditWorkLog?: (workLogId: string, scope: 'check_in' | 'check_out') => void
+  onEditWorkLog?: (workLogId: string, scope: 'check_in' | 'check_out', cellDate?: string) => void
   /** 상세 모달의 "출근보고 작성" 버튼 — 부모가 그 날짜로 CheckInModal 띄움 */
   onCreateCheckIn?: (date: string) => void
   /** 상세 모달의 "퇴근보고 작성" 버튼 — 부모가 그 날짜로 WorkLogModal 신규 제출 띄움 */
@@ -395,9 +395,9 @@ export default function MyHistoryCalendar({
           onClose={() => setSelectedDate(null)}
           // ✏ 수정 누르면 상세 모달 먼저 닫고 부모(home)의 WorkLogModal로 전환.
           // 그렇지 않으면 두 모달이 겹쳐 보임.
-          onEditWorkLog={(workLogId, scope) => {
+          onEditWorkLog={(workLogId, scope, cellDate) => {
             setSelectedDate(null)
-            onEditWorkLog?.(workLogId, scope)
+            onEditWorkLog?.(workLogId, scope, cellDate)
           }}
           onRegisterVacation={() => {
             // 상세 모달에서 "이 날 휴가 등록" 클릭 시 휴가 모달로 전환

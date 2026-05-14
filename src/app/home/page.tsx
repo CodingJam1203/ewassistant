@@ -309,14 +309,39 @@ export default function HomePage() {
   // 무거운 list fetch 1개를 제거해서 LCP 빠르게.
 
   // ─── 수정 모달 진입 ─────────────────────────────────────────────
+  /**
+   * cellDate가 있고 scope='check_in'이면 — 캘린더에서 셀 클릭한 출근보고 수정 흐름.
+   * 한 work_log row가 D-day 본문(start_time)과 D+1 출근예정(expected_*) 둘 다 담을
+   * 수 있어, cellDate와 row의 leave_date / expected_start_date를 비교해 어느 영역이
+   * 사용자가 수정하려는 데이터인지 판정한다.
+   *
+   *   cellDate == row.leave_date            → D-day 본문 출근 수정 (CheckInModal로 라우팅)
+   *   cellDate == row.expected_start_date   → D+1 출근예정 수정 (WorkLogModal editScope='check_in')
+   *
+   * cellDate 없는 호출(SubmissionsRawTable의 ✏ 버튼 등)은 기존 흐름 유지.
+   */
   const openEditByWorkLogId = async (
     workLogId: string,
     scope: 'check_in' | 'check_out',
+    cellDate?: string,
   ) => {
+    const routeAfterFetch = (log: WorkLog) => {
+      if (scope === 'check_in' && cellDate) {
+        const leaveDate = log.leave_date ?? null
+        const expectedStartDate = log.expected_start_date ?? null
+        if (cellDate === leaveDate && cellDate !== expectedStartDate) {
+          // D-day 본문 출근 수정 — CheckInModal이 자동으로 prefill
+          setCalendarCheckInDate(cellDate)
+          return
+        }
+      }
+      setEditScope(scope)
+      setEditingLog(log)
+    }
+
     const cached = logs.find(l => l.id === workLogId)
     if (cached) {
-      setEditScope(scope)
-      setEditingLog(cached)
+      routeAfterFetch(cached)
       return
     }
     try {
@@ -328,8 +353,7 @@ export default function HomePage() {
       }
       const fresh = (await res.json()) as WorkLog
       setLogs(prev => [fresh, ...prev.filter(l => l.id !== fresh.id)])  // 메모리에 캐시
-      setEditScope(scope)
-      setEditingLog(fresh)
+      routeAfterFetch(fresh)
     } catch {
       alert('해당 보고를 불러오는 중 오류가 발생했습니다.')
     }

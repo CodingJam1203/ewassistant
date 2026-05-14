@@ -38,7 +38,10 @@ export interface CalendarDayDetailModalProps {
   calendar: UserCalendarLookup | null
   onClose: () => void
   /** ✏ 수정 — 부모에서 WorkLogModal 호출 */
-  onEditWorkLog?: (workLogId: string, scope: 'check_in' | 'check_out') => void
+  /** cellDate: 클릭한 캘린더 셀의 날짜 (YYYY-MM-DD). 부모가 work_log row의
+      어느 영역이 셀의 데이터인지 판단할 때 사용 (D-day 본문 vs D+1 expected_*).
+      없으면 부모는 기존 흐름(WorkLogModal editScope)으로 fallback. */
+  onEditWorkLog?: (workLogId: string, scope: 'check_in' | 'check_out', cellDate?: string) => void
   /** "휴가 등록" — 부모에서 VacationRegisterModal 호출 */
   onRegisterVacation?: () => void
   /** "출근보고 작성" — 부모에서 CheckInModal 호출 (해당 date로) */
@@ -130,7 +133,7 @@ export default function CalendarDayDetailModal({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => onEditWorkLog(ci.work_log_id!, 'check_in')}
+                  onClick={() => onEditWorkLog(ci.work_log_id!, 'check_in', date)}
                 >
                   <Pencil className="h-3.5 w-3.5" aria-hidden /> 수정
                 </Button>
@@ -174,7 +177,7 @@ export default function CalendarDayDetailModal({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => onEditWorkLog(co.work_log_id!, 'check_out')}
+                  onClick={() => onEditWorkLog(co.work_log_id!, 'check_out', date)}
                 >
                   <Pencil className="h-3.5 w-3.5" aria-hidden /> 수정
                 </Button>
