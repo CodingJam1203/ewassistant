@@ -369,6 +369,18 @@ export default function HomePage() {
   const openCheckOutFlow = () => {
     if (myCard) setCheckOutTarget(myCard)
   }
+  /**
+   * [퇴근보고 수정] 버튼 — 이미 작성된 work_log row를 editingLog로 라우팅해
+   * WorkLogForm이 work_content/break_time 등 모든 컬럼을 prefill하도록.
+   * (openCheckOutFlow는 신규 작성 용도라 editingLog를 안 넘겨서 prefill 누락됐음)
+   */
+  const openCheckOutEditFlow = () => {
+    if (myCard?.work_log_id) {
+      openEditByWorkLogId(myCard.work_log_id, 'check_out')
+    } else {
+      openCheckOutFlow()
+    }
+  }
 
   /** 휴게 시작/종료 — endpoint 호출 후 카드 다시 fetch */
   const [breakBusy, setBreakBusy] = useState(false)
@@ -701,7 +713,7 @@ export default function HomePage() {
               {buttons.showCheckOutEdit && (
                 <Button
                   variant="secondary"
-                  onClick={openCheckOutFlow}
+                  onClick={openCheckOutEditFlow}
                 >
                   <Check className="h-4 w-4" aria-hidden />
                   퇴근보고 수정
