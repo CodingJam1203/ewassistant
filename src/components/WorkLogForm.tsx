@@ -28,6 +28,7 @@ import { categorizeDate, getKoreanHolidayName, type DateCategory } from '@/lib/k
 import { DateInputWithDow } from '@/components/ui'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
 import LeaveTimelineInput from '@/components/LeaveTimelineInput'
+import type { UserCalendarLookup } from '@/types/leave-calendar'
 import TimeSelect from '@/components/TimeSelect'
 import HalfHourTimeSelect from '@/components/HalfHourTimeSelect'
 import {
@@ -48,6 +49,7 @@ import {
   validateLeaveTimeline,
   totalLeaveRoundedMinutes,
   isFullDayLeave,
+  buildLeaveItem,
   ceilTo30Min,
   minutesToDisplay,
 } from '@/lib/leave-timeline'
@@ -542,6 +544,38 @@ export default function WorkLogForm({
       nameInitialized.current = true
     }
   }, [userName, setValue, isEditing])
+
+  // ─── Google 캘린더 휴가 자동 prefill ─────────────────────────────────────
+  // leaveDate가 처음 set된 후 1회만 시도. 사용자가 명시적으로 비워둔 경우엔 prefill 안 함
+  // (시도 후 ref로 재시도 막음). N-Click leaveTimeline이 이미 있거나 사용자 입력이 있으면
+  // skip — Google 휴가는 보조 prefill 역할일 뿐.
+  const calendarPrefillTriedRef = useRef(false)
+  useEffect(() => {
+    if (calendarPrefillTriedRef.current) return
+    const date = formValues.leaveDate
+    if (!date) return
+    const currentLeave = (formValues.leaveTimeline ?? []) as LeaveTimeline
+    if (currentLeave.length > 0) return  // 이미 휴가 있으면 X (편집 모드 prefill 또는 사용자 입력)
+    calendarPrefillTriedRef.current = true
+
+    let cancelled = false
+    fetch(`/api/team-status/calendar-events?date=${encodeURIComponent(date)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((data: UserCalendarLookup | null) => {
+        if (cancelled || !data?.leaveType) return
+        // 다시 한 번 체크 — fetch 사이 사용자가 입력했을 수도 있음
+        const stillEmpty = ((formValues.leaveTimeline ?? []) as LeaveTimeline).length === 0
+        if (!stillEmpty) return
+        setValue(
+          'leaveTimeline',
+          [buildLeaveItem(data.leaveType, data.leaveLabel ?? undefined, 'calendar')],
+          { shouldDirty: false, shouldValidate: false },
+        )
+      })
+      .catch(() => { /* 무시 */ })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formValues.leaveDate])
 
   // 워크타입 변경 시 휴게값 정책:
   //   - 신규 작성: 첫 mount 1회만 breakAuto 기반으로 prefill, 이후엔 사용자 입력 보존

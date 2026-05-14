@@ -22,6 +22,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { isKoreanHoliday, getKoreanHolidayName, isSaturday, isSunday } from '@/lib/kr-holidays'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import type { LeaveTimeline } from '@/types/leave-timeline'
+import { isCalendarEnabled, getCalendarRangeBatch, parseCell } from '@/lib/leave-calendar'
 
 // Vercel Hobby 기본 10s — 1개월치 work_logs 2번 쿼리가 콜드스타트에서 종종 타임아웃 → 30s로 여유
 export const maxDuration = 30
@@ -116,16 +117,18 @@ export async function GET(request: Request) {
     const adminClient = createAdminClient()
     log('adminClient created')
 
-    // 본인 user_profile.created_at — 가입(첫 로그인) 이전 날짜는 'pre_signup'으로 분류
+    // 본인 user_profile — created_at(가입일), division/display_name(Google 캘린더 lookup용)
     const { data: profileRow } = await adminClient
       .from('user_profiles')
-      .select('created_at')
+      .select('created_at, division, display_name')
       .eq('email', user.email)
       .maybeSingle()
     log('profile lookup done')
     const signupDate: string | null = profileRow?.created_at
       ? new Date(profileRow.created_at).toISOString().slice(0, 10)
       : null
+    const userDivision = (profileRow?.division as string | null) ?? null
+    const userDisplayName = (profileRow?.display_name as string | null) ?? null
 
     // 본인 work_logs 일괄 조회 — 출근보고 / 퇴근보고 각각 별도 쿼리 후 client-side 병합.
     //   - .or() with and() 중첩은 PostgREST에서 인덱스 못 타고 풀스캔 → 10s timeout 위험
@@ -217,6 +220,41 @@ export async function GET(request: Request) {
       if (row.leave_date && !row.end_time && isFullDayLeave(row.leave_timeline)) {
         const p = ensure(row.leave_date)
         if (!p.leaveType) p.leaveType = 'full_day'
+      }
+    }
+
+    // ─── Google 캘린더 휴가 반영 ─────────────────────────────────────────────
+    // N-Click 보고가 없는 날도 Google 캘린더에 종일 휴가가 등록돼 있으면 leave로 분류
+    // (그래야 미보고로 잘못 카운트되지 않음). work_logs 기반 leaveType이 이미 있는 날은
+    // 우선순위가 높으므로 덮어쓰지 않음.
+    if (isCalendarEnabled() && userDivision && userDisplayName) {
+      try {
+        // from~to 사이 모든 날짜 (range가 보통 1개월이라 31개 정도)
+        const allDates: string[] = []
+        for (let d = from; d <= to; d = addDays(d, 1)) {
+          allDates.push(d)
+        }
+        const calBatchByDate = await getCalendarRangeBatch(allDates)
+        log(`google calendar batch fetched (${allDates.length} dates)`)
+
+        for (const date of allDates) {
+          const batch = calBatchByDate[date]
+          if (!batch) continue
+          const deptEntries = batch.departments?.[userDivision] ?? []
+          const target = deptEntries.find(e => e.name?.trim() === userDisplayName.trim())
+          if (!target) continue
+          const parsed = parseCell(target.cellValue)
+          if (parsed.leaveType === 'full_day') {
+            const p = ensure(date)
+            if (!p.leaveType) p.leaveType = 'full_day'
+          } else if (parsed.leaveType === 'morning_half' || parsed.leaveType === 'afternoon_half') {
+            const p = ensure(date)
+            if (!p.leaveType) p.leaveType = parsed.leaveType
+          }
+        }
+      } catch (err) {
+        // Google 캘린더 fetch 실패해도 본 흐름 진행 — work_logs 기반으로만 판정
+        console.warn('[submission-status] google calendar lookup failed (continuing):', err)
       }
     }
 

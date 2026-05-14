@@ -210,10 +210,13 @@ export default function CheckInModal({
         const data = await res.json() as UserCalendarLookup
         if (cancelled) return
         setCalendarLookup(data)
-        if (data.leaveType && (!leaveTimeline || leaveTimeline.length === 0)) {
-          setLeaveTimeline([
-            buildLeaveItem(data.leaveType, data.leaveLabel ?? undefined, 'calendar'),
-          ])
+        // functional update — work_logs prefill effect와 race 안전.
+        // 이미 leaveTimeline이 set 되어 있으면(work_logs 또는 사용자 입력) 유지.
+        if (data.leaveType) {
+          setLeaveTimeline(prev => {
+            if (Array.isArray(prev) && prev.length > 0) return prev
+            return [buildLeaveItem(data.leaveType!, data.leaveLabel ?? undefined, 'calendar')]
+          })
         }
       } catch { /* 무시 */ }
     }
