@@ -494,107 +494,127 @@ export async function PATCH(
 
     // ─── Teams 수정 알림 ─────────────────────────────────────────────────────
     try {
-      const isCheckin = log.attendance_record_type === '출근보고 진행 (주말출근, 휴가 포함)'
       const changedFields: ChangedField[] = []
 
       const strEq = (a: string | null | undefined, b: string | null | undefined) =>
         (a ?? '') === (b ?? '')
+      // 시간 정규화 — DB의 TIME("10:00:00")과 body의 HH:mm("10:00")이 같은 의미인데
+      // 문자열로 다르게 보여 변경 없는데 changedFields가 push되던 버그를 막는다.
+      const timeEq = (a: string | null | undefined, b: string | null | undefined) =>
+        fmtTime(a || '') === fmtTime(b || '')
 
+      // 공통 메타 — 항상 비교
       if (!strEq(log.work_type_label, body.workTypeLabel)) {
         changedFields.push({ kind: 'check_out', label: '근무유형', before: log.work_type_label || '미입력', after: body.workTypeLabel || '미입력' })
       }
-      if (!strEq(log.work_location, finalWorkLocation)) {
-        changedFields.push({ kind: 'check_out', label: '근무장소', before: log.work_location || '미입력', after: finalWorkLocation || '미입력' })
-      }
-      // actual chips 변경 비교 (별도 필드)
-      if (actualWorkLocationsPatch !== undefined) {
-        const prev = normalizeWorkLocations(log.actual_work_locations)
-        if (!locationsEqual(prev, actualWorkLocationsPatch)) {
-          changedFields.push({
-            kind: 'check_out',
-            label: '근무장소(실제)',
-            before: prev ? formatChipsArrow(prev) : '미입력',
-            after: actualWorkLocationsPatch ? formatChipsArrow(actualWorkLocationsPatch) : '미입력',
-          })
-        }
-      }
-      if (!strEq(log.start_time, body.startTime)) {
-        changedFields.push({ kind: 'check_out', label: '출근시각', before: fmtTime(log.start_time || ''), after: fmtTime(body.startTime || '') })
-      }
-      if (!strEq(log.end_time, body.endTime)) {
-        changedFields.push({ kind: 'check_out', label: '퇴근시각', before: fmtTime(log.end_time || ''), after: fmtTime(body.endTime || '') })
-      }
 
-      const oldBreak = fmtBreak(log.break_time || '00:00:00')
-      const newBreak = fmtBreak(body.breakTime ? `${body.breakTime}:00` : '00:00:00')
-      if (oldBreak !== newBreak) {
-        changedFields.push({ kind: 'check_out', label: '휴게시간', before: oldBreak, after: newBreak })
-      }
-      if (!strEq(log.work_content, body.workContent)) {
-        changedFields.push({ kind: 'check_out', label: '근무내용', before: log.work_content || '미입력', after: body.workContent || '미입력' })
-      }
-      if (!strEq(log.late_or_attendance_status, body.lateOrAttendanceStatus)) {
-        changedFields.push({ kind: 'check_out', label: '지각/당일수정', before: log.late_or_attendance_status || '아니오', after: body.lateOrAttendanceStatus || '아니오' })
-      }
-      if (body.lateOrAttendanceStatus === '예') {
-        if (!strEq(log.previous_report_time, body.previousReportTime)) {
-          changedFields.push({ kind: 'check_out', label: '이전보고시각', before: fmtTime(log.previous_report_time || ''), after: fmtTime(body.previousReportTime || '') })
+      // 본문(퇴근보고) 영역 — isCheckInOnly면 UI에 노출 안 됐으므로 비교 자체 skip
+      if (!isCheckInOnly) {
+        if (!strEq(log.work_location, finalWorkLocation)) {
+          changedFields.push({ kind: 'check_out', label: '근무장소', before: log.work_location || '미입력', after: finalWorkLocation || '미입력' })
         }
-        if (!strEq(log.current_report_time, body.currentReportTime)) {
-          changedFields.push({ kind: 'check_out', label: '변경보고시각', before: fmtTime(log.current_report_time || ''), after: fmtTime(body.currentReportTime || '') })
+        if (actualWorkLocationsPatch !== undefined) {
+          const prev = normalizeWorkLocations(log.actual_work_locations)
+          if (!locationsEqual(prev, actualWorkLocationsPatch)) {
+            changedFields.push({
+              kind: 'check_out',
+              label: '근무장소(실제)',
+              before: prev ? formatChipsArrow(prev) : '미입력',
+              after: actualWorkLocationsPatch ? formatChipsArrow(actualWorkLocationsPatch) : '미입력',
+            })
+          }
         }
-        if (!strEq(log.late_reason, body.lateReason)) {
-          changedFields.push({ kind: 'check_out', label: '지각사유', before: log.late_reason || '미입력', after: body.lateReason || '미입력' })
+        if (!timeEq(log.start_time as string | null, body.startTime)) {
+          changedFields.push({ kind: 'check_out', label: '출근시각', before: fmtTime(log.start_time || ''), after: fmtTime(body.startTime || '') })
         }
-      }
-      if (body.expectedStartDate !== undefined && !strEq(log.expected_start_date, body.expectedStartDate)) {
-        changedFields.push({ kind: 'check_in', label: '출근예정일', before: log.expected_start_date || '미입력', after: body.expectedStartDate || '미입력' })
-      }
-      if (mirrorExpectedWorkTime !== undefined && !strEq(log.expected_work_time, mirrorExpectedWorkTime)) {
-        changedFields.push({ kind: 'check_in', label: '출근예정시각', before: fmtTime(log.expected_work_time || ''), after: fmtTime(mirrorExpectedWorkTime || '') })
-      }
-      if (mirrorExpectedWorkLocation !== undefined && !strEq(log.expected_work_location, mirrorExpectedWorkLocation)) {
-        changedFields.push({ kind: 'check_in', label: '출근예정장소', before: log.expected_work_location || '미입력', after: mirrorExpectedWorkLocation || '미입력' })
-      }
-      // planned chips 변경 비교
-      if (plannedWorkLocationsPatch !== undefined) {
-        const prev = normalizeWorkLocations(log.planned_work_locations)
-        if (!locationsEqual(prev, plannedWorkLocationsPatch)) {
-          changedFields.push({
-            kind: 'check_in',
-            label: '근무장소(예정)',
-            before: prev ? formatChipsArrow(prev) : '미입력',
-            after: plannedWorkLocationsPatch ? formatChipsArrow(plannedWorkLocationsPatch) : '미입력',
-          })
+        if (!timeEq(log.end_time as string | null, body.endTime)) {
+          changedFields.push({ kind: 'check_out', label: '퇴근시각', before: fmtTime(log.end_time || ''), after: fmtTime(body.endTime || '') })
+        }
+
+        const oldBreak = fmtBreak(log.break_time || '00:00:00')
+        const newBreak = fmtBreak(body.breakTime ? `${body.breakTime}:00` : '00:00:00')
+        if (oldBreak !== newBreak) {
+          changedFields.push({ kind: 'check_out', label: '휴게시간', before: oldBreak, after: newBreak })
+        }
+        if (!strEq(log.work_content, body.workContent)) {
+          changedFields.push({ kind: 'check_out', label: '근무내용', before: log.work_content || '미입력', after: body.workContent || '미입력' })
+        }
+        if (!strEq(log.late_or_attendance_status, body.lateOrAttendanceStatus)) {
+          changedFields.push({ kind: 'check_out', label: '지각/당일수정', before: log.late_or_attendance_status || '아니오', after: body.lateOrAttendanceStatus || '아니오' })
+        }
+        if (body.lateOrAttendanceStatus === '예') {
+          if (!strEq(log.previous_report_time, body.previousReportTime)) {
+            changedFields.push({ kind: 'check_out', label: '이전보고시각', before: fmtTime(log.previous_report_time || ''), after: fmtTime(body.previousReportTime || '') })
+          }
+          if (!strEq(log.current_report_time, body.currentReportTime)) {
+            changedFields.push({ kind: 'check_out', label: '변경보고시각', before: fmtTime(log.current_report_time || ''), after: fmtTime(body.currentReportTime || '') })
+          }
+          if (!strEq(log.late_reason, body.lateReason)) {
+            changedFields.push({ kind: 'check_out', label: '지각사유', before: log.late_reason || '미입력', after: body.lateReason || '미입력' })
+          }
         }
       }
 
-      const originalReportType = isCheckin ? '출근보고' : '퇴근보고'
-      const scheduledWorkDate  = isCheckin ? (log.expected_start_date ?? null) : null
-
-      let updatedByName = ''
-      try {
-        const { data: actorProfile } = await adminClient
-          .from('user_profiles')
-          .select('display_name')
-          .eq('id', user.id)
-          .maybeSingle()
-        updatedByName = actorProfile?.display_name?.trim() || ''
-      } catch { /* 무시 */ }
-      if (!updatedByName) {
-        updatedByName = isOwner ? (log.name ?? '본인') : '관리자'
+      // 출근보고(D+1 expected_*) 영역 — isCheckOutOnly면 UI에 노출 안 됐으므로 skip
+      if (!isCheckOutOnly) {
+        if (body.expectedStartDate !== undefined && !strEq(log.expected_start_date, body.expectedStartDate)) {
+          changedFields.push({ kind: 'check_in', label: '출근예정일', before: log.expected_start_date || '미입력', after: body.expectedStartDate || '미입력' })
+        }
+        if (mirrorExpectedWorkTime !== undefined && !timeEq(log.expected_work_time as string | null, mirrorExpectedWorkTime)) {
+          changedFields.push({ kind: 'check_in', label: '출근예정시각', before: fmtTime(log.expected_work_time || ''), after: fmtTime(mirrorExpectedWorkTime || '') })
+        }
+        if (mirrorExpectedWorkLocation !== undefined && !strEq(log.expected_work_location, mirrorExpectedWorkLocation)) {
+          changedFields.push({ kind: 'check_in', label: '출근예정장소', before: log.expected_work_location || '미입력', after: mirrorExpectedWorkLocation || '미입력' })
+        }
+        if (plannedWorkLocationsPatch !== undefined) {
+          const prev = normalizeWorkLocations(log.planned_work_locations)
+          if (!locationsEqual(prev, plannedWorkLocationsPatch)) {
+            changedFields.push({
+              kind: 'check_in',
+              label: '근무장소(예정)',
+              before: prev ? formatChipsArrow(prev) : '미입력',
+              after: plannedWorkLocationsPatch ? formatChipsArrow(plannedWorkLocationsPatch) : '미입력',
+            })
+          }
+        }
       }
 
-      notifyWorkLogUpdatedSplit({
-        name: body.name ?? log.name ?? '',
-        leaveDate: body.leaveDate ?? log.leave_date ?? '',
-        division: log.division ?? null,
-        team: log.team ?? null,
-        updatedByName,
-        originalReportType,
-        scheduledWorkDate,
-        changedFields,
-      })
+      // 알림 라벨은 변경된 영역 기반으로 결정 — row.attendance_record_type 신뢰하지 않음.
+      // (row가 D-day 본문 + D+1 출근예정 둘 다 가질 수 있어 고정 라벨이 부정확함.)
+      const hasCheckIn  = changedFields.some(f => f.kind === 'check_in')
+      const hasCheckOut = changedFields.some(f => f.kind === 'check_out')
+      const originalReportType: '출근보고' | '퇴근보고' = hasCheckIn && !hasCheckOut
+        ? '출근보고'
+        : '퇴근보고'
+      const scheduledWorkDate = hasCheckIn ? (body.expectedStartDate ?? log.expected_start_date ?? null) : null
+
+      // 변경 사항 없으면 알림 + submission 기록 모두 skip — "10:00→10:00" 같은
+      // 빈 알림과 의미 없는 로그 row 방지. audit log는 아래에서 계속 남김.
+      if (changedFields.length > 0) {
+        let updatedByName = ''
+        try {
+          const { data: actorProfile } = await adminClient
+            .from('user_profiles')
+            .select('display_name')
+            .eq('id', user.id)
+            .maybeSingle()
+          updatedByName = actorProfile?.display_name?.trim() || ''
+        } catch { /* 무시 */ }
+        if (!updatedByName) {
+          updatedByName = isOwner ? (log.name ?? '본인') : '관리자'
+        }
+
+        notifyWorkLogUpdatedSplit({
+          name: body.name ?? log.name ?? '',
+          leaveDate: body.leaveDate ?? log.leave_date ?? '',
+          division: log.division ?? null,
+          team: log.team ?? null,
+          updatedByName,
+          originalReportType,
+          scheduledWorkDate,
+          changedFields,
+        })
+      }
 
       const checkInChanges  = changedFields.filter(f => f.kind === 'check_in')
       const checkOutChanges = changedFields.filter(f => f.kind === 'check_out')
@@ -677,7 +697,8 @@ export async function PATCH(
         targetId: id,
         details: {
           leaveDate: log.leave_date,
-          isCheckin,
+          editScope: editScope ?? null,
+          reportType: originalReportType,
           changedLabels: changedFields.map(f => f.label),
         },
         ipAddress: auditMeta.ipAddress,
