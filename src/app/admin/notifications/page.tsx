@@ -78,7 +78,7 @@ export default async function NotificationsAdminPage() {
             {logs?.map((log: NotificationLog) => (
               <tr key={log.id} className={TR_HOVER}>
                 <Td className="text-text-primary tabular-nums">
-                  {new Date(log.created_at).toLocaleString('ko-KR')}
+                  {new Date(log.created_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
                 </Td>
                 <Td>
                   <Badge variant={statusVariant(log.status)} dot>{log.status}</Badge>

@@ -4,7 +4,7 @@
  *
  * - MAKE_WEBHOOK_URL is server-only (never exposed to client)
  * - Notification failures never block main functionality
- * - 3-second timeout on webhook calls
+ * - 10-second timeout on webhook calls
  * - Per-event-type ON/OFF via environment variables
  * - Routing: (department + teamName + reportType) -> TeamsReplyTarget
  */
@@ -139,8 +139,10 @@ async function sendToMake(
     return
   }
 
+  // Make.com 시나리오가 모듈 여러 개 거치면 3초로 부족 — 10초로 상향.
+  // (Vercel serverless function의 기본 max duration 10s 이내라 안전.)
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 3000)
+  const timer = setTimeout(() => controller.abort(), 10000)
 
   // console.log('[Teams] Webhook Payload:', JSON.stringify(payload, null, 2))
 
