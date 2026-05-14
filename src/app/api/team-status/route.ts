@@ -88,10 +88,13 @@ function computeStatus(
   const checkedOut = !!(daily?.checked_out_at)
   const onBreak = !!(daily?.is_on_break)
 
-  // work_log.leave_timeline 또는 expected_leave_timeline에 종일 휴가가 있으면 휴가로 인식
-  const leaveTimeline =
-    (workLog?.leave_timeline as Array<{ leaveType?: string }> | null | undefined) ??
-    (workLog?.expected_leave_timeline as Array<{ leaveType?: string }> | null | undefined)
+  // 한 work_log row가 leave_date와 expected_start_date 둘 다 가질 수 있다 (D 퇴근 + D+1 출근).
+  // 조회된 row가 어느 매칭(leave_date vs expected_start_date)으로 잡혔냐에 따라
+  // 오늘에 해당하는 leave 필드만 봐야 한다 — 안 그러면 어제 휴가가 오늘로 새거나
+  // 내일 휴가가 오늘로 새서 잘못된 '휴가' 판정이 발생한다.
+  const leaveTimeline = isExpectedOnly
+    ? (workLog?.expected_leave_timeline as Array<{ leaveType?: string }> | null | undefined)
+    : (workLog?.leave_timeline as Array<{ leaveType?: string }> | null | undefined)
   const hasFullDayLeave =
     Array.isArray(leaveTimeline) && leaveTimeline.some(it => it?.leaveType === 'full_day')
 
