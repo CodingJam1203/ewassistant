@@ -634,18 +634,31 @@ export default function WorkLogForm({
     setSubmitError(null)
 
     try {
-      const submittedLeave = (data.leaveTimeline ?? []) as LeaveTimeline
+      const rawSubmittedLeave = (data.leaveTimeline ?? []) as LeaveTimeline
+      const submittedActual = (data.actualWorkLocations ?? []) as WorkLocations
+      const submittedPlanned = (data.plannedWorkLocations ?? []) as WorkLocations
+      const actualWasTouched = !!data.actualWorkLocationsTouched
+        || !locationsEqual(submittedActual, baselineActualRef.current)
+
+      // ─── 자동 정리: 일반 출퇴근 신호가 있는데 종일 휴가가 prefill로 살아있으면 해제 ──
+      // 휴가 등록 후 같은 날 출퇴근 보고 작성/수정 시 모달 prefill로 leaveTimeline=full_day가
+      // 들어오는데, 사용자가 안 건드리면 그대로 다시 저장되어 모순(휴가 + 사무실 출퇴근) 발생.
+      // 사용자가 명백히 "일반 근무" 의도(actual 위치 직접 변경 / 근무내용 입력)면 종일 휴가
+      // 항목만 자동 제거. 반차(morning_half 등)는 유지.
+      const isRegularWorkSubmit = !!(
+        actualWasTouched ||
+        (data.workContent && data.workContent.trim().length > 0)
+      )
+      const submittedLeave: LeaveTimeline = isRegularWorkSubmit
+        ? rawSubmittedLeave.filter(it => it.leaveType !== 'full_day')
+        : rawSubmittedLeave
+
       const submittedIsAllDay = isFullDayLeave(submittedLeave)
       const submittedHasReducedLeave = submittedLeave.some(it =>
         it.leaveType === 'morning_half' || it.leaveType === 'afternoon_half'
       )
       const submittedForceStandardSpan = submittedIsAllDay || submittedHasReducedLeave
       const submittedLeaveMinutes = totalLeaveRoundedMinutes(submittedLeave)
-
-      const submittedActual = (data.actualWorkLocations ?? []) as WorkLocations
-      const submittedPlanned = (data.plannedWorkLocations ?? []) as WorkLocations
-      const actualWasTouched = !!data.actualWorkLocationsTouched
-        || !locationsEqual(submittedActual, baselineActualRef.current)
 
       const submittedStartTime = submittedForceStandardSpan ? '09:00' : (data.startTime || '09:00')
       const submittedEndTime   = submittedForceStandardSpan ? '18:00' : (data.endTime   || '18:00')
