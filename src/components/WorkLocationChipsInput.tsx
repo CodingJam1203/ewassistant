@@ -4,7 +4,8 @@
  * 근무장소 칩 입력 컴포넌트 (v2).
  *
  * - 추가 UI: 4 인라인 pill (사무실 / 재택 / 외근 / 기타)
- * - 칩 누적, 좌/우 이동, 삭제
+ * - 칩 누적, 삭제 (개별 X), 전체 지우기 (한 번에 비우기)
+ * - 순서 변경은 "전체 지우기 후 순서대로 재입력" 방식 — 칩 화살표 제거
  * - (옵션) 별표 ★ — 현재 위치 마커
  *   * currentIndex와 일치하는 칩에 ★ 채워짐, 다른 칩은 외곽선 ☆
  *   * ☆ 클릭 시 onSetCurrent 콜백 호출 (해당 칩을 현재 위치로 마킹)
@@ -12,7 +13,7 @@
  */
 
 import { memo, useState, useMemo, type ReactNode } from 'react'
-import { ArrowRight, X, MapPin, ArrowLeft, Plus, Star } from 'lucide-react'
+import { ArrowRight, X, MapPin, Plus, Star, Eraser } from 'lucide-react'
 import {
   WORK_LOCATION_KIND_LABELS,
   type WorkLocationKind,
@@ -105,13 +106,9 @@ function WorkLocationChipsInputImpl({
     onChange(value.filter((_, idx) => idx !== i))
   }
 
-  const handleMove = (i: number, dir: -1 | 1) => {
+  const handleClearAll = () => {
     if (disabled) return
-    const next = [...value]
-    const j = i + dir
-    if (j < 0 || j >= next.length) return
-    ;[next[i], next[j]] = [next[j], next[i]]
-    onChange(next)
+    onChange([])
   }
 
   const showStar = !!onSetCurrent
@@ -166,28 +163,6 @@ function WorkLocationChipsInputImpl({
                       <Star className={`${iconCls} ${isCurrent ? 'fill-current' : ''}`} aria-hidden />
                     </button>
                   )}
-                  {!disabled && i > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => handleMove(i, -1)}
-                      aria-label={`${i + 1}번째 항목 앞으로 이동`}
-                      title="앞으로"
-                      className={`inline-flex items-center justify-center ${ctrlSize} rounded-full text-primary-700 hover:text-white hover:bg-primary-600 transition-colors`}
-                    >
-                      <ArrowLeft className={`${iconCls}`} aria-hidden />
-                    </button>
-                  )}
-                  {!disabled && i < value.length - 1 && (
-                    <button
-                      type="button"
-                      onClick={() => handleMove(i, 1)}
-                      aria-label={`${i + 1}번째 항목 뒤로 이동`}
-                      title="뒤로"
-                      className={`inline-flex items-center justify-center ${ctrlSize} rounded-full text-primary-700 hover:text-white hover:bg-primary-600 transition-colors`}
-                    >
-                      <ArrowRight className={`${iconCls}`} aria-hidden />
-                    </button>
-                  )}
                   {!disabled && (
                     <button
                       type="button"
@@ -211,6 +186,18 @@ function WorkLocationChipsInputImpl({
               </div>
             )
           })}
+          {!disabled && value.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClearAll}
+              aria-label="모든 장소 칩 지우기"
+              title="전체 지우기 — 처음부터 순서대로 다시 추가"
+              className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-dashed border-border-strong text-[12px] text-text-muted hover:text-danger-text hover:border-danger-border hover:bg-danger-bg transition-colors`}
+            >
+              <Eraser className="h-3 w-3" aria-hidden />
+              전체 지우기
+            </button>
+          )}
           {chipsTrailing}
         </div>
       )}
