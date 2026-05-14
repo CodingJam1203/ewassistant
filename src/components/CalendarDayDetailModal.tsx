@@ -148,16 +148,19 @@ export default function CalendarDayDetailModal({
               ) : null)
             }
           >
-            <KvRow label="출근예정" value={trimToHHmm(ci?.expected_work_time)} />
+            <KvRow label="출근예정" value={trimToHHmm(ci?.expected_work_time ?? ci?.start_time)} />
             <KvRow
               label="예정 장소"
               value={(() => {
                 const chips = resolveDisplayLocations({
                   planned: ci?.planned_work_locations,
+                  actual: ci?.actual_work_locations,
                   legacyExpectedTimeline: ci?.expected_work_location_timeline as unknown as never,
+                  legacyActualTimeline: ci?.work_location_timeline as unknown as never,
                   legacyExpectedWorkLocation: ci?.expected_work_location,
+                  legacyWorkLocation: ci?.work_location,
                 })
-                return chips && chips.length > 0 ? formatChipsArrow(chips) : (ci?.expected_work_location ?? '-')
+                return chips && chips.length > 0 ? formatChipsArrow(chips) : (ci?.expected_work_location ?? ci?.work_location ?? '-')
               })()}
               icon={<MapPin className="h-3.5 w-3.5 text-text-muted" aria-hidden />}
             />
