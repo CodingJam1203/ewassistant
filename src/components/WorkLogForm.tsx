@@ -1031,14 +1031,17 @@ export default function WorkLogForm({
       )}
 
       {/* ─── 부가 영역 wrapper — 4(출근보고)/5(기타)를 묶어서 본문(1~3)과 시각 분리 ─── */}
-      <div className="mt-8 pt-6 border-t-[3px] border-border-strong rounded-xl bg-background p-4 sm:p-6 -mx-1 sm:-mx-2 space-y-8">
+      <div className="mt-10 rounded-xl bg-surface-muted border-t-4 border-primary-500 border-x border-b border-border-strong p-4 sm:p-5 space-y-8 relative">
+        <span className="absolute -top-3 left-4 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-primary-600 text-white rounded-full shadow-sm">
+          추가 입력 영역
+        </span>
 
       {/* 4. 출근보고 — showCheckInSections일 때만 표시 (퇴근보고 수정에서는 hidden 유지) */}
       {showCheckInSections && (
       <div>
         <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">출근보고</h3>
 
-        <div className="p-4 bg-surface-muted rounded-lg border border-border">
+        <div className="p-4 bg-surface rounded-lg border border-border">
           <label className="block text-sm font-medium text-text-primary mb-1">출근보고 진행 여부</label>
           <p className="mb-2 text-xs text-warning-text">
             ※ 휴가자는 아래 출근보고에 <span className="font-medium">휴가 복귀날</span>을 선택 후 출근 보고 진행
@@ -1128,7 +1131,7 @@ export default function WorkLogForm({
 
         <div className="space-y-6">
           {showCheckOutSections && (
-          <div className="p-4 bg-surface-muted rounded-lg border border-border">
+          <div className="p-4 bg-surface rounded-lg border border-border">
             <label className="block text-sm font-medium text-text-primary mb-1">지각 or 출근 시간 입력 수정 여부</label>
             <p className="mb-2 text-xs text-warning-text">
               ※ 당일 수정 기준은 <span className="font-medium">당일 07시 이후</span>이며, 조기출근으로 인한 수정은 제외
