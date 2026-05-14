@@ -770,15 +770,8 @@ export default function WorkLogForm({
       <div>
         <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">기본 정보</h3>
         <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-2">
-          <div>
-            <label className="block text-sm font-medium text-text-primary">이름 *</label>
-            <input
-              type="text"
-              {...register('name')}
-              className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border"
-            />
-            {errors.name && <p className="mt-1 text-sm text-danger-text">{errors.name.message as string}</p>}
-          </div>
+          {/* 이름은 userName prop으로 자동 세팅 — UI 노출 X (수정 불가) */}
+          <input type="hidden" {...register('name')} />
 
           <div>
             <label className="block text-sm font-medium text-text-primary">근무유형 *</label>

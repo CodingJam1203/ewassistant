@@ -350,16 +350,7 @@ export default function CheckInModal({
             />
           </div>
 
-          {/* 이름 */}
-          <div>
-            <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">이름 *</label>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              className="w-full h-10 rounded-[10px] border border-border-strong bg-surface text-sm px-3 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
-            />
-          </div>
+          {/* 이름은 userName prop으로 자동 세팅 — UI 노출 X (수정 불가) */}
 
           {/* 캘린더 안내 */}
           {calendarLookup?.enabled && (calendarLookup.leaveType || calendarLookup.events.length > 0 || calendarLookup.fetchFailed) && (
