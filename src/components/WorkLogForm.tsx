@@ -972,7 +972,7 @@ export default function WorkLogForm({
           <div className="p-4 bg-surface-muted rounded-lg border border-border">
             <label className="block text-sm font-medium text-text-primary mb-1">지각 or 출근 시간 입력 수정 여부</label>
             <p className="mb-2 text-xs text-warning-text">
-              ※ 당일 수정 기준은 <span className="font-medium">당일 07시 이후</span>이며, 초기출근으로 인한 수정은 제외
+              ※ 당일 수정 기준은 <span className="font-medium">당일 07시 이후</span>이며, 조기출근으로 인한 수정은 제외
             </p>
             <select
               {...register('lateOrAttendanceStatus')}
