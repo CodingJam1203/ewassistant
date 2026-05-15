@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateEw } from '@/lib/ew-calculator'
-import { upsertNextDayRow } from '@/lib/work-logs/upsert-next-day'
 import { requireActiveUser } from '@/lib/admin-check'
 import { notifyWorkLogSubmitted, notifyCheckoutResubmitted } from '@/lib/notifications/teams'
 import { recordSubmission } from '@/lib/submission-log'
@@ -367,6 +366,7 @@ export async function POST(request: Request) {
     // ─── D+1 row UPSERT (다음 출근 예정) ─────────────────────────────────────
     const isCheckInProgress = body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
     if (isCheckInProgress && body.expectedStartDate) {
+      // D+1 row의 본문 영역에 다음날 출근예정 정보 저장
       const nextDate: string = body.expectedStartDate
       const nextStartTime: string = (body.expectedStartTime
         ?? (expectedTimeline ? firstWorkLocation(expectedTimeline)?.startTime : null)
@@ -379,29 +379,62 @@ export async function POST(request: Request) {
         return null
       })()
       const nextEndTime: string = nextEndTimeSrc ?? nextEndTimeFromTl ?? '18:00'
+
       const nextWorkLocation: string = firstChipLabel(plannedWorkLocations)
         || (expectedTimeline ? (firstWorkLocation(expectedTimeline) ? displayLocation(firstWorkLocation(expectedTimeline)!) : '') : '')
         || '사무실'
 
-      const result = await upsertNextDayRow({
-        adminClient,
-        userId: user.id,
-        userEmail: user.email!,
-        userDivision,
-        userTeam,
+      // D+1 row 존재 확인
+      const { data: existingNext } = await adminClient
+        .from('work_logs')
+        .select('id')
+        .eq('user_email', user.email!)
+        .eq('leave_date', nextDate)
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      const dPlus1Data: Record<string, unknown> = {
         name: body.name,
-        workTypeLabel: body.workTypeLabel ?? '(평일) 기본 근무',
-        workSubType: body.workSubType ?? null,
-        nextDate,
-        nextStartTime: mod24HHmm(nextStartTime),
-        nextEndTime:   mod24HHmm(nextEndTime),
-        nextWorkLocation,
-        expectedTimeline,
-        plannedWorkLocations,
-        expectedLeaveTimeline,
-      })
-      if (!result.ok) {
-        console.error('[work-logs POST] D+1 row UPSERT failed:', result.error, '— user:', user.email, 'date:', nextDate)
+        leave_date: nextDate,
+        start_time: mod24HHmm(nextStartTime),
+        end_time:   mod24HHmm(nextEndTime),
+        work_location: nextWorkLocation,
+        work_location_timeline: expectedTimeline,
+        planned_work_locations: plannedWorkLocations,
+        actual_work_locations: null,  // 아직 미정
+        leave_timeline: expectedLeaveTimeline,
+        attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
+        // 본문 영역은 비움 (실제 근무는 그날에 채움)
+        // expected_*는 더 이상 사용 안 함
+        expected_start_date:    null,
+        expected_work_time:     null,
+        expected_work_location: null,
+        expected_work_location_timeline: null,
+        expected_leave_timeline: null,
+      }
+
+      if (existingNext) {
+        await adminClient
+          .from('work_logs')
+          .update({ ...dPlus1Data, updated_at: new Date().toISOString(), updated_by: user.id })
+          .eq('id', existingNext.id)
+      } else {
+        await adminClient
+          .from('work_logs')
+          .insert({
+            ...dPlus1Data,
+            user_id: user.id,
+            user_email: user.email,
+            division: userDivision,
+            team: userTeam,
+            work_type_label: body.workTypeLabel ?? '기본근무 등록',
+      work_sub_type: body.workSubType ?? null,
+            late_or_attendance_status: '아니오',
+            teams_sent: false,
+            is_deleted: false,
+          })
       }
     }
 
