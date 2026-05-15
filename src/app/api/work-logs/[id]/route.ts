@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import { requireAdmin, requireActiveUser } from '@/lib/admin-check'
 import { calculateEw } from '@/lib/ew-calculator'
+import { upsertNextDayRow } from '@/lib/work-logs/upsert-next-day'
 import { notifyWorkLogUpdatedSplit, notifyWorkLogDeleted } from '@/lib/notifications/teams'
 import { recordSubmission } from '@/lib/submission-log'
 import { recordAudit, extractRequestMeta } from '@/lib/audit-log'
@@ -462,6 +463,50 @@ export async function PATCH(
     if (error) {
       console.error('[work-logs PATCH] update error:', error)
       return NextResponse.json({ error: '저장 중 오류가 발생했습니다.' }, { status: 500 })
+    }
+
+    // ─── D+1 row UPSERT (다음 출근 예정) — POST와 동일 정책으로 헬퍼 호출 ─────
+    // isCheckOutOnly이거나 사용자가 D+1 영역을 안 건드린 경우(body에 expectedStartDate 없음)는 skip.
+    if (!isCheckOutOnly && body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' && body.expectedStartDate) {
+      const nextDate: string = body.expectedStartDate as string
+      const nextStartTime: string = (body.expectedStartTime as string | undefined)
+        ?? (mirrorExpectedWorkTime ?? null)
+        ?? (expectedTimelinePatch ? firstWorkLocation(expectedTimelinePatch)?.startTime ?? null : null)
+        ?? '09:00'
+      const nextEndTimeFromTl: string | null = (() => {
+        if (!expectedTimelinePatch || expectedTimelinePatch.length === 0) return null
+        const last = expectedTimelinePatch[expectedTimelinePatch.length - 1]
+        if (last.kind === 'expected_checkout' || last.kind === 'checkout') return last.startTime
+        return null
+      })()
+      const nextEndTime: string = (body.expectedEndTime as string | undefined)
+        ?? nextEndTimeFromTl
+        ?? '18:00'
+      const nextWorkLocation: string = firstChipLabel(plannedWorkLocationsPatch ?? null)
+        || (mirrorExpectedWorkLocation ?? null)
+        || (expectedTimelinePatch ? (firstWorkLocation(expectedTimelinePatch) ? displayLocation(firstWorkLocation(expectedTimelinePatch)!) : '') : '')
+        || '사무실'
+
+      const result = await upsertNextDayRow({
+        adminClient,
+        userId: user.id,
+        userEmail: (log.user_email as string | null) ?? user.email!,
+        userDivision: (log.division as string | null) ?? null,
+        userTeam: (log.team as string | null) ?? null,
+        name: (body.name as string | undefined) ?? (log.name as string | null) ?? '',
+        workTypeLabel: (body.workTypeLabel as string | undefined) ?? (log.work_type_label as string | null) ?? '(평일) 기본 근무',
+        workSubType: (body.workSubType as string | null | undefined) ?? null,
+        nextDate,
+        nextStartTime,
+        nextEndTime,
+        nextWorkLocation,
+        expectedTimeline: expectedTimelinePatch ?? null,
+        plannedWorkLocations: plannedWorkLocationsPatch ?? null,
+        expectedLeaveTimeline: expectedLeaveTimelinePatch ?? null,
+      })
+      if (!result.ok) {
+        console.error('[work-logs PATCH] D+1 row UPSERT failed:', result.error, '— user:', log.user_email, 'date:', nextDate)
+      }
     }
 
     // daily_work_status 동기화
