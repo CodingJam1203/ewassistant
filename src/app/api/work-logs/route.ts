@@ -428,12 +428,19 @@ export async function POST(request: Request) {
       }
 
       if (existingNext) {
-        await adminClient
+        const { error: dPlus1UpdErr } = await adminClient
           .from('work_logs')
           .update({ ...dPlus1Data, updated_at: new Date().toISOString(), updated_by: user.id })
           .eq('id', existingNext.id)
+        if (dPlus1UpdErr) {
+          console.error('[work-logs POST] D+1 UPDATE failed:', dPlus1UpdErr)
+        }
       } else {
-        await adminClient
+        // INSERT 시 NOT NULL 컬럼들을 모두 채워야 한다:
+        //   work_type_code, deduction_time, actual_work_time, ew_*, copy_text, work_location
+        // 사전등록 row는 아직 실제 근무 안 함 → derived 값은 0/'' default.
+        // 출근완료/퇴근완료 시점에 calcResult로 재계산되어 overwrite됨.
+        const { error: dPlus1InsErr } = await adminClient
           .from('work_logs')
           .insert({
             ...dPlus1Data,
@@ -442,11 +449,28 @@ export async function POST(request: Request) {
             division: userDivision,
             team: userTeam,
             work_type_label: body.workTypeLabel ?? '기본근무 등록',
-      work_sub_type: body.workSubType ?? null,
+            work_type_code: 1,  // 기본 (출근완료 시 calcResult로 재계산)
+            work_sub_type: body.workSubType ?? null,
             late_or_attendance_status: '아니오',
+            // NOT NULL 충족용 default — 실제값은 출근완료/퇴근완료에서 갱신
+            deduction_time: '0 minutes',
+            actual_work_time: '0 minutes',
+            break_time: '00:00:00',
+            ew_start: '',
+            ew_end: '',
+            ew_value: '',
+            copy_text: '',
             teams_sent: false,
             is_deleted: false,
           })
+        if (dPlus1InsErr) {
+          console.error('[work-logs POST] D+1 INSERT failed:', dPlus1InsErr)
+          // D-day 저장은 성공이라 전체 실패 X — 에러는 응답 body에 경고로 포함
+          return NextResponse.json({
+            ...(savedLog ?? {}),
+            __warning: `다음 출근 예정(${nextDate}) row 생성 실패: ${dPlus1InsErr.message}`,
+          })
+        }
       }
     }
 
