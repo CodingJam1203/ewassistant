@@ -503,6 +503,15 @@ export default function WorkLogForm({
 
   const formValues = watch()
 
+  // Stage 1: 다음 출근 사전등록(D+1) 영역 hide 조건
+  //   - 퇴근보고 수정(editScope='check_out'): D+1 영역 통째로 의미 없음 — 그 row의 다음날은 별개 row
+  //   - 신규 작성 + 지나간 일자(미보고 퇴근보고 작성): 다음날이 이미 지난 시점이라 의미 없음
+  // 동시에: 수정 모드일 땐 "지각/당일수정", "감사 마카롱"도 같이 hide
+  const isCheckOutEdit = !!editingLog && editScope === 'check_out'
+  const todayKstForD1 = getKstTodayDateString()
+  const isPastLeaveDate = ((formValues.leaveDate ?? todayKstForD1) as string) < todayKstForD1
+  const hideD1Section = isCheckOutEdit || (!editingLog && isPastLeaveDate)
+
   // 날짜에 따른 근무유형 카테고리 + 한국 공휴일명 (잠금/안내 UI에 사용)
   const dateCategory: DateCategory = categorizeDate(formValues.leaveDate ?? getKstTodayDateString())
   const koreanHolidayName = getKoreanHolidayName(formValues.leaveDate ?? '')
@@ -778,6 +787,15 @@ export default function WorkLogForm({
           breakManualRoundedMinutes: breakIsManual ? breakManualMinutes : null,
           breakFinalRoundedMinutes: breakFinalRoundedMinutes,
           resubmitLogId: isEditing ? null : resubmitLogId,
+          // Stage 1: D+1 영역 hide 시 다음 출근 사전등록 정보 미전송 (서버의 D+1 row 생성 분기 차단)
+          ...(hideD1Section ? {
+            attendanceRecordType: '스킵(누락퇴근보고, 퇴근보고 수정)',
+            expectedStartDate: null,
+            expectedStartTime: null,
+            expectedEndTime: null,
+            expectedLeaveTimeline: null,
+            plannedWorkLocations: null,
+          } : {}),
         }),
       })
 
@@ -1048,8 +1066,10 @@ export default function WorkLogForm({
           추가 입력 영역
         </span>
 
-      {/* 4. 출근보고 — showCheckInSections일 때만 표시 (퇴근보고 수정에서는 hidden 유지) */}
-      {showCheckInSections && (
+      {/* 4. 출근보고(D+1 사전등록) — Stage 1 hide 조건 추가:
+            - 퇴근보고 수정(check_out): showCheckInSections=false → hidden
+            - 신규 + 지나간 일자: hideD1Section=true → hidden */}
+      {showCheckInSections && !hideD1Section && (
       <div>
         <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">출근보고</h3>
 
@@ -1142,7 +1162,8 @@ export default function WorkLogForm({
         <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">기타</h3>
 
         <div className="space-y-6">
-          {showCheckOutSections && (
+          {/* 지각/당일수정 — Stage 1: 퇴근보고 수정에선 hide (해당 row의 출근 시각은 별개 영역) */}
+          {showCheckOutSections && !isCheckOutEdit && (
           <div className="p-4 bg-surface rounded-lg border border-border">
             <label className="block text-sm font-medium text-text-primary mb-1">지각 or 출근 시간 입력 수정 여부</label>
             <p className="mb-2 text-xs text-warning-text">
@@ -1190,6 +1211,8 @@ export default function WorkLogForm({
           </div>
           )}
 
+          {/* 감사 마카롱 — Stage 1: 퇴근보고 수정에선 hide (정책서 '출근보고' 영역의 한 부분으로 분류) */}
+          {!isCheckOutEdit && (
           <div>
             <label className="block text-sm font-medium text-text-primary">감사 마카롱 메시지 (선택)</label>
             <textarea
@@ -1199,6 +1222,7 @@ export default function WorkLogForm({
               className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border"
             />
           </div>
+          )}
         </div>
       </div>
 
