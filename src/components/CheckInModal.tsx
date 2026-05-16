@@ -15,7 +15,6 @@ import {
   validateWorkLocations,
   legacyTimelineToLocations,
   normalizeWorkLocations,
-  formatChipsArrow,
 } from '@/lib/work-locations-v2'
 import { buildLeaveItem, isFullDayLeave, validateLeaveTimeline } from '@/lib/leave-timeline'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
@@ -103,8 +102,6 @@ export default function CheckInModal({
 
   // 케이스 분기
   const [caseMode, setCaseMode] = useState<CaseMode>('none')
-  // 케이스 B에서 "퇴근예정 수정" 토글
-  const [editEndTimeInPrior, setEditEndTimeInPrior] = useState(false)
   // 케이스 A: 출근예정시간 "미보고" 잠금 상태 (true=미보고, false=수정 모드)
   // submit 시 true면 planned_start_time = NULL로 저장 (미보고 유지)
   const [plannedStartUnreported, setPlannedStartUnreported] = useState(true)
@@ -125,6 +122,7 @@ export default function CheckInModal({
           leaveTimeline?: LeaveTimeline | null
           hasExisting?: boolean
           checkedInAt?: string | null
+          workContent?: string | null
         }
         if (cancelled) return
 
@@ -181,8 +179,9 @@ export default function CheckInModal({
 
         // actualCheckInTime — 케이스별 prefill
         if (mode === 'today') {
-          // today 모드 — 기존 daily.checked_in_at 값
-          if (data.checkedInAt) setActualCheckInTime(data.checkedInAt)
+          // today 모드 — 기존 daily.checked_in_at 값. 없으면 현재 시각 floor로 prefill
+          // (출근완료 안 한 상태에서 수정 모달 진입 → 그대로 제출 시 출근완료 처리).
+          setActualCheckInTime(data.checkedInAt || nowKstHHmmFloor())
         } else if (mode === 'future') {
           // future 모드 — 실제 출근시간 입력 안 받음. 빈 값으로 둠.
           setActualCheckInTime('')
@@ -194,6 +193,11 @@ export default function CheckInModal({
         // 휴가
         if (Array.isArray(data.leaveTimeline) && data.leaveTimeline.length > 0) {
           setLeaveTimeline(data.leaveTimeline)
+        }
+
+        // 메모 — D-day 본문 row가 있을 때만 채워짐 (today 모드)
+        if (typeof data.workContent === 'string' && data.workContent.length > 0) {
+          setWorkContent(data.workContent)
         }
       } catch {
         // 무시
@@ -408,63 +412,72 @@ export default function CheckInModal({
           )}
 
           {/* ─── 케이스별 분기 ─── */}
-          {!loadingPrefill && !isAllDayLeave && (
+          {/* 휴가(full_day) row여도 시각/장소 필드는 그대로 노출해 사용자가
+              필요 시 override할 수 있게 한다. 검증은 isAllDayLeave 시 skip되므로
+              빈 채로 제출해도 통과. */}
+          {!loadingPrefill && (
             <>
-              {/* 케이스 B (prior): 사전 등록 정보 안내 카드 + 실제 출근만 + 퇴근예정 수정 토글 */}
-              {caseMode === 'prior' && (
+              {/* 케이스 B (prior) + 케이스 today: 동일 UI로 통합 — 4개 필드 editable */}
+              {(caseMode === 'prior' || caseMode === 'today') && (
                 <>
-                  <div className="rounded-[10px] border border-info-border bg-info-bg px-3 py-2.5 space-y-1">
-                    <p className="text-[11px] font-semibold text-info-text mb-1">사전 등록된 출근보고</p>
-                    <div className="grid grid-cols-2 gap-x-2 text-[12px] text-text-primary">
-                      <div>
-                        <span className="text-text-muted">출근예정 </span>
-                        <span className="font-semibold tabular-nums">{startTime}</span>
-                      </div>
-                      <div>
-                        <span className="text-text-muted">퇴근예정 </span>
-                        <span className="font-semibold tabular-nums">{endTime}</span>
-                      </div>
-                      <div className="col-span-2">
-                        <span className="text-text-muted">근무지 </span>
-                        <span className="font-semibold">{formatChipsArrow(locations)}</span>
-                      </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">출근예정시간 *</label>
+                      <HalfHourTimeSelect
+                        value={startTime}
+                        onChange={setStartTime}
+                        ariaLabel="출근예정시간"
+                      />
                     </div>
-                    <p className="text-[11px] text-text-muted pt-1">
-                      ※ 출근예정/근무지 변경은 <span className="font-semibold">제출 내역</span>에서 수정해주세요.
-                    </p>
+                    <div>
+                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">퇴근예정시간 *</label>
+                      <HalfHourTimeSelect
+                        value={endTime}
+                        onChange={setEndTime}
+                        allowNextDay
+                        ariaLabel="퇴근예정시간"
+                      />
+                    </div>
                   </div>
 
                   <div>
-                    <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">실제 출근시간 *</label>
-                    <HalfHourTimeSelect
-                      value={actualCheckInTime}
-                      onChange={setActualCheckInTime}
-                      allowNextDay
-                      ariaLabel="실제 출근시간"
+                    <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">근무장소 (예정) *</label>
+                    <WorkLocationChipsInput
+                      value={locations}
+                      onChange={setLocations}
+                      errors={locErrors}
                     />
                   </div>
 
-                  {/* 퇴근예정 수정 토글 */}
-                  <div className="rounded-[10px] border border-border bg-surface-muted px-3 py-2">
-                    <label className="inline-flex items-center gap-2 cursor-pointer text-[12px]">
-                      <input
-                        type="checkbox"
-                        checked={editEndTimeInPrior}
-                        onChange={e => setEditEndTimeInPrior(e.target.checked)}
-                        className="h-4 w-4 rounded border-border-strong text-primary-600 focus:ring-primary-500"
-                      />
-                      <span className="text-text-primary font-medium">퇴근예정시간을 변경할까요?</span>
+                  <div>
+                    <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
+                      실제 출근시간{caseMode === 'today' && (
+                        <span className="ml-1 text-[11px] font-normal text-text-muted">(비우면 출근 안 한 상태)</span>
+                      )}
+                      {caseMode === 'prior' && ' *'}
                     </label>
-                    {editEndTimeInPrior && (
-                      <div className="mt-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
                         <HalfHourTimeSelect
-                          value={endTime}
-                          onChange={setEndTime}
+                          value={actualCheckInTime}
+                          onChange={setActualCheckInTime}
                           allowNextDay
-                          ariaLabel="퇴근예정시간"
+                          ariaLabel="실제 출근시간"
+                          placeholder={caseMode === 'today' ? '출근 안 함' : undefined}
                         />
                       </div>
-                    )}
+                      {caseMode === 'today' && actualCheckInTime && (
+                        <button
+                          type="button"
+                          onClick={() => setActualCheckInTime('')}
+                          className="shrink-0 inline-flex items-center justify-center h-10 w-10 rounded-[10px] border border-border-strong bg-surface text-text-muted hover:text-danger-text hover:bg-danger-bg transition-colors"
+                          aria-label="실제 출근시간 비우기"
+                          title="출근 안 함으로 되돌리기"
+                        >
+                          <X className="h-4 w-4" aria-hidden />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </>
               )}
@@ -546,69 +559,6 @@ export default function CheckInModal({
                       onChange={setLocations}
                       errors={locErrors}
                     />
-                  </div>
-                </>
-              )}
-
-              {/* 케이스 today: 모든 필드 활성 (수정 모드) */}
-              {caseMode === 'today' && (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">출근예정시간 *</label>
-                      <HalfHourTimeSelect
-                        value={startTime}
-                        onChange={setStartTime}
-                        ariaLabel="출근예정시간"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">퇴근예정시간 *</label>
-                      <HalfHourTimeSelect
-                        value={endTime}
-                        onChange={setEndTime}
-                        allowNextDay
-                        ariaLabel="퇴근예정시간"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">근무장소 (예정) *</label>
-                    <WorkLocationChipsInput
-                      value={locations}
-                      onChange={setLocations}
-                      errors={locErrors}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
-                      실제 출근시간
-                      <span className="ml-1 text-[11px] font-normal text-text-muted">(비우면 출근 안 한 상태)</span>
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1">
-                        <HalfHourTimeSelect
-                          value={actualCheckInTime}
-                          onChange={setActualCheckInTime}
-                          allowNextDay
-                          ariaLabel="실제 출근시간"
-                          placeholder="출근 안 함"
-                        />
-                      </div>
-                      {actualCheckInTime && (
-                        <button
-                          type="button"
-                          onClick={() => setActualCheckInTime('')}
-                          className="shrink-0 inline-flex items-center justify-center h-10 w-10 rounded-[10px] border border-border-strong bg-surface text-text-muted hover:text-danger-text hover:bg-danger-bg transition-colors"
-                          aria-label="실제 출근시간 비우기"
-                          title="출근 안 함으로 되돌리기"
-                        >
-                          <X className="h-4 w-4" aria-hidden />
-                        </button>
-                      )}
-                    </div>
                   </div>
                 </>
               )}
