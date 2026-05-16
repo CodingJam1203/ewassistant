@@ -21,6 +21,7 @@ import { useState } from 'react'
 import { X, Loader2, Plane } from 'lucide-react'
 import { Button, Field, Input, Select, DateInputWithDow } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
+import { useRegisterModalOpen } from '@/contexts/ModalOpenContext'
 
 export interface VacationRegisterModalProps {
   /** 캘린더에서 선택해 prefill 할 시작일 (YYYY-MM-DD). 미지정 시 today */
@@ -50,6 +51,8 @@ export default function VacationRegisterModal({
   onClose,
   onSuccess,
 }: VacationRegisterModalProps) {
+  // Stage 4: 글로벌 모달 카운터 등록
+  useRegisterModalOpen()
   const today = new Date().toISOString().slice(0, 10)
   const [startDate, setStartDate] = useState(initialStartDate ?? today)
   const [endDate, setEndDate]     = useState(initialEndDate ?? initialStartDate ?? today)

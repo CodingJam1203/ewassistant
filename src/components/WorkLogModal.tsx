@@ -10,6 +10,7 @@ import type { WorkLocations } from '@/types/work-locations-v2'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 import type { WorkLog } from '@/types/work-log'
 import { dowKo } from '@/lib/utils/date'
+import { useRegisterModalOpen } from '@/contexts/ModalOpenContext'
 
 interface WorkLogModalProps {
   date: string
@@ -47,6 +48,8 @@ export default function WorkLogModal({
   onClose,
   onSuccess,
 }: WorkLogModalProps) {
+  // Stage 4: 글로벌 모달 카운터 등록
+  useRegisterModalOpen()
   const isEditing = !!editingLog
   const [calculationResult, setCalculationResult] = useState<EwCalculationResult | null>(null)
   const [calculationError, setCalculationError]   = useState<string | null>(null)

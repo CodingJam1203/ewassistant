@@ -30,6 +30,7 @@ import {
   firstChipLabel,
   formatChipsArrow,
 } from '@/lib/work-locations-v2'
+import { computeEffectiveActualStart } from '@/lib/work-log-state'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { WorkLocations } from '@/types/work-locations-v2'
 import type { LeaveTimeline } from '@/types/leave-timeline'
@@ -680,7 +681,40 @@ export async function GET(request: Request) {
 
     if (error) throw error
 
-    return NextResponse.json(data)
+    // Stage 4: 각 row에 effective_actual_start_time 추가.
+    // 팀별 use_check_in_complete 매핑이 필요 — org_divisions + org_teams 조회.
+    const [{ data: divs }, { data: teams }] = await Promise.all([
+      adminClient.from('org_divisions').select('id, name'),
+      adminClient.from('org_teams').select('division_id, name, use_check_in_complete'),
+    ])
+    const divIdToName = new Map<string, string>()
+    for (const d of (divs ?? []) as Array<{ id: string; name: string }>) {
+      divIdToName.set(d.id, d.name)
+    }
+    const teamSettings = new Map<string, boolean>()
+    for (const t of (teams ?? []) as Array<{ division_id: string; name: string; use_check_in_complete: boolean | null }>) {
+      const divName = divIdToName.get(t.division_id)
+      if (!divName) continue
+      teamSettings.set(`${divName}::${t.name}`, t.use_check_in_complete ?? true)
+    }
+    const now = new Date()
+    const enriched = (data ?? []).map(row => {
+      const useCheckInComplete = teamSettings.get(`${row.division ?? ''}::${row.team ?? ''}`) ?? true
+      return {
+        ...row,
+        effective_actual_start_time: computeEffectiveActualStart(
+          {
+            leave_date: row.leave_date ?? null,
+            planned_start_time: row.planned_start_time ?? null,
+            actual_start_time: row.actual_start_time ?? null,
+          },
+          { use_check_in_complete: useCheckInComplete },
+          now,
+        ),
+      }
+    })
+
+    return NextResponse.json(enriched)
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('Work Log GET Error:', message)

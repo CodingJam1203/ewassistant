@@ -21,6 +21,7 @@ import { buildLeaveItem, isFullDayLeave, validateLeaveTimeline } from '@/lib/lea
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 import type { UserCalendarLookup, CalendarEventChunk } from '@/types/leave-calendar'
+import { useRegisterModalOpen } from '@/contexts/ModalOpenContext'
 
 /**
  * CheckInModal — 3가지 케이스 자동 분기:
@@ -83,6 +84,8 @@ function nowKstHHmmFloor(): string {
 export default function CheckInModal({
   date: initialDate, userName, initialStartTime, onClose, onSuccess,
 }: CheckInModalProps) {
+  // Stage 4: 글로벌 모달 카운터에 등록 — 열려있는 동안 autoRefetch polling 일시 정지
+  useRegisterModalOpen()
   const [date, setDate] = useState<string>(initialDate)
   const [name, setName] = useState<string>(userName ?? '')
   const [startTime, setStartTime] = useState<string>(() =>

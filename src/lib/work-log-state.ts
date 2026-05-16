@@ -91,6 +91,64 @@ export function buttonsForState(state: WorkLogState, opts: ButtonOptions = {}): 
   return v
 }
 
+// ─── 출근완료 미사용 팀 자동 보정 (정책서 7 — Stage 4) ────────────────────────
+
+export interface EffectiveActualStartInput {
+  /** YYYY-MM-DD — work_logs.leave_date */
+  leave_date: string | null
+  /** 'HH:mm' 또는 'HH:mm:ss'. NULL이면 미보고 상태 → 보정 안 함. */
+  planned_start_time: string | null
+  /** DB 원본. 값 있으면 그대로 반환. */
+  actual_start_time: string | null
+}
+
+export interface TeamConfigForEffective {
+  /** 팀의 use_check_in_complete. true(기본)면 보정 안 함. */
+  use_check_in_complete: boolean
+}
+
+/**
+ * 조건이 모두 충족되면 planned_start_time 반환, 아니면 actual_start_time(원본).
+ *
+ * 조건:
+ *   1. team.use_check_in_complete = false (출근완료 단계 미사용)
+ *   2. leave_date = 오늘 (KST)
+ *   3. KST 현재 시각 ≥ planned_start_time
+ *   4. actual_start_time IS NULL
+ *   5. planned_start_time IS NOT NULL (미보고 아님)
+ *
+ * DB는 안 건드린다 — 응답 effective_actual_start_time 필드용.
+ */
+export function computeEffectiveActualStart(
+  row: EffectiveActualStartInput,
+  team: TeamConfigForEffective,
+  now: Date = new Date(),
+): string | null {
+  // 이미 실제 출근 기록 있음 → 그대로
+  if (row.actual_start_time) return row.actual_start_time
+  // 출근완료 사용 팀 → 보정 X
+  if (team.use_check_in_complete) return null
+  // 미보고 → 보정 X
+  if (!row.planned_start_time) return null
+  if (!row.leave_date) return null
+
+  // KST 오늘 비교
+  const dayFmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+  })
+  if (row.leave_date !== dayFmt.format(now)) return null
+
+  // KST 현재 HH:mm vs planned HH:mm
+  const timeFmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Seoul', hour12: false, hour: '2-digit', minute: '2-digit',
+  })
+  const nowHHmm = timeFmt.format(now)
+  const plannedHHmm = row.planned_start_time.slice(0, 5)
+  if (nowHHmm < plannedHHmm) return null
+
+  return row.planned_start_time
+}
+
 function buttonsForStateRaw(state: WorkLogState): ButtonVisibility {
   switch (state) {
     case 'A':

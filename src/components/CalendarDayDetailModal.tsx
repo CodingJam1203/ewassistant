@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils/cn'
 import type { SubmissionRow } from '@/components/SubmissionsRawTable'
 import type { UserCalendarLookup } from '@/types/leave-calendar'
 import type { LeaveTimeline, LeaveTimelineItem } from '@/types/leave-timeline'
+import { useRegisterModalOpen } from '@/contexts/ModalOpenContext'
 
 export interface CalendarDayDetailModalProps {
   date: string  // YYYY-MM-DD
@@ -75,6 +76,8 @@ export default function CalendarDayDetailModal({
   onCreateCheckIn,
   onCreateCheckOut,
 }: CalendarDayDetailModalProps) {
+  // Stage 4: 글로벌 모달 카운터 등록
+  useRegisterModalOpen()
   const dayDate = parseISO(date)
   const dateLabel = format(dayDate, 'yyyy년 M월 d일 (EEE)', { locale: ko })
 

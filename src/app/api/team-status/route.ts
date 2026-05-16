@@ -8,6 +8,7 @@ import type { WorkLocations } from '@/types/work-locations-v2'
 import { normalizeWorkLocations } from '@/lib/work-locations-v2'
 import type { LeaveTimeline, LeaveType } from '@/types/leave-timeline'
 import type { CalendarBatchResponse, CalendarEventChunk } from '@/types/leave-calendar'
+import { computeEffectiveActualStart } from '@/lib/work-log-state'
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
 
@@ -73,6 +74,18 @@ export interface TeamMemberCard {
    *           프로필에 팀 매칭 안 되면 true (기본).
    */
   use_check_in_complete: boolean
+
+  /**
+   * 정책서 7 — read-time 자동 보정 결과 ('HH:mm:ss' 또는 NULL).
+   *
+   * - actual_start_time이 채워져 있으면 그대로 반환 (= work_log.actual_start_time)
+   * - 비어있고 use_check_in_complete=false 팀 + 오늘 + planned_start 시각 지남 + 미보고 아님
+   *   → planned_start_time 반환 (보정)
+   * - 그 외 → NULL
+   *
+   * DB에는 변동 없음. 표시 로직이 이 필드를 우선 사용해서 4단계 시간 표시 룰 적용.
+   */
+  effective_actual_start_time: string | null
 }
 
 // ─── 상태/색상 계산 ───────────────────────────────────────────────────────────
@@ -419,6 +432,17 @@ export async function GET(request: Request) {
         calendar_events:      calLeave.events,
 
         use_check_in_complete: teamSettings.get(`${division ?? ''}::${(profile.team as string | null) ?? ''}`) ?? true,
+        // Stage 4: read-time 자동 보정. 조건 불충족 시 actual_start_time(또는 NULL) 그대로.
+        effective_actual_start_time: computeEffectiveActualStart(
+          {
+            leave_date: workLog ? (workLog.leave_date as string | null) ?? null : null,
+            planned_start_time: workLog ? (workLog.planned_start_time as string | null) ?? null : null,
+            actual_start_time: workLog ? (workLog.actual_start_time as string | null) ?? null : null,
+          },
+          {
+            use_check_in_complete: teamSettings.get(`${division ?? ''}::${(profile.team as string | null) ?? ''}`) ?? true,
+          },
+        ),
       }
     })
 

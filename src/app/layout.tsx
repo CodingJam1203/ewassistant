@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
+import { ModalOpenProvider } from "@/contexts/ModalOpenContext";
 
 /** Navbar suspense fallback — 빈 64px nav 스켈레톤. layout shift 방지 + 본문 먼저 스트리밍. */
 function NavbarSkeleton() {
@@ -63,12 +64,14 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body className="bg-background text-text-primary min-h-screen antialiased">
-        <Suspense fallback={<NavbarSkeleton />}>
-          <Navbar />
-        </Suspense>
-        <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-          {children}
-        </main>
+        <ModalOpenProvider>
+          <Suspense fallback={<NavbarSkeleton />}>
+            <Navbar />
+          </Suspense>
+          <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+            {children}
+          </main>
+        </ModalOpenProvider>
       </body>
     </html>
   );

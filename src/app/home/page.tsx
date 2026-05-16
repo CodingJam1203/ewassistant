@@ -27,6 +27,7 @@ import { computeWorkLogState, buttonsForState } from '@/lib/work-log-state'
 import EditableLocationChips from '@/components/EditableLocationChips'
 import MissingReportsSummary from '@/components/MissingReportsSummary'
 import { resolveDisplayLocations, resolvePlannedLocations, formatChipsArrow } from '@/lib/work-locations-v2'
+import { useAutoRefetch } from '@/hooks/useAutoRefetch'
 
 // 무거운 컴포넌트는 dynamic import — 초기 번들에서 빠지고 사용 시점에만 로드.
 //   - WorkLogModal: 퇴근보고/수정 클릭 시
@@ -303,6 +304,12 @@ export default function HomePage() {
   }, [today])
 
   useEffect(() => { fetchMyCard() }, [fetchMyCard])
+
+  // Stage 4: 자동 새로고침 — 60s 기본, 출근예정 ±10분이면 30s. 모달 열림/탭 비활성 시 일시정지.
+  useAutoRefetch({
+    plannedStartHHmm: myCard?.start_time?.slice(0, 5) ?? null,
+    onTick: fetchMyCard,
+  })
 
   // 내 work_logs 캐시는 첫 로드에 굳이 필요 없음 — edit 클릭 시점에 단건 fetch만 해도
   // 충분하다 (openEditByWorkLogId 안의 /api/work-logs/{id} fallback). 첫 페이지 로드에서
