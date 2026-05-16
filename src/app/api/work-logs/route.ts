@@ -548,6 +548,10 @@ export async function POST(request: Request) {
       team: userTeam,
     }
 
+    // Stage 6 — 동시 제출 시 알림 채널 통일:
+    //   퇴근보고 + 명일 출근보고를 한 번에 제출해도 알림은 퇴근보고 채널 1건만.
+    //   D+1 work_logs row는 위에서 INSERT/UPDATE 되지만 별도 출근보고 채널 알림은
+    //   호출하지 않는다 (명일 본인이 출근완료 시 그때 출근보고 채널로 알림 발송).
     // resubmitLogId 흐름은 deprecated — 항상 worklog_submitted로 발송 (재제출 알림 X)
     notifyWorkLogSubmitted(notifyPayload)
 

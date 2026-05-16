@@ -379,6 +379,71 @@ export async function PATCH(
     const isCheckInOnly  = editScope === 'check_in'
     const isCheckOutOnly = editScope === 'check_out'
 
+    // ─── Stage 7: 필드 수준 가드 ────────────────────────────────────────────
+    // editScope를 명시한 경우, 영역 밖 필드를 변경하려는 요청이면 400 reject.
+    // body가 단순히 현재값을 echo하는 건 OK — 실제로 값이 다를 때만 거부.
+    {
+      const trim5 = (s: string | null | undefined): string => (s ?? '').slice(0, 5)
+      const norm  = (s: string | null | undefined): string => (s ?? '').toString().trim()
+      const jsonEq = (a: unknown, b: unknown): boolean =>
+        JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+      const forbidden: string[] = []
+
+      if (isCheckInOnly) {
+        // 출근보고 수정 모드 — 본문(퇴근보고) 영역 수정 금지
+        if (body.startTime !== undefined && trim5(body.startTime) !== trim5(log.start_time as string)) {
+          forbidden.push('startTime(실제출근)')
+        }
+        if (body.endTime !== undefined && trim5(body.endTime) !== trim5(log.end_time as string)) {
+          forbidden.push('endTime(실제퇴근)')
+        }
+        if (body.breakTime !== undefined) {
+          // log.break_time은 'HH:MM:SS', body.breakTime은 'HH:MM' — 5글자 비교
+          if (trim5(body.breakTime) !== trim5(log.break_time as string)) {
+            forbidden.push('breakTime(휴게)')
+          }
+        }
+        if (body.workContent !== undefined && norm(body.workContent) !== norm(log.work_content as string)) {
+          forbidden.push('workContent(근무내용)')
+        }
+        if (body.actualWorkLocations !== undefined && !jsonEq(body.actualWorkLocations, log.actual_work_locations)) {
+          forbidden.push('actualWorkLocations(실제 근무장소)')
+        }
+      }
+
+      if (isCheckOutOnly) {
+        // 퇴근보고 수정 모드 — 출근보고 영역 + D+1 사전등록 수정 금지
+        // (Stage 1 client guard가 모든 expected_*/plannedWorkLocations를 null로 보내므로
+        //  현재값과 같으면 통과, 다른 값이 들어오면 reject)
+        if (body.plannedWorkLocations !== undefined && !jsonEq(body.plannedWorkLocations, log.planned_work_locations)) {
+          forbidden.push('plannedWorkLocations(출근 예정 장소)')
+        }
+        if (body.expectedStartDate !== undefined && norm(body.expectedStartDate) !== norm(log.expected_start_date as string)) {
+          forbidden.push('expectedStartDate(다음 출근 일자)')
+        }
+        if (body.expectedStartTime !== undefined && norm(body.expectedStartTime) !== norm(log.expected_work_time as string)) {
+          forbidden.push('expectedStartTime(다음 출근 시각)')
+        }
+        if (body.expectedLeaveTimeline !== undefined && !jsonEq(body.expectedLeaveTimeline, log.expected_leave_timeline)) {
+          forbidden.push('expectedLeaveTimeline(다음 출근일 휴가)')
+        }
+        // attendanceRecordType는 Stage 1에서 '스킵'으로 강제 override되므로 변경 자체가 명시적 행위.
+        if (body.attendanceRecordType !== undefined
+            && body.attendanceRecordType !== '스킵(누락퇴근보고, 퇴근보고 수정)'
+            && norm(body.attendanceRecordType) !== norm(log.attendance_record_type as string)) {
+          forbidden.push('attendanceRecordType(출근보고 진행 여부)')
+        }
+      }
+
+      if (forbidden.length > 0) {
+        const scopeLabel = isCheckInOnly ? '출근보고 수정' : '퇴근보고 수정'
+        return NextResponse.json(
+          { error: `${scopeLabel} 모드에서는 다음 필드를 변경할 수 없습니다: ${forbidden.join(', ')}` },
+          { status: 400 }
+        )
+      }
+    }
+
     const updates: Record<string, unknown> = {
       name: body.name,
       work_type_label: body.workTypeLabel,
