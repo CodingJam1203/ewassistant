@@ -38,10 +38,13 @@ import {
 } from '@/components/ui'
 import type { BadgeVariant } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
-import { pickLatestPerDay } from '@/lib/submissions/finalize-by-day'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 import type { WorkLocations } from '@/types/work-locations-v2'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
+import {
+  displayTimeRange,
+  pickLatestWorkLogPerDay,
+} from '@/lib/work-logs/unified-times'
 
 function CopyButton({ text }: { text: string | null }) {
   const [copied, setCopied] = useState(false)
@@ -224,8 +227,102 @@ function getSortValue(r: SubmissionRow, key: SortKey): string {
   }
 }
 
-// 일자별 최종 추출은 `@/lib/submissions/finalize-by-day`에서 제공.
-// 같은 함수를 캘린더뷰(MyHistoryCalendar)에서도 재사용한다.
+// ─── Stage 0-4d: final mode 어댑터 ─────────────────────────────────────────
+// final mode는 work_logs 단일 row 모델 — 한 (user, date)에 하나의 row.
+// 컬럼 구조를 그대로 두기 위해 work_logs row를 SubmissionRow shape으로 어댑트한다.
+
+/** /api/work-logs GET이 돌려주는 row 형태 (필요 필드만) */
+interface WorkLogRow {
+  id: string
+  user_email: string
+  name: string | null
+  division: string | null
+  team: string | null
+  leave_date: string
+  created_at: string
+  updated_at: string | null
+  planned_start_time: string | null
+  planned_end_time: string | null
+  actual_start_time: string | null
+  actual_end_time: string | null
+  start_time: string | null
+  end_time: string | null
+  break_time: string | null
+  actual_work_time: string | null
+  work_location: string | null
+  work_content: string | null
+  expected_work_location: string | null
+  expected_work_time: string | null
+  expected_start_date: string | null
+  actual_work_locations: WorkLocations | null
+  planned_work_locations: WorkLocations | null
+  work_location_timeline: Array<{ kind?: string; startTime?: string }> | null
+  expected_work_location_timeline: Array<{ kind?: string; startTime?: string }> | null
+  expected_leave_timeline: LeaveTimeline | null
+  leave_timeline: LeaveTimeline | null
+  ew_value: string | null
+  copy_text: string | null
+  work_type_label: string | null
+  attendance_record_type: string | null
+  late_or_attendance_status: string | null
+  previous_report_time: string | null
+  current_report_time: string | null
+  late_reason: string | null
+  break_reason: string | null
+}
+
+/**
+ * work_logs row → SubmissionRow 1건 어댑트.
+ *
+ * 4단계 상태별 report_type 매핑 (badge/edit scope를 위해):
+ *   planned_only  → 'check_in'       (출근보고만 — EW/휴게 컬럼 hide)
+ *   check_in_done → 'check_out'      (출근완료, 퇴근 전 — EW/휴게 표시 OK)
+ *   check_out_done→ 'check_out'      (퇴근완료)
+ *   no_data       → 'check_in'       (graceful — 거의 발생 X)
+ *
+ * 시작/종료 시각은 정책서 4단계 표시 룰 (displayTimeRange) 결과 그대로 사용.
+ */
+function workLogToFinalRow(row: WorkLogRow): SubmissionRow {
+  const { state, start, end } = displayTimeRange(row)
+  const reportType: SubmissionRow['report_type'] =
+    state === 'planned_only' ? 'check_in' : 'check_out'
+  return {
+    id: row.id,
+    user_email: row.user_email,
+    name: row.name,
+    division: row.division,
+    team: row.team,
+    report_type: reportType,
+    target_date: row.leave_date,
+    submitted_at: row.updated_at ?? row.created_at,
+    work_log_id: row.id,
+    start_time: start,
+    end_time: end,
+    break_time: row.break_time,
+    actual_work_time: row.actual_work_time,
+    work_location: row.work_location,
+    work_content: row.work_content,
+    ew_value: row.ew_value,
+    copy_text: row.copy_text,
+    late_or_attendance_status: row.late_or_attendance_status,
+    previous_report_time: row.previous_report_time,
+    current_report_time: row.current_report_time,
+    late_reason: row.late_reason,
+    break_reason: row.break_reason,
+    expected_start_date: row.expected_start_date,
+    expected_work_time: row.expected_work_time,
+    expected_work_location: row.expected_work_location,
+    expected_work_location_timeline: row.expected_work_location_timeline,
+    work_location_timeline: row.work_location_timeline,
+    actual_work_locations: row.actual_work_locations,
+    planned_work_locations: row.planned_work_locations,
+    leave_timeline: row.leave_timeline,
+    expected_leave_timeline: row.expected_leave_timeline,
+    changed_fields: null,
+    work_type_label: row.work_type_label,
+    attendance_record_type: row.attendance_record_type,
+  }
+}
 
 export interface SubmissionsRawTableProps {
   endpoint?: string
@@ -307,14 +404,24 @@ export default function SubmissionsRawTable({
       // 조직 전체 조회는 더 많아질 수 있어 500.
       params.set('limit', mine ? '200' : '500')
 
-      const res = await fetch(`${endpoint}?${params}`, { signal: ac.signal })
+      // Stage 0-4d: final mode는 work_logs 단일 row, raw mode는 work_log_submissions
+      const isFinal = mode === 'final'
+      const url = isFinal ? `/api/work-logs?${params}` : `${endpoint}?${params}`
+      const res = await fetch(url, { signal: ac.signal })
       const json = await res.json()
       if (ac.signal.aborted) return
       if (!res.ok) {
         setError(json.error ?? '조회 실패')
         return
       }
-      setRows(json.rows ?? [])
+      if (isFinal) {
+        // /api/work-logs GET은 array 반환. (user, leave_date) 별로 latest 1건만.
+        const logs = (Array.isArray(json) ? json : []) as WorkLogRow[]
+        const latest = pickLatestWorkLogPerDay(logs)
+        setRows(latest.map(workLogToFinalRow))
+      } else {
+        setRows(json.rows ?? [])
+      }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return
       setError(err instanceof Error ? err.message : '네트워크 오류')
@@ -327,8 +434,9 @@ export default function SubmissionsRawTable({
   useEffect(() => () => abortRef.current?.abort(), [])
 
   const processedRows = useMemo(() => {
+    // Stage 0-4d: final mode는 이미 어댑터에서 (user, date) 단일 row로 압축됨.
+    // 추가 dedupe 불필요.
     let r = rows
-    if (mode === 'final') r = pickLatestPerDay(r)
     if (reportType) {
       r = r.filter(x => x.report_type.startsWith(reportType))
     }

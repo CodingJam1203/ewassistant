@@ -7,8 +7,9 @@
  *
  * 데이터:
  *   - work_log_submissions에서 본인 월 단위 fetch (mine=true, from/to)
- *   - lib/submissions/finalize-by-day.ts의 indexFinalsByDate로 날짜별 최종 상태 산출
- *     → 일자별 최종 보고 탭과 동일한 정의 공유
+ *   - work_logs에서 본인 월 단위 fetch (mine=true, from/to)
+ *   - lib/work-logs/unified-times.ts의 pickLatestWorkLogPerDay로 단일 row 추출
+ *   - workLogToSubmissionPair 어댑터로 CalendarDayDetailModal 호환 shape 변환
  *   - /api/calendar/range로 Google 캘린더 휴가/일정 같이 fetch (옵션)
  *
  * 표시:
