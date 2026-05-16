@@ -806,42 +806,54 @@ export default function WorkLogForm({
         : '/api/work-logs'
       const method = isEditing ? 'PATCH' : 'POST'
 
+      const submitBody: Record<string, unknown> = {
+        ...data,
+        workSubType,
+        actualWorkLocations: actualWasTouched ? submittedActual : null,
+        plannedWorkLocations: data.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
+          ? submittedPlanned
+          : null,
+        startTime: submittedStartTime,
+        endTime: submittedEndTime,
+        expectedStartTime: data.expectedStartTime,
+        expectedEndTime: data.expectedEndTime,
+        finalWorkLocation: submittedWorkLocation,
+        workLocation: submittedWorkLocation,
+        leaveTimeline: submittedLeave,
+        breakAutoActualMinutes,
+        breakAutoRoundedMinutes,
+        breakManualRoundedMinutes: breakIsManual ? breakManualMinutes : null,
+        breakFinalRoundedMinutes,
+        resubmitLogId: isEditing ? null : resubmitLogId,
+      }
+
+      // Stage 1 + Stage 7 정합 — D+1 영역 hide 시:
+      //   - POST(신규): 명시적 '스킵'/null로 서버의 D+1 INSERT 분기 차단
+      //   - PATCH(수정): 서버가 check_out scope에서 출근보고 영역을 어차피 안 씀.
+      //     null로 보내면 Stage 7 server guard가 "변경 시도"로 오인해 400 reject →
+      //     키 자체를 delete해서 가드가 비교 자체를 안 하게 함.
+      if (hideD1Section) {
+        if (isEditing) {
+          delete submitBody.attendanceRecordType
+          delete submitBody.expectedStartDate
+          delete submitBody.expectedStartTime
+          delete submitBody.expectedEndTime
+          delete submitBody.expectedLeaveTimeline
+          delete submitBody.plannedWorkLocations
+        } else {
+          submitBody.attendanceRecordType = '스킵(누락퇴근보고, 퇴근보고 수정)'
+          submitBody.expectedStartDate = null
+          submitBody.expectedStartTime = null
+          submitBody.expectedEndTime = null
+          submitBody.expectedLeaveTimeline = null
+          submitBody.plannedWorkLocations = null
+        }
+      }
+
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...data,
-          // 공휴일 근무 sub-type (라벨에서 추출)
-          workSubType,
-          // 신규 v2 필드
-          actualWorkLocations: actualWasTouched ? submittedActual : null,
-          plannedWorkLocations: data.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
-            ? submittedPlanned
-            : null,
-          // 시간 (HH:mm)
-          startTime: submittedStartTime,
-          endTime: submittedEndTime,
-          expectedStartTime: data.expectedStartTime,
-          expectedEndTime: data.expectedEndTime,
-          // legacy 단일 mirror (서버 호환)
-          finalWorkLocation: submittedWorkLocation,
-          workLocation: submittedWorkLocation,
-          leaveTimeline: submittedLeave,
-          breakAutoActualMinutes: breakAutoActualMinutes,
-          breakAutoRoundedMinutes: breakAutoRoundedMinutes,
-          breakManualRoundedMinutes: breakIsManual ? breakManualMinutes : null,
-          breakFinalRoundedMinutes: breakFinalRoundedMinutes,
-          resubmitLogId: isEditing ? null : resubmitLogId,
-          // Stage 1: D+1 영역 hide 시 다음 출근 사전등록 정보 미전송 (서버의 D+1 row 생성 분기 차단)
-          ...(hideD1Section ? {
-            attendanceRecordType: '스킵(누락퇴근보고, 퇴근보고 수정)',
-            expectedStartDate: null,
-            expectedStartTime: null,
-            expectedEndTime: null,
-            expectedLeaveTimeline: null,
-            plannedWorkLocations: null,
-          } : {}),
-        }),
+        body: JSON.stringify(submitBody),
       })
 
       const resData = await res.json()
@@ -1106,6 +1118,8 @@ export default function WorkLogForm({
       )}
 
       {/* ─── 부가 영역 wrapper — 4(출근보고)/5(기타)를 묶어서 본문(1~3)과 시각 분리 ─── */}
+      {/* Stage 1: 퇴근보고 수정 모드(isCheckOutEdit)에선 4/5 모두 hidden이라 wrapper 자체도 hide */}
+      {!isCheckOutEdit && (
       <div className="mt-10 rounded-xl bg-surface-muted border-t-4 border-primary-500 border-x border-b border-border-strong p-4 sm:p-5 space-y-8 relative">
         <span className="absolute -top-3 left-4 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-primary-600 text-white rounded-full shadow-sm">
           추가 입력 영역
@@ -1272,6 +1286,7 @@ export default function WorkLogForm({
       </div>
 
       </div>
+      )}
       {/* ─── 부가 영역 wrapper 끝 ─── */}
 
       {submitError && (
