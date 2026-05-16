@@ -13,6 +13,13 @@ export interface WorkLogTimeRow {
   planned_end_time: string | null
   actual_start_time: string | null
   actual_end_time: string | null
+  /**
+   * Stage 4: 서버 read-time 보정 결과. 있으면 actual_start_time보다 우선.
+   * - 출근완료 미사용 팀 + planned 시각 지남 + 미보고 아님 → planned_start_time
+   * - 그 외 → actual_start_time(원본) 그대로 또는 NULL
+   * DB 컬럼 아님 — 응답에만 존재.
+   */
+  effective_actual_start_time?: string | null
   /** legacy — fallback 전용 (planned 의미). */
   start_time: string | null
   /** legacy — fallback 전용 (planned 의미). */
@@ -42,13 +49,14 @@ const trim5 = (s: string | null | undefined): string | null =>
 
 /**
  * 신규 SoT 4컬럼 추출.
- * legacy start_time/end_time은 planned 의미로만 fallback — actual로 fallback하지 않는다.
+ * - actualStart: effective_actual_start_time(있으면, Stage 4 보정) > actual_start_time(원본)
+ * - legacy start_time/end_time은 planned 의미로만 fallback — actual로 fallback하지 않는다.
  */
 export function extractUnifiedTimes(row: WorkLogTimeRow): UnifiedTimes {
   return {
     plannedStart: trim5(row.planned_start_time) ?? trim5(row.start_time),
     plannedEnd:   trim5(row.planned_end_time)   ?? trim5(row.end_time),
-    actualStart:  trim5(row.actual_start_time),
+    actualStart:  trim5(row.effective_actual_start_time) ?? trim5(row.actual_start_time),
     actualEnd:    trim5(row.actual_end_time),
   }
 }

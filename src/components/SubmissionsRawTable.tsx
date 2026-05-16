@@ -245,6 +245,8 @@ interface WorkLogRow {
   planned_end_time: string | null
   actual_start_time: string | null
   actual_end_time: string | null
+  // Stage 4: 서버 read-time 보정 결과 (출근완료 미사용 팀)
+  effective_actual_start_time?: string | null
   start_time: string | null
   end_time: string | null
   break_time: string | null
@@ -336,11 +338,12 @@ function workLogToFinalRows(row: WorkLogRow): SubmissionRow[] {
   })
 
   // 퇴근보고 row — actual_start_time이 set된 경우만 (출근완료 이상)
+  // Stage 5: effective_actual_start_time(서버 보정)이 있으면 그걸 우선 — Stage 4 자동 보정 반영
   if (state === 'check_in_done' || state === 'check_out_done') {
     out.push({
       ...base,
       report_type: 'check_out',
-      start_time: row.actual_start_time,
+      start_time: row.effective_actual_start_time ?? row.actual_start_time,
       end_time:   row.actual_end_time,  // check_in_done이면 null
     })
   }

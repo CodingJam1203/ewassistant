@@ -87,6 +87,8 @@ interface WorkLogRow {
   planned_end_time: string | null
   actual_start_time: string | null
   actual_end_time: string | null
+  // Stage 4: 서버 read-time 보정 결과 (출근완료 미사용 팀 자동 보정)
+  effective_actual_start_time?: string | null
   // legacy fallback
   start_time: string | null
   end_time: string | null
@@ -132,6 +134,8 @@ function workLogToSubmissionPair(row: WorkLogRow): {
   state: WorkLogState
 } {
   const { state, start, end } = displayTimeRange(row)
+  // Stage 5: effective_actual_start_time이 있으면 보정값 사용
+  const effectiveActualStart = row.effective_actual_start_time ?? row.actual_start_time
   const baseCommon = {
     id: row.id,
     user_email: row.user_email,
@@ -182,8 +186,8 @@ function workLogToSubmissionPair(row: WorkLogRow): {
       ? {
           ...baseCommon,
           report_type: 'check_out',
-          // 실제 출근 시각 (있으면)
-          start_time: row.actual_start_time,
+          // 실제 출근 시각 — Stage 4 보정값 우선
+          start_time: effectiveActualStart,
           // 실제 퇴근 시각 — check_out_done일 때만, check_in_done이면 null
           end_time: state === 'check_out_done' ? row.actual_end_time : null,
         }
