@@ -12,7 +12,7 @@
  * 스타일은 DESIGN.md 기준 — 색상은 디자인 토큰만, 컴포넌트는 ui/* 사용.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
 
@@ -329,13 +329,17 @@ function workLogToFinalRows(row: WorkLogRow): SubmissionRow[] {
 
   const out: SubmissionRow[] = []
 
-  // 출근보고 row — 항상 존재 (planned + legacy fallback)
-  out.push({
-    ...base,
-    report_type: 'check_in',
-    start_time: row.planned_start_time ?? row.start_time,
-    end_time:   row.planned_end_time   ?? row.end_time,
-  })
+  // 출근보고 row — 출근보고를 한 흔적이 있을 때만 (planned_*_time 중 하나라도 set).
+  // 미보고+직접퇴근보고 케이스는 planned_*_time 둘 다 NULL이므로 생성 안 함
+  // (legacy start_time/end_time이 actual로 채워져 있어도 출근보고 row로 위장하지 않음).
+  if (row.planned_start_time !== null || row.planned_end_time !== null) {
+    out.push({
+      ...base,
+      report_type: 'check_in',
+      start_time: row.planned_start_time ?? row.start_time,
+      end_time:   row.planned_end_time   ?? row.end_time,
+    })
+  }
 
   // 퇴근보고 row — actual_start_time이 set된 경우만 (출근완료 이상)
   // Stage 5: effective_actual_start_time(서버 보정)이 있으면 그걸 우선 — Stage 4 자동 보정 반영
@@ -391,17 +395,29 @@ export default function SubmissionsRawTable({
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
 
-  const [sortKey, setSortKey] = useState<SortKey>('submitted_at')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
-    } else {
-      setSortKey(key)
-      // 날짜/시간 계열은 최신 우선 (desc), 그 외는 alphabetical 시작이라 asc 기본
-      setSortDir(key === 'submitted_at' || key === 'target_date' ? 'desc' : 'asc')
-    }
-  }
+  // 정렬 상태 — useReducer로 묶어 sortKey/sortDir이 항상 함께 정합한 상태로 업데이트되게.
+  // (개별 useState로 두면 setSortKey + setSortDir 두 번 호출 시 중간 render에서 잠깐
+  //  새 key + 옛 dir 조합이 노출되는 일이 드물게 있을 수 있고, key 비교용 closure가
+  //  stale해질 수 있음.)
+  type SortState = { key: SortKey; dir: SortDir }
+  const [sortState, dispatchSort] = useReducer(
+    (state: SortState, action: { key: SortKey }): SortState => {
+      if (state.key === action.key) {
+        return { key: state.key, dir: state.dir === 'asc' ? 'desc' : 'asc' }
+      }
+      return {
+        key: action.key,
+        // 날짜/시간 계열은 최신 우선 (desc), 그 외는 alphabetical 시작이라 asc 기본
+        dir: action.key === 'submitted_at' || action.key === 'target_date' ? 'desc' : 'asc',
+      }
+    },
+    { key: 'submitted_at' as SortKey, dir: 'desc' as SortDir },
+  )
+  const sortKey = sortState.key
+  const sortDir = sortState.dir
+  const toggleSort = useCallback((key: SortKey) => {
+    dispatchSort({ key })
+  }, [])
 
   // 이전 in-flight fetch 취소용. 빠른 타이핑(특히 한글 IME 합성 중)으로
   // 여러 fetch가 겹칠 때 오래된 응답이 새 응답을 덮어쓰는 race를 막는다.
@@ -471,20 +487,38 @@ export default function SubmissionsRawTable({
       const q = nameQuery.toLowerCase()
       r = r.filter(x => (x.name ?? '').toLowerCase().includes(q))
     }
-    // 정렬 — 빈 값은 항상 맨 아래로
+    // 정렬 — 빈 값은 항상 맨 아래로.
+    // Stage 8: 날짜/시각 컬럼은 ISO 문자열 그대로 비교 (localeCompare numeric 옵션의
+    // 한국 로케일 quirk 회피). 동일 1차 키일 때 submitted_at desc로 안정적 2차 정렬.
+    const isIsoLike = (s: string) => /^\d{4}-\d{2}-\d{2}/.test(s)
+    const compareValues = (va: string, vb: string): number => {
+      if (isIsoLike(va) && isIsoLike(vb)) {
+        // ISO 8601 — 사전순 비교가 곧 시간순 비교
+        return va < vb ? -1 : va > vb ? 1 : 0
+      }
+      return va.localeCompare(vb, 'ko', { numeric: true, sensitivity: 'base' })
+    }
     const sorted = [...r].sort((a, b) => {
       const va = getSortValue(a, sortKey)
       const vb = getSortValue(b, sortKey)
-      if (!va && !vb) return 0
+      if (!va && !vb) {
+        // 1차 키 동률 — submitted_at desc 보조 정렬 (최신 우선)
+        if (a.submitted_at === b.submitted_at) return 0
+        return a.submitted_at < b.submitted_at ? 1 : -1
+      }
       if (!va) return 1
       if (!vb) return -1
-      const cmp = va.localeCompare(vb, 'ko', { numeric: true, sensitivity: 'base' })
-      return sortDir === 'asc' ? cmp : -cmp
+      const cmp = compareValues(va, vb)
+      if (cmp !== 0) return sortDir === 'asc' ? cmp : -cmp
+      // 1차 키 동률 — submitted_at desc 보조 정렬
+      if (a.submitted_at === b.submitted_at) return 0
+      return a.submitted_at < b.submitted_at ? 1 : -1
     })
     return sorted
   }, [rows, mode, nameQuery, reportType, sortKey, sortDir])
 
-  useEffect(() => { setPage(1) }, [processedRows.length])
+  // 정렬 또는 데이터 길이 변경 시 1페이지로 리셋
+  useEffect(() => { setPage(1) }, [processedRows.length, sortKey, sortDir])
   const pageStart = (page - 1) * pageSize
   const pagedRows = processedRows.slice(pageStart, pageStart + pageSize)
 
@@ -615,7 +649,7 @@ export default function SubmissionsRawTable({
                       : (r.work_location ?? r.expected_work_location ?? '-'))
 
                 return (
-                  <tr key={r.id} className={TR_HOVER}>
+                  <tr key={`${r.id}__${r.report_type}`} className={TR_HOVER}>
                     <Td className="text-center">
                       {isCheckOut ? <CopyButton text={r.copy_text} /> : dash}
                     </Td>
