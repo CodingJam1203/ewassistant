@@ -609,17 +609,18 @@ export default function WorkLogForm({
   //   - 같은 일자의 work_logs row가 있으면 (보고 상태): planned_*_time(=legacy start/end_time) 또는
   //     daily.checked_in_at(실제 출근)을 우선해서 prefill
   //   - row 없으면 (미보고 상태): form default '09:00'/'18:00' 유지
-  const stage3PrefillTriedRef = useRef(false)
   useEffect(() => {
-    if (stage3PrefillTriedRef.current) return
     if (isEditing) return
     if (initialStartTime) return  // 부모가 이미 명시 prefill — 덮어쓰지 않음
     const date = formValues.leaveDate
     if (!date) return
-    stage3PrefillTriedRef.current = true
 
-    let cancelled = false
-    fetch(`/api/team-status/expected-timeline?date=${encodeURIComponent(date)}`)
+    // React 19 StrictMode 호환 — closure cancelled 패턴 대신 AbortController.
+    // StrictMode가 mount→cleanup→remount 시뮬 시 1차 fetch는 abort되고
+    // 2차 fetch가 정상 resolve.
+    const ac = new AbortController()
+    fetch(`/api/team-status/expected-timeline?date=${encodeURIComponent(date)}`,
+          { signal: ac.signal })
       .then(r => (r.ok ? r.json() : null))
       .then((data: {
         expectedStartTime?: string | null
@@ -627,8 +628,7 @@ export default function WorkLogForm({
         checkedInAt?: string | null
         hasExisting?: boolean
       } | null) => {
-        if (cancelled || !data) return
-        if (!data.hasExisting) return  // 미보고 → default 유지
+        if (!data?.hasExisting) return  // 미보고 → default 유지
         // 실제출근 우선, 없으면 planned (= legacy start_time)
         const newStart = data.checkedInAt ?? data.expectedStartTime ?? null
         const newEnd   = data.expectedEndTime ?? null
@@ -639,8 +639,11 @@ export default function WorkLogForm({
           setValue('endTime', newEnd, { shouldDirty: false, shouldValidate: false })
         }
       })
-      .catch(() => { /* 무시 */ })
-    return () => { cancelled = true }
+      .catch(err => {
+        if (err?.name === 'AbortError') return  // StrictMode 시뮬 cleanup으로 abort된 경우
+        // 그 외는 무시 (네트워크 일시 오류 등)
+      })
+    return () => ac.abort()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formValues.leaveDate])
 
