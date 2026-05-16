@@ -684,7 +684,7 @@ export default function WorkLogForm({
     return () => {
       if (nameDebounceRef.current) clearTimeout(nameDebounceRef.current)
     }
-  }, [formValues.name, isEditing]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [formValues.name, isEditing])
 
   // EW 계산
   useEffect(() => {
@@ -852,6 +852,25 @@ export default function WorkLogForm({
           submitBody.expectedLeaveTimeline = null
           submitBody.plannedWorkLocations = null
         }
+      }
+
+      // Stage 7 정합 — 출근보고 수정(check_in scope) 시 본문(퇴근보고) 영역 필드 omit.
+      //   - PATCH 서버는 check_in scope에서 본문 영역을 어차피 안 씀 (!isCheckInOnly 가드).
+      //   - 폼의 hidden 본문 fields는 defaultValues로부터 값을 가지지만 보내면 Stage 7 가드가
+      //     log.start_time/end_time 등과 비교해서 false positive로 400 reject할 수 있음
+      //     (예: planned_start_time != legacy start_time인 옛 row).
+      //   - 키 자체를 delete해서 가드가 비교 안 하게.
+      if (isEditing && editScope === 'check_in') {
+        delete submitBody.startTime
+        delete submitBody.endTime
+        delete submitBody.breakTime
+        delete submitBody.workContent
+        delete submitBody.actualWorkLocations
+        delete submitBody.breakAutoActualMinutes
+        delete submitBody.breakAutoRoundedMinutes
+        delete submitBody.breakManualRoundedMinutes
+        delete submitBody.breakFinalRoundedMinutes
+        delete submitBody.breakReason
       }
 
       const res = await fetch(url, {

@@ -52,11 +52,13 @@ export function useAutoRefetch({
   plannedStartHHmm,
   onTick,
 }: UseAutoRefetchOptions): void {
+  // React 19 strict 규칙: ref는 render 중 mutate 금지 — useEffect로 분리.
+  // 매 render 후 최신 reference로 갱신해 polling effect의 deps 안정성 유지.
   const onTickRef = useRef(onTick)
-  onTickRef.current = onTick  // 항상 최신 reference (deps 안정성)
+  useEffect(() => { onTickRef.current = onTick })
 
   const plannedRef = useRef<string | null | undefined>(plannedStartHHmm)
-  plannedRef.current = plannedStartHHmm
+  useEffect(() => { plannedRef.current = plannedStartHHmm })
 
   const modalOpenCount = useModalOpenCount()
 
