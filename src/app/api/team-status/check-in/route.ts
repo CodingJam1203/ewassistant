@@ -225,6 +225,9 @@ export async function POST(request: Request) {
       leave_date:      date,
       start_time:      startTime,
       end_time:        endTime,
+      // Stage 0-2: 출근보고는 예정값 — planned_* SoT 컬럼에도 동시 저장
+      planned_start_time: startTime,
+      planned_end_time:   endTime,
       break_time:      `${breakTime}:00`,
       work_content:    workContent || null,
       // legacy mirror
@@ -361,6 +364,15 @@ export async function POST(request: Request) {
       .single()
 
     if (dailyErr) throw dailyErr
+
+    // Stage 0-2: work_logs.actual_start_time를 daily.checked_in_at과 symmetric하게 갱신.
+    // checkedInAtIso가 null이면 SoT도 null (출근 안 한 상태로 되돌림).
+    if (workLogId) {
+      await adminClient
+        .from('work_logs')
+        .update({ actual_start_time: actualCheckInTime ?? null })
+        .eq('id', workLogId)
+    }
 
     // ─── submissions 로그 ─────────────────────────────────────────────────
     // report_type 분기:

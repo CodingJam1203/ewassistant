@@ -426,6 +426,15 @@ export async function PATCH(
       if (body.breakFinalRoundedMinutes !== undefined) {
         updates.break_final_rounded_minutes = breakFinalRoundedMin
       }
+      // Stage 0-2: 신규 SoT 컬럼 — 본문 시각 = 실제 출퇴근으로 해석.
+      // 기존 start_time/end_time(=planned)은 이 라우트에서 보존하므로
+      // 실제 시각 변경분만 actual_*에 반영. body에 명시적으로 들어왔을 때만 갱신.
+      if (typeof body.startTime === 'string' && body.startTime) {
+        updates.actual_start_time = mod24HHmm(body.startTime)
+      }
+      if (typeof body.endTime === 'string' && body.endTime) {
+        updates.actual_end_time = mod24HHmm(body.endTime)
+      }
     }
 
     // 출근보고(D+1 expected_*) 영역 — check_out 전용 수정이 아닐 때만 update

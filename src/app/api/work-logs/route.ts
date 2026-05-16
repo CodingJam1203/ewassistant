@@ -220,6 +220,10 @@ export async function POST(request: Request) {
     }
     const dbStartTime = mod24HHmm(finalStartTime)
     const dbEndTime   = mod24HHmm(finalEndTime)
+    // Stage 0-2: 정책서 시간 4종 분리 — 신규 actual_* SoT 컬럼 동시 채움.
+    // 이 라우트의 폼 시각은 "실제 출퇴근"으로 해석한다 (line 442 정책 코멘트 참조).
+    const dbActualStart = dbStartTime
+    const dbActualEnd   = dbEndTime
 
     const calcResult = calculateEw({
       name: body.name,
@@ -283,6 +287,9 @@ export async function POST(request: Request) {
       leave_date: body.leaveDate,
       start_time: dbStartTime,
       end_time:   dbEndTime,
+      // Stage 0-2: 신규 SoT 컬럼 — 폼 시각 = 실제 출퇴근으로 해석
+      actual_start_time: dbActualStart,
+      actual_end_time:   dbActualEnd,
       break_time: body.breakTime ? `${body.breakTime}:00` : '00:00:00',
       break_reason: body.breakReason || null,
       work_content: body.workContent || null,
@@ -395,11 +402,16 @@ export async function POST(request: Request) {
         .limit(1)
         .maybeSingle()
 
+      const dPlus1PlannedStart = mod24HHmm(nextStartTime)
+      const dPlus1PlannedEnd   = mod24HHmm(nextEndTime)
       const dPlus1Data: Record<string, unknown> = {
         name: body.name,
         leave_date: nextDate,
-        start_time: mod24HHmm(nextStartTime),
-        end_time:   mod24HHmm(nextEndTime),
+        start_time: dPlus1PlannedStart,
+        end_time:   dPlus1PlannedEnd,
+        // Stage 0-2: D+1 사전등록은 예정값 — planned_* SoT 컬럼에도 동시 저장
+        planned_start_time: dPlus1PlannedStart,
+        planned_end_time:   dPlus1PlannedEnd,
         work_location: nextWorkLocation,
         work_location_timeline: expectedTimeline,
         planned_work_locations: plannedWorkLocations,

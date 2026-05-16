@@ -80,11 +80,39 @@ export async function POST(request: Request) {
 
     if (error) throw error
 
+    // Stage 0-2: work_logs.actual_end_time를 daily.checked_out_at과 symmetric하게 갱신.
+    // KST HH:mm 추출 — time without time zone 컬럼에 저장.
+    const actualEndHHmm = new Date(now).toLocaleTimeString('en-GB', {
+      timeZone: 'Asia/Seoul',
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    let targetWorkLogId: string | null = existing?.work_log_id ?? null
+    if (!targetWorkLogId) {
+      const { data: latest } = await adminClient
+        .from('work_logs')
+        .select('id')
+        .eq('user_email', user.email!)
+        .eq('leave_date', date)
+        .eq('is_deleted', false)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      targetWorkLogId = latest?.id ?? null
+    }
+    if (targetWorkLogId) {
+      await adminClient
+        .from('work_logs')
+        .update({ actual_end_time: actualEndHHmm })
+        .eq('id', targetWorkLogId)
+    }
+
     await adminClient.from('work_status_events').insert({
       work_date:       date,
       user_email:      user.email!,
       user_profile_id: profile?.id ?? null,
-      work_log_id:     existing?.work_log_id ?? null,
+      work_log_id:     targetWorkLogId,
       event_type:      'check_out',
       event_value:     { location: existing?.current_location ?? null },
       event_at:        now,
