@@ -31,21 +31,24 @@ export async function POST(request: Request) {
 
     // 퇴근 시각 결정 — 30분 단위 보장:
     //   1) body.checked_out_at 명시 → 그대로 사용
-    //   2) 퇴근보고가 직전에 작성됐으면 (work_logs.end_time) → 그 시각을 KST 기준 ISO로 변환
+    //   2) 퇴근보고가 직전에 작성됐으면 (work_logs.actual_end_time) → 그 시각을 KST 기준 ISO로 변환
+    //      Stage 0-2: end_time은 "예정 퇴근"이므로 실제 퇴근은 actual_end_time에서 읽는다.
+    //      legacy row(actual_end_time 미채움) 호환을 위해 end_time fallback 유지.
     //   3) 둘 다 없으면 현재 시각 (legacy fallback)
     let now: string = body.checked_out_at ?? ''
     if (!now) {
       // 가장 최근 퇴근보고 work_log 조회 (오늘 leave_date)
       const { data: log } = await adminClient
         .from('work_logs')
-        .select('end_time')
+        .select('actual_end_time, end_time')
         .eq('user_email', user.email!)
         .eq('leave_date', date)
         .eq('is_deleted', false)
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle()
-      const endHHmm = (log?.end_time as string | null)?.slice(0, 5)
+      const endHHmm = ((log?.actual_end_time as string | null)
+                    ?? (log?.end_time as string | null))?.slice(0, 5)
       if (endHHmm) {
         // "HH:mm" → ISO (KST 기준). 24시 이상(예: "26:00")이면 다음 날로 환산.
         const [hStr, mStr] = endHHmm.split(':')
