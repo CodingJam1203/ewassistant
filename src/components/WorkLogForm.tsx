@@ -507,14 +507,15 @@ export default function WorkLogForm({
 
   const formValues = watch()
 
-  // Stage 1: 다음 출근 사전등록(D+1) 영역 hide 조건
-  //   - 퇴근보고 수정(editScope='check_out'): D+1 영역 통째로 의미 없음 — 그 row의 다음날은 별개 row
-  //   - 신규 작성 + 지나간 일자(미보고 퇴근보고 작성): 다음날이 이미 지난 시점이라 의미 없음
-  // 동시에: 수정 모드일 땐 "지각/당일수정", "감사 마카롱"도 같이 hide
+  // 다음 출근 사전등록(D+1) 영역 hide 조건 — "당일 + 최초 작성"에만 노출, 나머지는 모두 hide.
+  //   - 퇴근보고 수정 (editScope='check_out'): D+1 의미 없음 → hide
+  //   - 신규/수정 + leaveDate != 오늘 (과거 또는 미래): D+1 의미 없음 → hide
+  //   - 당일 + 신규 작성: D+1 사전등록 영역 노출
+  // 지각/감사 마카롱은 항상 노출 (기존 isCheckOutEdit hide 정책 제거).
   const isCheckOutEdit = !!editingLog && editScope === 'check_out'
   const todayKstForD1 = getKstTodayDateString()
-  const isPastLeaveDate = ((formValues.leaveDate ?? todayKstForD1) as string) < todayKstForD1
-  const hideD1Section = isCheckOutEdit || (!editingLog && isPastLeaveDate)
+  const isTodayLeaveDate = ((formValues.leaveDate ?? todayKstForD1) as string) === todayKstForD1
+  const hideD1Section = isCheckOutEdit || !isTodayLeaveDate
 
   // 날짜에 따른 근무유형 카테고리 + 한국 공휴일명 (잠금/안내 UI에 사용)
   const dateCategory: DateCategory = categorizeDate(formValues.leaveDate ?? getKstTodayDateString())
@@ -1118,8 +1119,7 @@ export default function WorkLogForm({
       )}
 
       {/* ─── 부가 영역 wrapper — 4(출근보고)/5(기타)를 묶어서 본문(1~3)과 시각 분리 ─── */}
-      {/* Stage 1: 퇴근보고 수정 모드(isCheckOutEdit)에선 4/5 모두 hidden이라 wrapper 자체도 hide */}
-      {!isCheckOutEdit && (
+      {/* 지각/마카롱은 항상 노출이라 wrapper도 항상 노출 */}
       <div className="mt-10 rounded-xl bg-surface-muted border-t-4 border-primary-500 border-x border-b border-border-strong p-4 sm:p-5 space-y-8 relative">
         <span className="absolute -top-3 left-4 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-primary-600 text-white rounded-full shadow-sm">
           추가 입력 영역
@@ -1221,8 +1221,8 @@ export default function WorkLogForm({
         <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">기타</h3>
 
         <div className="space-y-6">
-          {/* 지각/당일수정 — Stage 1: 퇴근보고 수정에선 hide (해당 row의 출근 시각은 별개 영역) */}
-          {showCheckOutSections && !isCheckOutEdit && (
+          {/* 지각/당일수정 — 출근보고 수정 모드(check_in)가 아니면 항상 노출 */}
+          {showCheckOutSections && (
           <div className="p-4 bg-surface rounded-lg border border-border">
             <label className="block text-sm font-medium text-text-primary mb-1">지각 or 출근 시간 입력 수정 여부</label>
             <p className="mb-2 text-xs text-warning-text">
@@ -1270,8 +1270,7 @@ export default function WorkLogForm({
           </div>
           )}
 
-          {/* 감사 마카롱 — Stage 1: 퇴근보고 수정에선 hide (정책서 '출근보고' 영역의 한 부분으로 분류) */}
-          {!isCheckOutEdit && (
+          {/* 감사 마카롱 — 항상 노출 */}
           <div>
             <label className="block text-sm font-medium text-text-primary">감사 마카롱 메시지 (선택)</label>
             <textarea
@@ -1281,12 +1280,10 @@ export default function WorkLogForm({
               className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border"
             />
           </div>
-          )}
         </div>
       </div>
 
       </div>
-      )}
       {/* ─── 부가 영역 wrapper 끝 ─── */}
 
       {submitError && (
