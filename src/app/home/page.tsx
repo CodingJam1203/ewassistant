@@ -367,6 +367,12 @@ export default function HomePage() {
   }
 
   const handleEditSuccess = () => {
+    // 캐시된 logs에서 방금 수정한 row 제거 — 다음 [수정] 클릭 시 fresh fetch.
+    // (안 그러면 캐시된 옛 값으로 form prefill되어 사용자가 본 값과 안 맞음)
+    const editedId = editingLog?.id
+    if (editedId) {
+      setLogs(prev => prev.filter(l => l.id !== editedId))
+    }
     setEditingLog(null)
     fetchMyCard()
   }
