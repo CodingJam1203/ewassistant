@@ -1,9 +1,9 @@
 'use client'
 
-import { memo, useState, useEffect, useCallback, useRef } from 'react'
+import { memo, useState, useEffect, useCallback, useRef, useReducer, useMemo } from 'react'
 import { format, addDays, subDays, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
-import { ChevronLeft, ChevronRight, RefreshCw, MapPin, Clock, Coffee, LogIn, LogOut, X, LayoutGrid, List, Check } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RefreshCw, MapPin, Clock, Coffee, LogIn, LogOut, X, LayoutGrid, List, Check, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 import CheckInModal from '@/components/CheckInModal'
 import WorkLogModal from '@/components/WorkLogModal'
 import {
@@ -557,6 +557,42 @@ const MemberListRow = memo(function MemberListRow({
   )
 })
 
+// ─── 리스트뷰 정렬 헤더 ────────────────────────────────────────────────────────
+type TeamSortKey = 'name' | 'start_time' | 'end_time' | 'checked_in_at' | 'checked_out_at'
+type TeamSortDir = 'asc' | 'desc'
+
+function TeamSortableTh({
+  sortKey: key,
+  label,
+  currentKey,
+  currentDir,
+  onSort,
+}: {
+  sortKey: TeamSortKey
+  label: string
+  currentKey: TeamSortKey | null
+  currentDir: TeamSortDir
+  onSort: (k: TeamSortKey) => void
+}) {
+  const active = currentKey === key
+  const Icon = active ? (currentDir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown
+  return (
+    <Th>
+      <button
+        type="button"
+        onClick={() => onSort(key)}
+        className={cn(
+          'inline-flex items-center gap-1 transition-colors',
+          active ? 'text-text-primary' : 'text-text-secondary hover:text-text-primary',
+        )}
+      >
+        <span>{label}</span>
+        <Icon className="h-3 w-3" aria-hidden />
+      </button>
+    </Th>
+  )
+}
+
 // ─── 메인 페이지 ──────────────────────────────────────────────────────────────
 export default function TeamPage() {
   const today = format(new Date(), 'yyyy-MM-dd')
@@ -580,6 +616,45 @@ export default function TeamPage() {
     if (typeof window === 'undefined') return
     try { localStorage.setItem('team-view-mode', viewMode) } catch {}
   }, [viewMode])
+
+  // ─── 정렬 (리스트뷰 전용) ──────────────────────────────────────────────────
+  type TeamSortState = { key: TeamSortKey | null; dir: TeamSortDir }
+  const [sortState, dispatchSort] = useReducer(
+    (state: TeamSortState, action: { key: TeamSortKey | null }): TeamSortState => {
+      if (action.key === null) return { key: null, dir: 'asc' }  // 기본 (API order) 복귀
+      if (state.key === action.key) {
+        return { key: state.key, dir: state.dir === 'asc' ? 'desc' : 'asc' }
+      }
+      // 시간 컬럼은 desc 기본 (최근/늦은 시각 먼저), 이름은 asc
+      return { key: action.key, dir: action.key === 'name' ? 'asc' : 'desc' }
+    },
+    { key: null as TeamSortKey | null, dir: 'desc' as TeamSortDir },
+  )
+
+  const sortedCards = useMemo(() => {
+    if (sortState.key === null) return cards  // API 순서 그대로 (is_self → display_order → name)
+    const k = sortState.key
+    const dir = sortState.dir
+    const getValue = (c: TeamMemberCard): string => {
+      switch (k) {
+        case 'name':            return (c.display_name ?? c.email ?? '').toLowerCase()
+        case 'start_time':      return c.start_time ?? ''
+        case 'end_time':        return c.end_time ?? ''
+        case 'checked_in_at':   return c.checked_in_at ?? ''
+        case 'checked_out_at':  return c.checked_out_at ?? ''
+      }
+    }
+    return [...cards].sort((a, b) => {
+      const va = getValue(a)
+      const vb = getValue(b)
+      // 빈 값은 항상 맨 아래
+      if (!va && !vb) return 0
+      if (!va) return 1
+      if (!vb) return -1
+      const cmp = va < vb ? -1 : va > vb ? 1 : 0
+      return dir === 'asc' ? cmp : -cmp
+    })
+  }, [cards, sortState])
 
   useEffect(() => {
     let cancelled = false
@@ -823,19 +898,19 @@ export default function TeamPage() {
             <Table>
               <thead>
                 <tr>
-                  <Th>이름 / 소속</Th>
+                  <TeamSortableTh sortKey="name"           label="이름 / 소속" currentKey={sortState.key} currentDir={sortState.dir} onSort={k => dispatchSort({ key: k })} />
                   <Th>상태</Th>
-                  <Th>출근예정</Th>
-                  <Th>퇴근예정</Th>
-                  <Th>실제 출근</Th>
-                  <Th>실제 퇴근</Th>
+                  <TeamSortableTh sortKey="start_time"     label="출근예정"    currentKey={sortState.key} currentDir={sortState.dir} onSort={k => dispatchSort({ key: k })} />
+                  <TeamSortableTh sortKey="end_time"       label="퇴근예정"    currentKey={sortState.key} currentDir={sortState.dir} onSort={k => dispatchSort({ key: k })} />
+                  <TeamSortableTh sortKey="checked_in_at"  label="실제 출근"   currentKey={sortState.key} currentDir={sortState.dir} onSort={k => dispatchSort({ key: k })} />
+                  <TeamSortableTh sortKey="checked_out_at" label="실제 퇴근"   currentKey={sortState.key} currentDir={sortState.dir} onSort={k => dispatchSort({ key: k })} />
                   <Th>휴게</Th>
                   <Th>근무지</Th>
                   <Th>액션</Th>
                 </tr>
               </thead>
               <tbody>
-                {cards.map(card => (
+                {sortedCards.map(card => (
                   <MemberListRow
                     key={card.email}
                     card={card}
