@@ -228,6 +228,8 @@ interface WorkLogFormProps {
   initialStartTime?: string
   /** Legacy fallback: timeline 없을 때 사용할 퇴근시각 ('HH:mm') */
   initialEndTime?: string
+  /** 신규 작성 모드에서 leaveDate 초기값 ('YYYY-MM-DD'). 캘린더에서 특정 일자 클릭 시 사용. 없으면 오늘. */
+  initialLeaveDate?: string
   resubmitLogId?: string | null
   /** 수정 모드 */
   editingLog?: WorkLog | null
@@ -315,6 +317,7 @@ export default function WorkLogForm({
   initialBreakAutoActualMinutes,
   initialStartTime,
   initialEndTime,
+  initialLeaveDate,
   resubmitLogId,
   editingLog,
   editScope,
@@ -475,13 +478,14 @@ export default function WorkLogForm({
       : {
           name: userName || '',
           workTypeLabel: ((): WorkTypeLabelValue => {
-            const today = getKstTodayDateString()
-            const cat = categorizeDate(today)
+            // initialLeaveDate가 있으면 그 일자 기준으로 default 결정 (캘린더에서 특정 일자 선택 케이스)
+            const baseDate = initialLeaveDate || getKstTodayDateString()
+            const cat = categorizeDate(baseDate)
             if (cat === 'saturday') return '토요일 근무'
             if (cat === 'sunday_or_holiday') return ''  // 잠금 상태 — 사용자가 선택
             return '(평일) 기본 근무'
           })(),
-          leaveDate: getKstTodayDateString(),
+          leaveDate: initialLeaveDate || getKstTodayDateString(),
           startTime: defaultStartTime,
           endTime: defaultEndTime,
           actualWorkLocations: defaultActualLocations,

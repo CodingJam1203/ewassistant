@@ -164,6 +164,7 @@ export default function WorkLogModal({
                   initialBreakAutoActualMinutes={initialBreakAutoActualMinutes}
                   initialStartTime={initialStartTime}
                   initialEndTime={initialEndTime}
+                  initialLeaveDate={date}
                   resubmitLogId={resubmitWorkLogId}
                   editingLog={editingLog}
                   editScope={editScope}
