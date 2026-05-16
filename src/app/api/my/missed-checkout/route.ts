@@ -3,9 +3,9 @@
  *
  * 본인의 가장 최근 미완료 퇴근보고 1건 조회.
  *
- * 조건:
- *   - expected_start_date < 오늘 (KST)
- *   - 그 날짜의 퇴근보고(leave_date 동일 + end_time 채워짐) 없음
+ * Stage 0-4a 정책서 "한 (user, date) row" 모델:
+ *   - leave_date < 오늘 (KST)
+ *   - actual_end_time IS NULL (퇴근완료 아직 안 함)
  *   - 종일 휴가 아님
  *
  * 응답:
@@ -56,16 +56,18 @@ export async function GET() {
     // 가입일이 30일 한도(earliest)보다 늦으면 그 날짜를 lower bound로 사용
     const lowerBound = signupDate && signupDate > earliest ? signupDate : earliest
 
-    // 1) 본인의 최근 출근보고 (expected_start_date < today) — 날짜 desc, 30일 한도
+    // Stage 0-4a: 단일 쿼리 — leave_date < today + actual_end_time IS NULL.
+    // 옛 expected_start_date 기반 D+1 row 분리 모델은 deprecate.
+    // 단일 row 모델에서 "미완료 퇴근"은 row가 존재하지만 actual_end_time이 비어있는 상태.
     const { data: candidates, error: candErr } = await adminClient
       .from('work_logs')
-      .select('id, expected_start_date, expected_leave_timeline, leave_timeline')
+      .select('id, leave_date, leave_timeline')
       .eq('user_email', user.email)
       .eq('is_deleted', false)
-      .not('expected_start_date', 'is', null)
-      .lt('expected_start_date', today)
-      .gte('expected_start_date', lowerBound)
-      .order('expected_start_date', { ascending: false })
+      .is('actual_end_time', null)
+      .lt('leave_date', today)
+      .gte('leave_date', lowerBound)
+      .order('leave_date', { ascending: false })
 
     if (candErr) {
       console.warn('[missed-checkout] candidates fetch failed:', candErr.message)
@@ -75,43 +77,22 @@ export async function GET() {
       return NextResponse.json({ targetDate: null })
     }
 
-    // 2) 후보 날짜들의 퇴근보고 완료 여부 일괄 조회
-    const candidateDates = Array.from(
-      new Set(candidates.map(c => c.expected_start_date as string)),
-    )
-    const { data: completed } = await adminClient
-      .from('work_logs')
-      .select('leave_date')
-      .eq('user_email', user.email)
-      .eq('is_deleted', false)
-      .in('leave_date', candidateDates)
-      .not('end_time', 'is', null)
-
-    const completedSet = new Set(
-      ((completed ?? []) as Array<{ leave_date: string }>).map(r => r.leave_date),
-    )
-
-    // 3) 종일 휴가는 미완료 대상에서 제외
+    // 종일 휴가는 알림 대상에서 제외
     const isFullDayLeave = (tl: LeaveTimeline | null | undefined) =>
       Array.isArray(tl) && tl.some(it => it?.leaveType === 'full_day')
 
-    // 4) candidates는 expected_start_date desc 정렬 — 가장 최근 미완료 1건 찾기
-    //   토/일/공휴일은 미보고 알림 대상 X (사용자가 그 날 자발적으로 근무했으면
-    //   본인이 인지하고 있다고 가정 — 평일만 알림)
+    // candidates는 leave_date desc — 가장 최근 미완료 1건 반환.
+    // 토/일/공휴일은 미보고 알림 대상 X (자발 근무 시 본인 인지 가정)
     for (const c of candidates) {
-      const date = c.expected_start_date as string
-      if (completedSet.has(date)) continue
+      const date = c.leave_date as string
       if (isSaturday(date) || isSunday(date)) continue
       if (isKoreanHoliday(date)) continue
-      // 출근보고 row의 expected_leave_timeline 또는 leave_timeline 검사
-      if (isFullDayLeave(c.expected_leave_timeline as LeaveTimeline | null)) continue
       if (isFullDayLeave(c.leave_timeline as LeaveTimeline | null)) continue
 
       return NextResponse.json({
         targetDate: date,
       }, {
         headers: {
-          // 30초 캐시 — MY PAGE 새로고침 시마다 DB hit 부담 ↓
           'Cache-Control': 'private, max-age=30',
         },
       })

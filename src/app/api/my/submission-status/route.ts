@@ -72,11 +72,6 @@ function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
-function isFullDayLeave(tl: LeaveTimeline | null | undefined): boolean {
-  if (!Array.isArray(tl)) return false
-  return tl.some(it => it?.leaveType === 'full_day')
-}
-
 function pickLeaveType(tl: LeaveTimeline | null | undefined): DayStatusEntry['leaveType'] {
   if (!Array.isArray(tl)) return null
   for (const it of tl) {
@@ -130,54 +125,32 @@ export async function GET(request: Request) {
     const userDivision = (profileRow?.division as string | null) ?? null
     const userDisplayName = (profileRow?.display_name as string | null) ?? null
 
-    // 본인 work_logs 일괄 조회 — 출근보고 / 퇴근보고 각각 별도 쿼리 후 client-side 병합.
-    //   - .or() with and() 중첩은 PostgREST에서 인덱스 못 타고 풀스캔 → 10s timeout 위험
-    //   - 분리하면 각각 (user_email, expected_start_date) / (user_email, leave_date) 인덱스 활용 가능
-    const SELECT_COLS = 'id, expected_start_date, leave_date, end_time, leave_timeline, expected_leave_timeline'
-    // 정렬은 검색 컬럼과 같은 컬럼으로 — 인덱스 (user_email, <date>) 활용 가능.
-    // created_at desc 정렬은 별도 인덱스 필요해서 풀스캔 유발 → 504. 여기서는 굳이 created_at desc 필요 없음.
-    // (날짜별 dedupe만 하면 되고, 같은 날짜에 여러 row가 있어도 id가 있는 것만 keep)
-    const [resCheckin, resCheckout] = await Promise.all([
-      adminClient
-        .from('work_logs')
-        .select(SELECT_COLS)
-        .eq('user_email', user.email)
-        .eq('is_deleted', false)
-        .gte('expected_start_date', from)
-        .lte('expected_start_date', to)
-        .order('expected_start_date', { ascending: false }),
-      adminClient
-        .from('work_logs')
-        .select(SELECT_COLS)
-        .eq('user_email', user.email)
-        .eq('is_deleted', false)
-        .gte('leave_date', from)
-        .lte('leave_date', to)
-        .order('leave_date', { ascending: false }),
-    ])
-    log(`work_logs queries done (checkin=${resCheckin.data?.length ?? 'err'} checkout=${resCheckout.data?.length ?? 'err'})`)
-    // 한쪽만 실패한 경우 — 남은 쪽 결과로 부분 응답.
-    // 두 쪽 다 실패한 경우에만 500. (1개 fail 시 UI가 완전히 깨지는 것보다는 부분 정보가 낫다)
-    if (resCheckin.error && resCheckout.error) {
-      console.warn('[submission-status] both queries failed:', resCheckin.error.message, resCheckout.error.message)
+    // Stage 0-4a: 정책서 "한 (user, date) row" 모델 — 단일 leave_date 쿼리.
+    // 옛 분리 모델(expected_start_date 기반 D+1 사전등록 row)은 deprecate.
+    // - check_in 판정: row 존재 (planned_start_time 또는 start_time 있으면)
+    // - check_out 판정: actual_end_time IS NOT NULL (Stage 0-3 backfill로 옛 row도 채워짐)
+    // - check_out 판정 fallback: actual_end_time NULL이면 "출근보고만 작성, 미퇴근" 으로 본다
+    //   (옛 모델의 end_time NOT NULL은 default 18:00이라 신호 못 됨)
+    const SELECT_COLS = 'id, leave_date, planned_start_time, actual_end_time, start_time, end_time, leave_timeline'
+    const { data: queryRows, error: queryErr } = await adminClient
+      .from('work_logs')
+      .select(SELECT_COLS)
+      .eq('user_email', user.email)
+      .eq('is_deleted', false)
+      .gte('leave_date', from)
+      .lte('leave_date', to)
+      .order('leave_date', { ascending: false })
+    log(`work_logs query done (rows=${queryRows?.length ?? 'err'})`)
+    if (queryErr) {
+      console.warn('[submission-status] query failed:', queryErr.message)
       return NextResponse.json({ error: '조회 실패' }, { status: 500 })
     }
-    if (resCheckin.error) {
-      console.warn('[submission-status] checkin query failed (continuing with checkout only):', resCheckin.error.message)
-    }
-    if (resCheckout.error) {
-      console.warn('[submission-status] checkout query failed (continuing with checkin only):', resCheckout.error.message)
-    }
-    // 두 결과 합치고 id 기준 중복 제거 (같은 row가 두 쿼리에 다 잡힐 수 있음)
-    const seenIds = new Set<string>()
-    const rows: NonNullable<typeof resCheckin.data> = []
-    for (const r of [...(resCheckin.data ?? []), ...(resCheckout.data ?? [])]) {
-      if (seenIds.has(r.id)) continue
-      seenIds.add(r.id)
-      rows.push(r)
-    }
+    const rows = queryRows ?? []
 
-    // 날짜별 매핑 — 같은 날짜에 여러 row 있을 수 있음 (출근/퇴근 분리 + 재제출 등)
+    // 날짜별 매핑 — 같은 (user, date)에 row가 여러 개일 수 있음 (옛 데이터 잔여물).
+    // 정책서 단일 row 가정 — 모든 row를 펼쳐서 가장 진행된 상태 1건으로 합친다.
+    //   has_check_in : 어느 row든 존재
+    //   has_check_out: actual_end_time IS NOT NULL인 row 존재
     interface PerDay {
       checkInLogId: string | null
       checkOutLogId: string | null
@@ -193,34 +166,21 @@ export async function GET(request: Request) {
       return p
     }
 
-    for (const r of rows ?? []) {
+    for (const r of rows) {
       const row = r as {
         id: string
-        expected_start_date: string | null
         leave_date: string | null
+        planned_start_time: string | null
+        actual_end_time: string | null
+        start_time: string | null
         end_time: string | null
         leave_timeline: LeaveTimeline | null
-        expected_leave_timeline: LeaveTimeline | null
       }
-      if (row.expected_start_date) {
-        const p = ensure(row.expected_start_date)
-        if (!p.checkInLogId) p.checkInLogId = row.id
-        if (!p.leaveType) {
-          p.leaveType = pickLeaveType(row.expected_leave_timeline) ?? pickLeaveType(row.leave_timeline)
-        }
-      }
-      if (row.leave_date && row.end_time) {
-        const p = ensure(row.leave_date)
-        if (!p.checkOutLogId) p.checkOutLogId = row.id
-        if (!p.leaveType) {
-          p.leaveType = pickLeaveType(row.leave_timeline)
-        }
-      }
-      // 퇴근보고 row의 leave_timeline에 full_day가 있으면 해당 일자에도 반영
-      if (row.leave_date && !row.end_time && isFullDayLeave(row.leave_timeline)) {
-        const p = ensure(row.leave_date)
-        if (!p.leaveType) p.leaveType = 'full_day'
-      }
+      if (!row.leave_date) continue
+      const p = ensure(row.leave_date)
+      if (!p.checkInLogId) p.checkInLogId = row.id
+      if (!p.checkOutLogId && row.actual_end_time) p.checkOutLogId = row.id
+      if (!p.leaveType) p.leaveType = pickLeaveType(row.leave_timeline)
     }
 
     // ─── Google 캘린더 휴가 반영 ─────────────────────────────────────────────
@@ -278,7 +238,7 @@ export async function GET(request: Request) {
 
       const per = byDate.get(d)
       let status: DayStatus
-      let leaveType: DayStatusEntry['leaveType'] = per?.leaveType ?? null
+      const leaveType: DayStatusEntry['leaveType'] = per?.leaveType ?? null
 
       if (signupDate && d < signupDate) {
         status = 'pre_signup'

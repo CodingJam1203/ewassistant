@@ -125,41 +125,33 @@ export async function GET(request: Request) {
     const emails = profileRows.map(p => p.email).filter((e): e is string => !!e)
     const byEmail = new Map<string, Profile>(profileRows.map(p => [p.email, p]))
 
-    // 2) 그 사용자들의 work_logs — 출근 / 퇴근 별도 쿼리 (인덱스 활용)
-    const SELECT_COLS = 'id, user_email, expected_start_date, leave_date, end_time, leave_timeline, expected_leave_timeline'
-    const [resCheckin, resCheckout] = await Promise.all([
-      adminClient
-        .from('work_logs')
-        .select(SELECT_COLS)
-        .in('user_email', emails)
-        .eq('is_deleted', false)
-        .gte('expected_start_date', from)
-        .lte('expected_start_date', effectiveTo),
-      adminClient
-        .from('work_logs')
-        .select(SELECT_COLS)
-        .in('user_email', emails)
-        .eq('is_deleted', false)
-        .gte('leave_date', from)
-        .lte('leave_date', effectiveTo),
-    ])
-    if (resCheckin.error && resCheckout.error) {
-      console.warn('[missing-reports] both queries failed:',
-        resCheckin.error.message, resCheckout.error.message)
+    // 2) Stage 0-4a: 정책서 "한 (user, date) row" 모델 — 단일 leave_date 쿼리.
+    // 옛 분리 모델(expected_start_date 기반 D+1 row)은 deprecate.
+    const SELECT_COLS = 'id, user_email, leave_date, actual_end_time, leave_timeline'
+    const { data: queryRows, error: queryErr } = await adminClient
+      .from('work_logs')
+      .select(SELECT_COLS)
+      .in('user_email', emails)
+      .eq('is_deleted', false)
+      .gte('leave_date', from)
+      .lte('leave_date', effectiveTo)
+    if (queryErr) {
+      console.warn('[missing-reports] query failed:', queryErr.message)
       return NextResponse.json({ error: '조회 실패' }, { status: 500 })
     }
 
     type Row = {
       id: string
       user_email: string
-      expected_start_date: string | null
       leave_date: string | null
-      end_time: string | null
+      actual_end_time: string | null
       leave_timeline: LeaveTimeline | null
-      expected_leave_timeline: LeaveTimeline | null
     }
 
     // 3) (email, date) 단위로 보고 상태 펼침
+    //   - has_check_in : row 존재 (어느 row든)
+    //   - has_check_out: actual_end_time IS NOT NULL인 row 존재
+    //                    (Stage 0-3 backfill로 옛 row도 채워짐)
     interface PerCell {
       checkInLogId: string | null
       checkOutLogId: string | null
@@ -177,38 +169,13 @@ export async function GET(request: Request) {
       return c
     }
 
-    const allRows: Row[] = [
-      ...((resCheckin.data ?? []) as Row[]),
-      ...((resCheckout.data ?? []) as Row[]),
-    ]
-    const seenIds = new Set<string>()
-    for (const r of allRows) {
-      if (seenIds.has(r.id)) continue
-      seenIds.add(r.id)
+    for (const r of (queryRows ?? []) as Row[]) {
       const email = r.user_email
-      if (!email) continue
-
-      if (r.expected_start_date) {
-        const c = ensureCell(email, r.expected_start_date)
-        if (!c.checkInLogId) c.checkInLogId = r.id
-        if (!c.leaveType) {
-          const tl = r.expected_leave_timeline ?? r.leave_timeline
-          if (Array.isArray(tl)) {
-            for (const it of tl) {
-              if (it?.leaveType === 'full_day') { c.leaveType = 'full_day'; break }
-            }
-          }
-        }
-      }
-      if (r.leave_date && r.end_time) {
-        const c = ensureCell(email, r.leave_date)
-        if (!c.checkOutLogId) c.checkOutLogId = r.id
-      }
-      // full_day가 leave_timeline에만 있고 end_time 없는 경우
-      if (r.leave_date && !r.end_time && isFullDayLeave(r.leave_timeline)) {
-        const c = ensureCell(email, r.leave_date)
-        if (!c.leaveType) c.leaveType = 'full_day'
-      }
+      if (!email || !r.leave_date) continue
+      const c = ensureCell(email, r.leave_date)
+      if (!c.checkInLogId) c.checkInLogId = r.id
+      if (!c.checkOutLogId && r.actual_end_time) c.checkOutLogId = r.id
+      if (!c.leaveType && isFullDayLeave(r.leave_timeline)) c.leaveType = 'full_day'
     }
 
     // 4) 사용자 × 날짜 매트릭스 순회 → 미보고만 추출
