@@ -602,6 +602,47 @@ export default function WorkLogForm({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formValues.leaveDate])
 
+  // Stage 3: 미보고 vs 보고 상태에 따른 startTime/endTime prefill
+  //   - 신규 작성 모드 + leaveDate가 정해진 후 1회 fetch
+  //   - 부모가 initialStartTime을 명시 전달한 경우(예: home의 checkOutTarget 흐름)는 skip
+  //   - 같은 일자의 work_logs row가 있으면 (보고 상태): planned_*_time(=legacy start/end_time) 또는
+  //     daily.checked_in_at(실제 출근)을 우선해서 prefill
+  //   - row 없으면 (미보고 상태): form default '09:00'/'18:00' 유지
+  const stage3PrefillTriedRef = useRef(false)
+  useEffect(() => {
+    if (stage3PrefillTriedRef.current) return
+    if (isEditing) return
+    if (initialStartTime) return  // 부모가 이미 명시 prefill — 덮어쓰지 않음
+    const date = formValues.leaveDate
+    if (!date) return
+    stage3PrefillTriedRef.current = true
+
+    let cancelled = false
+    fetch(`/api/team-status/expected-timeline?date=${encodeURIComponent(date)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((data: {
+        expectedStartTime?: string | null
+        expectedEndTime?: string | null
+        checkedInAt?: string | null
+        hasExisting?: boolean
+      } | null) => {
+        if (cancelled || !data) return
+        if (!data.hasExisting) return  // 미보고 → default 유지
+        // 실제출근 우선, 없으면 planned (= legacy start_time)
+        const newStart = data.checkedInAt ?? data.expectedStartTime ?? null
+        const newEnd   = data.expectedEndTime ?? null
+        if (newStart) {
+          setValue('startTime', newStart, { shouldDirty: false, shouldValidate: false })
+        }
+        if (newEnd) {
+          setValue('endTime', newEnd, { shouldDirty: false, shouldValidate: false })
+        }
+      })
+      .catch(() => { /* 무시 */ })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formValues.leaveDate])
+
   // 워크타입 변경 시 휴게값 정책:
   //   - 신규 작성: 첫 mount 1회만 breakAuto 기반으로 prefill, 이후엔 사용자 입력 보존
   //   - 편집: 항상 사용자 입력 보존
