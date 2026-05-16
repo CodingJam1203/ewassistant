@@ -133,7 +133,7 @@ export async function GET(request: Request) {
     // ─── 2순위: D-1 사전 보고 row (expected_start_date 매칭) ────────────────
     const { data: priorLog, error } = await adminClient
       .from('work_logs')
-      .select('expected_work_location_timeline, expected_work_location, expected_work_location_type, expected_work_time, expected_leave_timeline, planned_work_locations')
+      .select('expected_work_location_timeline, expected_work_location, expected_work_time, expected_leave_timeline, planned_work_locations')
       .eq('user_email', user.email!)
       .eq('expected_start_date', date)
       .neq('leave_date', date)  // 본문 row는 위에서 처리 (혹시 양쪽 매칭되는 옛날 row 제외)
@@ -178,9 +178,10 @@ export async function GET(request: Request) {
     if (Array.isArray(priorLog.expected_work_location_timeline) && priorLog.expected_work_location_timeline.length > 0) {
       timeline = prefillFromExpected(priorLog.expected_work_location_timeline as WorkLocationTimeline)
     } else if (priorLog.expected_work_location || priorLog.expected_work_time) {
+      // work_logs.expected_work_location_type 컬럼은 존재 안 함 — null로 전달
       timeline = legacyToTimeline({
         expectedWorkLocation: priorLog.expected_work_location ?? null,
-        expectedWorkLocationType: (priorLog as { expected_work_location_type?: string | null }).expected_work_location_type ?? null,
+        expectedWorkLocationType: null,
         expectedWorkTime: priorLog.expected_work_time ?? null,
         asExpected: true,
       })
