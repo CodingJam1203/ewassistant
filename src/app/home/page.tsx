@@ -346,20 +346,18 @@ export default function HomePage() {
       setEditingLog(log)
     }
 
-    const cached = logs.find(l => l.id === workLogId)
-    if (cached) {
-      routeAfterFetch(cached)
-      return
-    }
+    // 항상 fresh fetch — `logs` 캐시는 stale 위험 큼 (편집 모달에서 닫기만 했거나
+    // 다른 흐름에서 row UPDATE된 경우 캐시가 옛 actual_*_time을 가짐).
+    // 단건 fetch 비용은 무시 가능 수준.
     try {
-      const res = await fetch(`/api/work-logs/${workLogId}`)
+      const res = await fetch(`/api/work-logs/${workLogId}`, { cache: 'no-store' })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         alert('해당 보고를 불러오지 못했습니다: ' + (err.error ?? res.statusText))
         return
       }
       const fresh = (await res.json()) as WorkLog
-      setLogs(prev => [fresh, ...prev.filter(l => l.id !== fresh.id)])  // 메모리에 캐시
+      setLogs(prev => [fresh, ...prev.filter(l => l.id !== fresh.id)])  // 디버그/추적용 (read 안 함)
       routeAfterFetch(fresh)
     } catch {
       alert('해당 보고를 불러오는 중 오류가 발생했습니다.')
