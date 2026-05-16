@@ -175,11 +175,12 @@ export default function CalendarDayDetailModal({
           </Section>
 
           {/* 퇴근보고 */}
+          {/* 실제 퇴근시각이 있어야 진짜 '수정' — 출근만/출근완료까지 한 상태는 신규 작성 흐름으로 */}
           <Section
             title="퇴근보고"
             empty={!co?.end_time}
             actions={
-              co?.work_log_id && onEditWorkLog ? (
+              co?.end_time && co?.work_log_id && onEditWorkLog ? (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -187,7 +188,7 @@ export default function CalendarDayDetailModal({
                 >
                   <Pencil className="h-3.5 w-3.5" aria-hidden /> 수정
                 </Button>
-              ) : (!co?.end_time && onCreateCheckOut ? (
+              ) : (onCreateCheckOut ? (
                 <Button
                   variant="primary"
                   size="sm"
