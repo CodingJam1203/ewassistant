@@ -30,16 +30,21 @@ import {
 } from 'lucide-react'
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, getDay, getDate, isSameDay } from 'date-fns'
 import { ko } from 'date-fns/locale'
-import { Button, Badge, FilterBar } from '@/components/ui'
+import { Button, FilterBar } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
-import { indexFinalsByDate } from '@/lib/submissions/finalize-by-day'
 import VacationRegisterModal from '@/components/VacationRegisterModal'
 import CalendarDayDetailModal from '@/components/CalendarDayDetailModal'
 import type { SubmissionRow } from '@/components/SubmissionsRawTable'
 import type { UserCalendarLookup } from '@/types/leave-calendar'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
+import type { WorkLocations } from '@/types/work-locations-v2'
 import type { LeaveTimeline, LeaveTimelineItem } from '@/types/leave-timeline'
 import type { DayStatus, SubmissionStatusResponse } from '@/app/api/my/submission-status/route'
+import {
+  displayTimeRange,
+  pickLatestWorkLogPerDay,
+  type WorkLogState,
+} from '@/lib/work-logs/unified-times'
 
 interface MyHistoryCalendarProps {
   /** 셀 / 상세 모달의 ✏ 수정 버튼이 트리거하는 콜백 (부모가 WorkLogModal 띄움) */
@@ -57,10 +62,136 @@ interface DayData {
   inMonth: boolean
   isToday: boolean
   isWeekend: boolean
+  /** SubmissionRow shape으로 어댑트된 출근보고 영역 (모달 호환). row 없으면 null */
   checkIn: SubmissionRow | null
+  /** SubmissionRow shape으로 어댑트된 퇴근보고 영역. check_in_done/check_out_done일 때만 */
   checkOut: SubmissionRow | null
+  /** 4단계 분류 — buildDisplayItems에서 시각 표시 룰에 사용 */
+  state: WorkLogState | null
   /** Google 캘린더 lookup (휴가 + 일정) */
   calendar: UserCalendarLookup | null
+}
+
+/** /api/work-logs GET이 돌려주는 row 형태 (필요 필드만 좁힘) */
+interface WorkLogRow {
+  id: string
+  user_email: string
+  name: string | null
+  division: string | null
+  team: string | null
+  leave_date: string
+  created_at: string
+  // SoT (Stage 0-1)
+  planned_start_time: string | null
+  planned_end_time: string | null
+  actual_start_time: string | null
+  actual_end_time: string | null
+  // legacy fallback
+  start_time: string | null
+  end_time: string | null
+  break_time: string | null
+  actual_work_time: string | null
+  // location / content
+  work_location: string | null
+  work_content: string | null
+  expected_work_location: string | null
+  expected_work_time: string | null
+  expected_start_date: string | null
+  actual_work_locations: WorkLocations | null
+  planned_work_locations: WorkLocations | null
+  work_location_timeline: Array<{ kind?: string; startTime?: string }> | null
+  expected_work_location_timeline: Array<{ kind?: string; startTime?: string }> | null
+  expected_leave_timeline: LeaveTimeline | null
+  leave_timeline: LeaveTimeline | null
+  // misc
+  ew_value: string | null
+  copy_text: string | null
+  work_type_label: string | null
+  attendance_record_type: string | null
+  late_or_attendance_status: string | null
+  previous_report_time: string | null
+  current_report_time: string | null
+  late_reason: string | null
+  break_reason: string | null
+}
+
+/**
+ * Stage 0-4c: work_logs row → SubmissionRow 한 쌍 어댑터.
+ *
+ * 정책서 "한 (user, date) row" 모델이라 출근보고/퇴근보고 영역 모두 한 row에서
+ * 나옴. CalendarDayDetailModal과 4단계 표시 룰 buildDisplayItems가 기존
+ * SubmissionRow shape을 받도록 그대로 두고, 어댑터에서 두 view로 펼친다.
+ *
+ *   checkIn  : planned_*  + 공통 필드 (항상 non-null when row exists)
+ *   checkOut : actual_*   + 공통 필드 (check_in_done/check_out_done일 때만)
+ */
+function workLogToSubmissionPair(row: WorkLogRow): {
+  checkIn: SubmissionRow
+  checkOut: SubmissionRow | null
+  state: WorkLogState
+} {
+  const { state, start, end } = displayTimeRange(row)
+  const baseCommon = {
+    id: row.id,
+    user_email: row.user_email,
+    name: row.name,
+    division: row.division,
+    team: row.team,
+    target_date: row.leave_date,
+    submitted_at: row.created_at,
+    work_log_id: row.id,
+    break_time: row.break_time,
+    actual_work_time: row.actual_work_time,
+    work_location: row.work_location,
+    work_content: row.work_content,
+    ew_value: row.ew_value,
+    copy_text: row.copy_text,
+    late_or_attendance_status: row.late_or_attendance_status,
+    previous_report_time: row.previous_report_time,
+    current_report_time: row.current_report_time,
+    late_reason: row.late_reason,
+    break_reason: row.break_reason,
+    expected_start_date: row.expected_start_date,
+    expected_work_time: row.expected_work_time,
+    expected_work_location: row.expected_work_location,
+    expected_work_location_timeline: row.expected_work_location_timeline,
+    work_location_timeline: row.work_location_timeline,
+    actual_work_locations: row.actual_work_locations,
+    planned_work_locations: row.planned_work_locations,
+    leave_timeline: row.leave_timeline,
+    expected_leave_timeline: row.expected_leave_timeline,
+    changed_fields: null,
+    work_type_label: row.work_type_label,
+    attendance_record_type: row.attendance_record_type,
+  } satisfies Omit<SubmissionRow, 'report_type' | 'start_time' | 'end_time'>
+
+  // checkIn 영역 — planned 시각 노출
+  const checkIn: SubmissionRow = {
+    ...baseCommon,
+    report_type: 'check_in',
+    start_time: row.planned_start_time ?? row.start_time,
+    end_time:   row.planned_end_time   ?? row.end_time,
+  }
+
+  // checkOut 영역 — actual_start_time 이상 진행됐을 때만.
+  // start = displayTimeRange의 start (check_in_done이면 actual_start, check_out_done이면 actual_start)
+  // end   = displayTimeRange의 end   (check_in_done이면 planned_end, check_out_done이면 actual_end)
+  const checkOut: SubmissionRow | null =
+    state === 'check_in_done' || state === 'check_out_done'
+      ? {
+          ...baseCommon,
+          report_type: 'check_out',
+          // 실제 출근 시각 (있으면)
+          start_time: row.actual_start_time,
+          // 실제 퇴근 시각 — check_out_done일 때만, check_in_done이면 null
+          end_time: state === 'check_out_done' ? row.actual_end_time : null,
+        }
+      : null
+
+  // start/end는 buildDisplayItems가 displayTimeRange로 따로 처리하므로
+  // 여기서 만든 checkIn/checkOut의 start/end는 모달 표시용으로만 쓰임.
+  void start; void end
+  return { checkIn, checkOut, state }
 }
 
 /** YYYY-MM-DD format helpers (KST 기반 today) */
@@ -103,27 +234,12 @@ function extractLeaveLabel(row: SubmissionRow | null): string | null {
   return item?.label ?? null
 }
 
-/**
- * expected_work_location_timeline 또는 work_location_timeline의 마지막 항목에서
- * 퇴근(예정) 시각을 추출한다. 마지막 kind가 'expected_checkout' 또는 'checkout'일 때만 인정.
- */
-function extractCheckoutTime(
-  tl: Array<{ kind?: string; startTime?: string }> | null | undefined,
-): string | null {
-  if (!Array.isArray(tl) || tl.length === 0) return null
-  const last = tl[tl.length - 1]
-  if (last?.kind === 'expected_checkout' || last?.kind === 'checkout') {
-    return last.startTime ?? null
-  }
-  return null
-}
-
 export default function MyHistoryCalendar({
   onEditWorkLog, onCreateCheckIn, onCreateCheckOut, refreshKey = 0,
 }: MyHistoryCalendarProps) {
   // 현재 보고 있는 월 (그 월의 1일 기준 Date 객체)
   const [cursor, setCursor] = useState<Date>(() => startOfMonth(new Date()))
-  const [rows, setRows] = useState<SubmissionRow[]>([])
+  const [workLogs, setWorkLogs] = useState<WorkLogRow[]>([])
   const [calendar, setCalendar] = useState<Record<string, UserCalendarLookup>>({})
   const [statusMap, setStatusMap] = useState<Map<string, DayStatus>>(new Map())
   const [statusSummary, setStatusSummary] = useState<SubmissionStatusResponse['summary'] | null>(null)
@@ -167,27 +283,27 @@ export default function MyHistoryCalendar({
     const from = fmtDate(monthStart)
     const to   = fmtDate(monthEnd)
 
-    // 1) 본인 제출 이력 (필수)
+    // 1) Stage 0-4c: work_logs 단일 row 모델로 fetch (정책서 SoT)
     try {
       const res = await fetch(
-        `/api/work-log-submissions?mine=true&from=${from}&to=${to}&limit=1000`,
+        `/api/work-logs?mine=true&from=${from}&to=${to}&limit=500`,
         { credentials: 'same-origin' },
       )
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json().catch(() => null)
       if (!res.ok) {
-        setError(data?.error ?? `제출 이력 조회 실패 (${res.status})`)
+        setError((data && (data as { error?: string }).error) ?? `근무로그 조회 실패 (${res.status})`)
       } else {
-        setRows((data?.rows ?? []) as SubmissionRow[])
+        // /api/work-logs GET은 array를 반환 (mine/filter)
+        const arr = (Array.isArray(data) ? data : []) as WorkLogRow[]
+        setWorkLogs(arr)
       }
     } catch (err: unknown) {
       const m = err instanceof Error ? err.message : String(err)
-      console.warn('[calendar] submissions fetch failed:', m)
+      console.warn('[calendar] work-logs fetch failed:', m)
       // 이미 데이터를 한 번 가져왔다면 새 fetch 실패는 silent — 기존 화면 그대로 유지.
-      // (Vercel cold start, 일시적 세션 갱신 등에서 transient하게 실패할 수 있어 사용자한테
-      //  굳이 알리지 않음. 진짜로 데이터 0건이면 배너 노출.)
-      setRows(prev => {
+      setWorkLogs(prev => {
         if (prev.length === 0) {
-          setError(`제출 이력 조회 실패 — 네트워크/세션 상태를 확인해주세요. (${m})`)
+          setError(`근무로그 조회 실패 — 네트워크/세션 상태를 확인해주세요. (${m})`)
         }
         return prev
       })
@@ -234,8 +350,15 @@ export default function MyHistoryCalendar({
 
   useEffect(() => { fetchAll() }, [fetchAll, refreshKey])
 
-  /** rows → date → finals 인덱스 */
-  const finalsByDate = useMemo(() => indexFinalsByDate(rows), [rows])
+  /** workLogs → date 별 단일 row → 어댑트된 (checkIn, checkOut) 쌍. */
+  const pairsByDate = useMemo(() => {
+    const latest = pickLatestWorkLogPerDay(workLogs)
+    const map = new Map<string, ReturnType<typeof workLogToSubmissionPair>>()
+    for (const r of latest) {
+      map.set(r.leave_date, workLogToSubmissionPair(r))
+    }
+    return map
+  }, [workLogs])
 
   /** 그리드 칸별 데이터 빌드 */
   const days: DayData[] = useMemo(() => {
@@ -248,20 +371,21 @@ export default function MyHistoryCalendar({
       const date = fmtDate(cur)
       const dow = getDay(cur)
       const inMonth = cur.getMonth() === cursor.getMonth() && cur.getFullYear() === cursor.getFullYear()
-      const slot = finalsByDate.get(date)
+      const pair = pairsByDate.get(date)
       out.push({
         date,
         inMonth,
         isToday: isSameDay(cur, today),
         isWeekend: dow === 0 || dow === 6,
-        checkIn:  slot?.checkIn  ?? null,
-        checkOut: slot?.checkOut ?? null,
+        checkIn:  pair?.checkIn  ?? null,
+        checkOut: pair?.checkOut ?? null,
+        state:    pair?.state    ?? null,
         calendar: calendar[date] ?? null,
       })
       cur.setDate(cur.getDate() + 1)
     }
     return out
-  }, [gridStart, gridEnd, cursor, finalsByDate, calendar])
+  }, [gridStart, gridEnd, cursor, pairsByDate, calendar])
 
   return (
     <div className="space-y-3">
@@ -389,8 +513,8 @@ export default function MyHistoryCalendar({
       {selectedDate && !vacationOpen && (
         <CalendarDayDetailModal
           date={selectedDate}
-          checkIn={finalsByDate.get(selectedDate)?.checkIn ?? null}
-          checkOut={finalsByDate.get(selectedDate)?.checkOut ?? null}
+          checkIn={pairsByDate.get(selectedDate)?.checkIn ?? null}
+          checkOut={pairsByDate.get(selectedDate)?.checkOut ?? null}
           calendar={calendar[selectedDate] ?? null}
           onClose={() => setSelectedDate(null)}
           // ✏ 수정 누르면 상세 모달 먼저 닫고 부모(home)의 WorkLogModal로 전환.
@@ -614,20 +738,23 @@ const ITEM_STYLE: Record<ItemTone, string> = {
 
 /**
  * DayData → 셀에 표시할 chip 목록.
- * 우선순위:
- *   1) N-Click 휴가 (warning chip) — leave_timeline 있는 경우
- *   2) 실제 출퇴근 — checked_in_at + checked_out_at (primary chip)
- *      또는 출근만 (warning chip)
- *   3) 출근예정만 (info chip)
- *   4) Google 휴가 라벨 (warning chip, outline 스타일)
- *   5) Google 일정 (info chip)
  *
- * 너무 길어지지 않게 핵심 1~2건만 + 나머지는 +N.
+ * 정책서 캘린더 4단계 시각 표시 룰 (Stage 0-4c):
+ *   - check_out_done : actual_start ~ actual_end       → primary chip
+ *   - check_in_done  : actual_start → 예정 planned_end  → primary chip
+ *   - planned_only   : planned_start ~ planned_end     → planned chip (점선)
+ *   - no_data        : 표시 X (셀 layer의 미보고 칩이 책임)
+ *
+ * 추가 우선순위:
+ *   1) N-Click 휴가 (warning chip) — leave_timeline 있는 경우
+ *   2) 4단계 시각/장소 chip
+ *   3) Google 휴가 라벨 / Google 일정
  */
 function buildDisplayItems(data: DayData): DisplayItem[] {
   const out: DisplayItem[] = []
   const co = data.checkOut
   const ci = data.checkIn
+  const state = data.state
 
   // 1) N-Click 휴가 (퇴근보고에 leave_timeline 있는 케이스)
   const leaveLabel = extractLeaveLabel(co) ?? extractLeaveLabel(ci)
@@ -640,47 +767,37 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
     })
   }
 
-  // 2) 실제 출퇴근
-  const startActual = trimToHHmm(co?.start_time)
-  const endActual   = trimToHHmm(co?.end_time)
-  const loc = extractWorkLocation(co)
-  if (startActual && endActual) {
+  // 2) 4단계 시각 chip — 장소는 actual 우선 fallback planned
+  const loc = extractWorkLocation(co) ?? extractWorkLocation(ci)
+  if (state === 'check_out_done') {
+    const s = trimToHHmm(co?.start_time)
+    const e = trimToHHmm(co?.end_time)
     out.push({
       tone: 'primary',
       icon: <Clock className="h-3 w-3" aria-hidden />,
-      text: `${startActual}~${endActual}${loc ? ' ' + loc : ''}`,
-      title: '실제 출퇴근',
+      text: `${s}~${e}${loc ? ' ' + loc : ''}`,
+      title: '퇴근완료',
     })
-  } else if (startActual) {
+  } else if (state === 'check_in_done') {
+    const sa = trimToHHmm(co?.start_time)
+    const pe = trimToHHmm(ci?.end_time)
     out.push({
       tone: 'primary',
       icon: <Clock className="h-3 w-3" aria-hidden />,
-      text: `출근 ${startActual}${loc ? ' / ' + loc : ''}`,
-      title: '출근만 작성됨',
+      text: `출근 ${sa} → 예정 ${pe}${loc ? ' ' + loc : ''}`,
+      title: '출근완료, 퇴근 전',
     })
-  } else if (ci) {
-    // 3) 출근보고만 있는 케이스 (D+1 사전 보고 또는 D-day 출근 전)
-    //    새 모델: ci.start_time/end_time/work_location 직접 사용
-    //    legacy fallback: expected_work_time/expected_work_location
-    const eStart = trimToHHmm(ci.start_time ?? '')
-                || trimToHHmm(ci.expected_work_time ?? '')
-    const eEnd   = trimToHHmm(ci.end_time ?? '')
-                || trimToHHmm(extractCheckoutTime(ci.expected_work_location_timeline) ?? '')
-    const eLoc   = extractWorkLocation(ci)
-                ?? ci.expected_work_location
-                ?? null
-    if (eStart || eEnd || eLoc) {
-      const range = eStart && eEnd
-        ? `${eStart}~${eEnd}`
-        : (eStart || eEnd || '-')
-      out.push({
-        tone: 'planned',
-        icon: <Clock className="h-3 w-3" aria-hidden />,
-        text: `예정 ${range}${eLoc ? ' ' + eLoc : ''}`,
-        title: '출근예정',
-      })
-    }
+  } else if (state === 'planned_only') {
+    const ps = trimToHHmm(ci?.start_time)
+    const pe = trimToHHmm(ci?.end_time)
+    out.push({
+      tone: 'planned',
+      icon: <Clock className="h-3 w-3" aria-hidden />,
+      text: `예정 ${ps}~${pe}${loc ? ' ' + loc : ''}`,
+      title: '출근예정',
+    })
   }
+  // state === 'no_data' or null: 표시 X — 미보고 칩은 셀 layer가 처리
 
   // 4) Google 휴가 라벨 (별개로 표시 — N-Click 휴가와 시각적 구분).
   //    과거 날짜 + work_log 없음 → "(자동인정)" 라벨 추가:

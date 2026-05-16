@@ -612,6 +612,10 @@ export async function GET(request: Request) {
     const filterTeam = searchParams.get('team') ?? ''
     const limitParam = searchParams.get('limit')
     const limit = limitParam ? Math.min(Math.max(Number(limitParam) || 0, 1), 500) : 200
+    // Stage 0-4c: 캘린더 / 일자별 최종 화면용 leave_date 범위 필터
+    const isoRe = /^\d{4}-\d{2}-\d{2}$/
+    const fromParam = searchParams.get('from') ?? ''
+    const toParam   = searchParams.get('to')   ?? ''
 
     let query = adminClient
       .from('work_logs')
@@ -620,6 +624,9 @@ export async function GET(request: Request) {
       .order('leave_date', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(limit)
+
+    if (isoRe.test(fromParam)) query = query.gte('leave_date', fromParam)
+    if (isoRe.test(toParam))   query = query.lte('leave_date', toParam)
 
     if (mine) {
       query = query.eq('user_id', user.id)
