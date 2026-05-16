@@ -102,6 +102,9 @@ export default function CheckInModal({
   const [caseMode, setCaseMode] = useState<CaseMode>('none')
   // 케이스 B에서 "퇴근예정 수정" 토글
   const [editEndTimeInPrior, setEditEndTimeInPrior] = useState(false)
+  // 케이스 A: 출근예정시간 "미보고" 잠금 상태 (true=미보고, false=수정 모드)
+  // submit 시 true면 planned_start_time = NULL로 저장 (미보고 유지)
+  const [plannedStartUnreported, setPlannedStartUnreported] = useState(true)
 
   /** prefill — 케이스 자동 판별 */
   useEffect(() => {
@@ -232,8 +235,10 @@ export default function CheckInModal({
   const isHalfHour = (t: string) => /^(\d{1,2}):(00|30)$/.test(t)
   const timeErrors: string[] = []
   if (!isAllDayLeave) {
-    // case A: startTime은 받지 않으니 검증도 안 함
-    if (caseMode !== 'none') {
+    // case A + plannedStartUnreported=true: startTime은 받지 않으니 검증도 skip
+    // case A + plannedStartUnreported=false: 사용자가 토글 풀고 입력 → 검증 함
+    const requireStartTime = caseMode !== 'none' || !plannedStartUnreported
+    if (requireStartTime) {
       if (!startTime || !isHalfHour(startTime)) timeErrors.push('출근예정시간을 30분 단위로 선택해주세요.')
     }
     if (!endTime || !isHalfHour(endTime)) timeErrors.push('퇴근예정시간을 30분 단위로 선택해주세요.')
@@ -270,9 +275,15 @@ export default function CheckInModal({
             (caseMode === 'none' && isTodaySubmission && !isAllDayLeave
               ? nowKstHHmmFloor() : '')
 
-      // case A: start_time = actualCheckInTime으로 자동 채움 (출근예정=실제출근 같은 의미)
+      // case A 분기:
+      //   - plannedStartUnreported=true (미보고 유지): start_time은 legacy NOT NULL 만족용으로
+      //     실제출근 시각 fallback. 서버에서 planned_start_time = NULL로 처리.
+      //   - plannedStartUnreported=false (토글 풀고 직접 입력): start_time = 사용자 입력값.
+      const planned_start_time_unreported = caseMode === 'none' && plannedStartUnreported
       const submitStartTime = caseMode === 'none'
-        ? (safeActualCheckIn || '09:00')
+        ? (plannedStartUnreported
+            ? (safeActualCheckIn || '09:00')
+            : startTime)
         : (isAllDayLeave ? null : startTime)
 
       const res = await fetch('/api/team-status/check-in', {
@@ -285,6 +296,8 @@ export default function CheckInModal({
           start_time: submitStartTime,
           end_time:   isAllDayLeave ? null : endTime,
           actualCheckInTime: safeActualCheckIn || null,
+          // Stage 2: true면 서버가 planned_start_time = NULL로 저장 (미보고 SoT)
+          plannedStartTimeUnreported: planned_start_time_unreported,
           leaveTimeline,
           break_time: '00:00',
           work_content: workContent.trim() || null,
@@ -444,15 +457,46 @@ export default function CheckInModal({
                 </>
               )}
 
-              {/* 케이스 A (none): 출근예정시간 = 미보고 표시. 실제출근 + 퇴근예정 + 근무지 */}
+              {/* 케이스 A (none): 출근예정시간 = 미보고 표시 + 수정하기 토글. 실제출근 + 퇴근예정 + 근무지 */}
               {caseMode === 'none' && (
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">출근예정시간</label>
-                      <div className="h-10 rounded-[10px] border border-border bg-surface-muted px-3 flex items-center text-sm text-text-muted">
-                        미보고
-                      </div>
+                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
+                        출근예정시간{!plannedStartUnreported && ' *'}
+                      </label>
+                      {plannedStartUnreported ? (
+                        <div className="h-10 rounded-[10px] border border-border bg-surface-muted px-3 flex items-center justify-between gap-2">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-text-secondary/15 text-text-secondary text-[11px] font-semibold">
+                            미보고
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => { setPlannedStartUnreported(false); setStartTime('09:00') }}
+                            className="text-[11px] font-medium text-primary-600 hover:text-primary-700 transition-colors"
+                          >
+                            수정하기
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <div className="flex-1">
+                            <HalfHourTimeSelect
+                              value={startTime}
+                              onChange={setStartTime}
+                              ariaLabel="출근예정시간"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setPlannedStartUnreported(true)}
+                            className="shrink-0 text-[11px] text-text-muted hover:text-text-primary transition-colors px-1.5"
+                            title="미보고 상태로 되돌리기"
+                          >
+                            미보고로
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div>
                       <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">퇴근예정시간 *</label>
@@ -464,6 +508,11 @@ export default function CheckInModal({
                       />
                     </div>
                   </div>
+                  {!plannedStartUnreported && (
+                    <p className="text-[11px] text-info-text -mt-2">
+                      출근예정시간을 입력하시면 미보고 상태가 해제되어 일반 출근보고로 등록됩니다.
+                    </p>
+                  )}
 
                   <div>
                     <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">실제 출근시간 *</label>

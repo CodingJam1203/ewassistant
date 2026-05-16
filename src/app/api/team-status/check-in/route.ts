@@ -217,6 +217,10 @@ export async function POST(request: Request) {
 
     const willCreateNewLog = !workLogId
 
+    // Stage 2: 미보고 SoT — true면 planned_start_time을 NULL로 저장.
+    // legacy start_time은 NOT NULL이라 그대로 startTime 값 유지 (호환).
+    const plannedStartUnreported = body.plannedStartTimeUnreported === true
+
     // 예정값 영역
     const bodyArea = {
       name,
@@ -226,7 +230,8 @@ export async function POST(request: Request) {
       start_time:      startTime,
       end_time:        endTime,
       // Stage 0-2: 출근보고는 예정값 — planned_* SoT 컬럼에도 동시 저장
-      planned_start_time: startTime,
+      // Stage 2: 미보고면 planned_start_time = NULL (legacy start_time은 NOT NULL이라 유지)
+      planned_start_time: plannedStartUnreported ? null : startTime,
       planned_end_time:   endTime,
       break_time:      `${breakTime}:00`,
       work_content:    workContent || null,
