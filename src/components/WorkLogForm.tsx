@@ -871,6 +871,11 @@ export default function WorkLogForm({
         delete submitBody.breakManualRoundedMinutes
         delete submitBody.breakFinalRoundedMinutes
         delete submitBody.breakReason
+        // 지각/당일수정 — 본문 영역 분류, check_in scope에선 hidden + omit
+        delete submitBody.lateOrAttendanceStatus
+        delete submitBody.previousReportTime
+        delete submitBody.currentReportTime
+        delete submitBody.lateReason
       }
 
       const res = await fetch(url, {

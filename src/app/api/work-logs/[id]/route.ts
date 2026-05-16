@@ -409,6 +409,10 @@ export async function PATCH(
         if (body.actualWorkLocations !== undefined && !jsonEq(body.actualWorkLocations, log.actual_work_locations)) {
           forbidden.push('actualWorkLocations(실제 근무장소)')
         }
+        // 지각/당일수정 — 본문 영역으로 분류
+        if (body.lateOrAttendanceStatus !== undefined && norm(body.lateOrAttendanceStatus) !== norm(log.late_or_attendance_status as string)) {
+          forbidden.push('lateOrAttendanceStatus(지각/당일수정)')
+        }
       }
 
       if (isCheckOutOnly) {
@@ -491,6 +495,15 @@ export async function PATCH(
       if (body.breakFinalRoundedMinutes !== undefined) {
         updates.break_final_rounded_minutes = breakFinalRoundedMin
       }
+      // 지각/당일수정 — 본문(퇴근보고) 영역 일부. 근무지와 동일 정책으로 update.
+      // body.lateOrAttendanceStatus가 명시적으로 들어왔을 때만 갱신.
+      if (body.lateOrAttendanceStatus !== undefined) {
+        const isLate = body.lateOrAttendanceStatus === '예'
+        updates.late_or_attendance_status = body.lateOrAttendanceStatus || null
+        updates.previous_report_time = isLate ? (body.previousReportTime || null) : null
+        updates.current_report_time  = isLate ? (body.currentReportTime  || null) : null
+        updates.late_reason          = isLate ? (body.lateReason          || null) : null
+      }
       // Stage 0-2: 신규 SoT 컬럼 — 본문 시각 = 실제 출퇴근으로 해석.
       // 기존 start_time/end_time(=planned)은 이 라우트에서 보존하므로
       // 실제 시각 변경분만 actual_*에 반영. body에 명시적으로 들어왔을 때만 갱신.
@@ -524,6 +537,12 @@ export async function PATCH(
           ? body.expectedStartDate
           : null
       }
+    }
+
+    // 마카롱 — scope 무관 (모든 scope에서 노출되므로 모든 scope에서 update 가능).
+    // 근무지와 동일하게 명시적 전달 시만 갱신.
+    if (body.thanksMacaron !== undefined) {
+      updates.thanks_macaron = body.thanksMacaron || null
     }
 
     const { data, error } = await adminClient
