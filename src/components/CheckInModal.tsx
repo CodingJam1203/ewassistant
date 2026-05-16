@@ -395,8 +395,17 @@ export default function CheckInModal({
             </div>
           )}
 
+          {/* prefill fetch 중에는 case UI 안 보임 — caseMode default('none') 깜빡임 방지 */}
+          {loadingPrefill && (
+            <div className="space-y-2">
+              <div className="h-10 rounded-[10px] bg-surface-muted animate-pulse" />
+              <div className="h-10 rounded-[10px] bg-surface-muted animate-pulse" />
+              <div className="h-10 rounded-[10px] bg-surface-muted animate-pulse" />
+            </div>
+          )}
+
           {/* ─── 케이스별 분기 ─── */}
-          {!isAllDayLeave && (
+          {!loadingPrefill && !isAllDayLeave && (
             <>
               {/* 케이스 B (prior): 사전 등록 정보 안내 카드 + 실제 출근만 + 퇴근예정 수정 토글 */}
               {caseMode === 'prior' && (
