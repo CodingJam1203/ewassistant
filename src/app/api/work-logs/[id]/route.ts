@@ -730,6 +730,15 @@ export async function PATCH(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('Work Log PATCH Error:', message)
+    // 사용자 입력 검증 실패는 400으로 노출 (calcEw 음수 등)
+    const isUserError =
+      message.includes('실근무시간이 음수') ||
+      message.includes('지원하지 않는 근무유형') ||
+      message.includes('잘못된 시간 형식') ||
+      message.includes('잘못된 날짜 형식')
+    if (isUserError) {
+      return NextResponse.json({ error: message }, { status: 400 })
+    }
     return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
   }
 }
