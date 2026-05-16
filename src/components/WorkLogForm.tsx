@@ -355,9 +355,17 @@ export default function WorkLogForm({
   const nameInitialized = useRef(false)
 
   // 시간 default 계산
+  // Stage 0 정책서 시간 4종 분리 SoT 우선:
+  //   - 퇴근보고 수정(check_out): actual_start/end_time 우선 (실제 출퇴근)
+  //   - 출근보고 수정(check_in): planned_start/end_time 우선 (출근예정)
+  //   - 옛 row(SoT NULL)는 legacy start_time/end_time fallback
   const defaultStartTime = (() => {
     if (isEditing && editingLog) {
-      return trimToHHmm(editingLog.start_time)
+      const sot = editScope === 'check_out'
+        ? editingLog.actual_start_time
+        : editingLog.planned_start_time
+      return trimToHHmm(sot)
+        || trimToHHmm(editingLog.start_time)
         || timelineFirstStartTime(editingLog.work_location_timeline ?? null)
         || '09:00'
     }
@@ -367,7 +375,11 @@ export default function WorkLogForm({
   })()
   const defaultEndTime = (() => {
     if (isEditing && editingLog) {
-      return trimToHHmm(editingLog.end_time)
+      const sot = editScope === 'check_out'
+        ? editingLog.actual_end_time
+        : editingLog.planned_end_time
+      return trimToHHmm(sot)
+        || trimToHHmm(editingLog.end_time)
         || timelineEndTime(editingLog.work_location_timeline ?? null)
         || '18:00'
     }

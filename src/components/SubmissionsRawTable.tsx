@@ -42,7 +42,7 @@ import type { LeaveTimeline } from '@/types/leave-timeline'
 import type { WorkLocations } from '@/types/work-locations-v2'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import {
-  displayTimeRange,
+  classifyWorkLog,
   pickLatestWorkLogPerDay,
 } from '@/lib/work-logs/unified-times'
 
@@ -272,32 +272,34 @@ interface WorkLogRow {
 }
 
 /**
- * work_logs row → SubmissionRow 1건 어댑트.
+ * work_logs row → SubmissionRow 1~2건 어댑트.
  *
- * 4단계 상태별 report_type 매핑 (badge/edit scope를 위해):
- *   planned_only  → 'check_in'       (출근보고만 — EW/휴게 컬럼 hide)
- *   check_in_done → 'check_out'      (출근완료, 퇴근 전 — EW/휴게 표시 OK)
- *   check_out_done→ 'check_out'      (퇴근완료)
- *   no_data       → 'check_in'       (graceful — 거의 발생 X)
+ * "단일 row" 의도 = work_logs 한 row가 SoT라는 것. 표시는 옛 동작처럼
+ * 같은 날짜의 출근보고 + 퇴근보고 두 row로 펼친다.
  *
- * 시작/종료 시각은 정책서 4단계 표시 룰 (displayTimeRange) 결과 그대로 사용.
+ * 출력:
+ *   planned_only  → [출근보고]                   (1건)
+ *   check_in_done → [출근보고, 퇴근보고(end=null)] (2건, 퇴근 미완료)
+ *   check_out_done→ [출근보고, 퇴근보고]            (2건)
+ *   no_data       → [] (거의 발생 X)
+ *
+ * 시간:
+ *   - 출근보고 row: planned_*_time (또는 legacy fallback)
+ *   - 퇴근보고 row: actual_*_time
  */
-function workLogToFinalRow(row: WorkLogRow): SubmissionRow {
-  const { state, start, end } = displayTimeRange(row)
-  const reportType: SubmissionRow['report_type'] =
-    state === 'planned_only' ? 'check_in' : 'check_out'
-  return {
+function workLogToFinalRows(row: WorkLogRow): SubmissionRow[] {
+  const state = classifyWorkLog(row)
+  if (state === 'no_data') return []
+
+  const base = {
     id: row.id,
     user_email: row.user_email,
     name: row.name,
     division: row.division,
     team: row.team,
-    report_type: reportType,
     target_date: row.leave_date,
     submitted_at: row.updated_at ?? row.created_at,
     work_log_id: row.id,
-    start_time: start,
-    end_time: end,
     break_time: row.break_time,
     actual_work_time: row.actual_work_time,
     work_location: row.work_location,
@@ -321,7 +323,29 @@ function workLogToFinalRow(row: WorkLogRow): SubmissionRow {
     changed_fields: null,
     work_type_label: row.work_type_label,
     attendance_record_type: row.attendance_record_type,
+  } satisfies Omit<SubmissionRow, 'report_type' | 'start_time' | 'end_time'>
+
+  const out: SubmissionRow[] = []
+
+  // 출근보고 row — 항상 존재 (planned + legacy fallback)
+  out.push({
+    ...base,
+    report_type: 'check_in',
+    start_time: row.planned_start_time ?? row.start_time,
+    end_time:   row.planned_end_time   ?? row.end_time,
+  })
+
+  // 퇴근보고 row — actual_start_time이 set된 경우만 (출근완료 이상)
+  if (state === 'check_in_done' || state === 'check_out_done') {
+    out.push({
+      ...base,
+      report_type: 'check_out',
+      start_time: row.actual_start_time,
+      end_time:   row.actual_end_time,  // check_in_done이면 null
+    })
   }
+
+  return out
 }
 
 export interface SubmissionsRawTableProps {
@@ -415,10 +439,10 @@ export default function SubmissionsRawTable({
         return
       }
       if (isFinal) {
-        // /api/work-logs GET은 array 반환. (user, leave_date) 별로 latest 1건만.
+        // /api/work-logs GET은 array 반환. (user, leave_date) 별로 latest 1건만 → 1~2 row 펼침.
         const logs = (Array.isArray(json) ? json : []) as WorkLogRow[]
         const latest = pickLatestWorkLogPerDay(logs)
-        setRows(latest.map(workLogToFinalRow))
+        setRows(latest.flatMap(workLogToFinalRows))
       } else {
         setRows(json.rows ?? [])
       }

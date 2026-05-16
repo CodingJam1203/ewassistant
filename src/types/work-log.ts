@@ -9,6 +9,11 @@ export interface WorkLog {
   leave_date: string
   start_time: string
   end_time: string
+  // 정책서 시간 4종 분리 (Stage 0-1) — 옛 row는 NULL일 수 있어 nullable
+  planned_start_time?: string | null
+  planned_end_time?: string | null
+  actual_start_time?: string | null
+  actual_end_time?: string | null
   actual_work_time: string
   break_time: string
   break_reason: string | null
