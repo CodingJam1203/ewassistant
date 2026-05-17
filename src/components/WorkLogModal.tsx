@@ -53,7 +53,6 @@ export default function WorkLogModal({
   const isEditing = !!editingLog
   const [calculationResult, setCalculationResult] = useState<EwCalculationResult | null>(null)
   const [calculationError, setCalculationError]   = useState<string | null>(null)
-  const [checkingOut, setCheckingOut]             = useState(false)
   const [formSubmitting, setFormSubmitting]       = useState(false)
 
   const handleCalculate = useCallback(
@@ -87,22 +86,17 @@ export default function WorkLogModal({
     </button>
   )
 
-  const handleSubmitSuccess = async () => {
-    if (isEditing) {
-      onSuccess()
-      return
-    }
-    setCheckingOut(true)
-    try {
-      await fetch('/api/team-status/check-out', {
+  const handleSubmitSuccess = () => {
+    // 모달 즉시 닫고 /api/team-status/check-out는 fire-and-forget으로 백그라운드 실행.
+    // /api/work-logs POST가 이미 daily_work_status + actual_end_time을 업데이트하므로
+    // 이 호출은 work_status_events 이벤트 기록 등 보조 목적. await으로 폼 영역을
+    // "퇴근 처리 중..." 로딩으로 교체하면 사용자에게 깜빡이는 빈 모달이 잠깐 보임.
+    if (!isEditing) {
+      fetch('/api/team-status/check-out', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date }),
-      })
-    } catch {
-      // ignore
-    } finally {
-      setCheckingOut(false)
+      }).catch(() => { /* ignore */ })
     }
     onSuccess()
   }
@@ -150,14 +144,30 @@ export default function WorkLogModal({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-          {checkingOut ? (
-            <div className="py-12 text-center">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-border border-t-primary-600 mb-3" />
-              <p className="text-sm text-text-secondary">퇴근 처리 중...</p>
+          {editScope === 'check_in' ? (
+            <div className="max-w-3xl">
+              <WorkLogForm
+                userName={userName}
+                initialTimeline={initialTimeline}
+                initialActualLocations={initialActualLocations}
+                initialPlannedLocations={initialPlannedLocations}
+                initialLeaveTimeline={initialLeaveTimeline}
+                initialBreakAutoActualMinutes={initialBreakAutoActualMinutes}
+                initialStartTime={initialStartTime}
+                initialEndTime={initialEndTime}
+                initialLeaveDate={date}
+                resubmitLogId={resubmitWorkLogId}
+                editingLog={editingLog}
+                editScope={editScope}
+                onCalculate={handleCalculate}
+                onSubmitSuccess={handleSubmitSuccess}
+                onSubmitStateChange={handleFormStateChange}
+              />
+              <div className="hidden lg:block mt-4">{DesktopSubmitButton}</div>
             </div>
           ) : (
-            editScope === 'check_in' ? (
-              <div className="max-w-3xl">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-2">
                 <WorkLogForm
                   userName={userName}
                   initialTimeline={initialTimeline}
@@ -175,43 +185,18 @@ export default function WorkLogModal({
                   onSubmitSuccess={handleSubmitSuccess}
                   onSubmitStateChange={handleFormStateChange}
                 />
-                <div className="hidden lg:block mt-4">{DesktopSubmitButton}</div>
               </div>
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2">
-                  <WorkLogForm
-                    userName={userName}
-                    initialTimeline={initialTimeline}
-                    initialActualLocations={initialActualLocations}
-                    initialPlannedLocations={initialPlannedLocations}
-                    initialLeaveTimeline={initialLeaveTimeline}
-                    initialBreakAutoActualMinutes={initialBreakAutoActualMinutes}
-                    initialStartTime={initialStartTime}
-                    initialEndTime={initialEndTime}
-                    initialLeaveDate={date}
-                    resubmitLogId={resubmitWorkLogId}
-                    editingLog={editingLog}
-                    editScope={editScope}
-                    onCalculate={handleCalculate}
-                    onSubmitSuccess={handleSubmitSuccess}
-                    onSubmitStateChange={handleFormStateChange}
-                  />
-                </div>
-                <div className="lg:col-span-1 space-y-4 lg:sticky lg:top-4 lg:self-start">
-                  <CalculationPreview result={calculationResult} error={calculationError} />
-                  <div className="hidden lg:block">{DesktopSubmitButton}</div>
-                </div>
+              <div className="lg:col-span-1 space-y-4 lg:sticky lg:top-4 lg:self-start">
+                <CalculationPreview result={calculationResult} error={calculationError} />
+                <div className="hidden lg:block">{DesktopSubmitButton}</div>
               </div>
-            )
+            </div>
           )}
         </div>
 
-        {!checkingOut && (
-          <div className="lg:hidden shrink-0 px-4 py-3 bg-surface border-t border-border">
-            {MobileSubmitButton}
-          </div>
-        )}
+        <div className="lg:hidden shrink-0 px-4 py-3 bg-surface border-t border-border">
+          {MobileSubmitButton}
+        </div>
       </div>
     </div>
   )
