@@ -11,6 +11,7 @@
 2. 해당 task 상태를 `in_progress`로 갱신.
 3. 작업 완료 시 task를 `completed`로 갱신하면서 description 또는 metadata에 **"무엇을 / 어떤 파일 / 어떤 결정으로" 한 줄 요약**을 남긴다. (예 — "WorkLogForm.tsx 수정모드에서 nextDay 영역 숨김 + submit 가드 추가, 커밋 abc1234")
 4. 작업 중 발견한 후속 작업/리팩토링 포인트는 같은 자리에서 신규 task로 `pending` 상태로 추가 (작업 누락 방지).
+5. 환경별 배포 흐름은 본 문서의 "Task Board 상태 머신" 섹션을 따른다.
 
 ### 2. 사용자 즉석 지시도 Task Board에 등록
 
@@ -55,6 +56,62 @@
 - commit message에 관련 task subject 또는 ID 짧게 인용. (예 — "fix: WorkLogForm 수정모드 nextDay 가드 (task: 퇴근보고 수정 가드)").
 - 정책서/PRD 갱신이 코드 변경과 함께면 같은 commit에 포함.
 <!-- END:working-rules -->
+
+<!-- BEGIN:task-board-state-machine -->
+## Task Board 상태 머신
+
+> Notion Task Board (`개발 진행상황` 속성)의 표준 상태 흐름. 모든 환경 배포·QA 진행 흐름은 이 머신을 따른다.
+
+### A. 상태 정의
+
+| 상태 | 의미 | 이동 주체 |
+|---|---|---|
+| ✏ 요청사항 작성중 | 요구사항 정의 중. 아직 개발 대상 아님 | 사용자 |
+| 📦 보류 | 진행 일시 중단 | 사용자 |
+| 🚧 개발 요청 | 개발 시작 준비 완료. Claude의 작업 후보 (신규 + 모든 QA 재작업) | 사용자 |
+| 🔨 개발 진행중 | Claude가 작업 중 | Claude (작업 시작 시) |
+| 🚀 DEV_배포완료 | 개발 끝남. DEV 환경 push 완료 | Claude (작업 완료 + dev push 후) |
+| 🔍 DEV_QA진행중 | DEV 환경에서 QA 검토 중 | 사용자 |
+| ✔ DEV_QA완료 | DEV QA 통과 → STG 배포 트리거 대기 | 사용자 |
+| 🚀 STG_배포완료 | 사용자 트리거로 §13에 따라 Claude가 STG 배포 완료 | Claude (배포 후) |
+| 🔍 STG_QA진행중 | STG 환경에서 QA 검토 중 | 사용자 |
+| ✔ STG_QA완료 | STG QA 통과 → PROD 배포 트리거 대기 | 사용자 |
+| 🎉 PROD_배포완료 | 사용자 트리거로 §13에 따라 Claude가 PROD 배포 완료 | Claude (배포 후) |
+
+### B. 재작업 흐름 (QA 실패 / 핫픽스)
+
+모든 QA 실패는 → `🚧 개발 요청` 으로 돌아간다. 단, **재작업 출처**를 task 메타에 명시 (`재작업 출처` Select property).
+
+| QA 실패 시점 | 다음 상태 | `재작업 출처` 옵션 |
+|---|---|---|
+| DEV_QA에서 이슈 발견 | 🚧 개발 요청 | DEV_QA |
+| STG_QA에서 이슈 발견 | 🚧 개발 요청 | STG_QA |
+| PROD에서 핫픽스 필요 | 🚧 개발 요청 | PROD_HOTFIX |
+
+→ `재작업 출처` property 로 우선순위 정렬 (PROD_HOTFIX > STG_QA > DEV_QA).
+
+### C. 자동 / 수동 트리거
+
+| 전환 | 자동/수동 | 비고 |
+|---|---|---|
+| 🔨 개발 진행중 → 🚀 DEV_배포완료 | 자동 | Claude가 dev push 직후 갱신 |
+| 🚀 DEV_배포완료 → 🔍 DEV_QA진행중 | 수동 | 사용자가 QA 시작 시 |
+| 🔍 DEV_QA진행중 → ✔ DEV_QA완료 | 수동 | 사용자 검토 결과 |
+| 🔍 DEV_QA진행중 → 🚧 개발 요청 (재작업) | 수동 | QA 실패 시 |
+| ✔ DEV_QA완료 → 🚀 STG_배포완료 | 수동 트리거 → 자동 실행 | 사용자가 §13 트리거 → Claude 배포 |
+| 🚀 STG_배포완료 → 🔍 STG_QA진행중 | 수동 | 사용자가 STG QA 시작 |
+| 🔍 STG_QA진행중 → ✔ STG_QA완료 | 수동 | 사용자 검토 결과 |
+| 🔍 STG_QA진행중 → 🚧 개발 요청 (재작업) | 수동 | QA 실패 시 |
+| ✔ STG_QA완료 → 🎉 PROD_배포완료 | 수동 트리거 → 자동 실행 | 사용자가 §13 트리거 → Claude 배포 |
+| 🎉 PROD_배포완료 → 🚧 개발 요청 (HOTFIX) | 수동 | 핫픽스 발생 시 |
+
+### D. Notion DB 메타데이터
+
+- DB URL — `https://www.notion.so/workinb/363e23a15c0180c38ae1f855ef269cc4`
+- Data Source URL — `collection://363e23a1-5c01-81df-9555-000b043c024e`
+- Status 속성명 — `개발 진행상황`
+- 재작업 추적 — `재작업 출처` Select (DEV_QA / STG_QA / PROD_HOTFIX)
+<!-- END:task-board-state-machine -->
 
 @AGENTS.md
 

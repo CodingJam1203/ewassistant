@@ -496,3 +496,4 @@ leave_calendar_cache  -- Google Sheets 휴가 캐시 (007, TTL 6h)
 |---|---|---|---|
 | 2026-05-17 | v1.0 | 초기 작성. Stage 0~7 결과 박제. discrepancy 8건 기록 (D1~D8). | Claude (Phase 3 — 회고적 문서화) |
 | 2026-05-17 | v1.1 | D1·D2·D8 해결. D1은 코드 재확인으로 ✅ (Agent 초기 오판 정정). D2는 마이그레이션 025 추가로 ✅. D8은 현재 분담 유지 결정. §10에 결정 6·7·8 추가. | Claude |
+| 2026-05-17 | v1.2 | Task Board 상태 머신 정비 (DEV/STG/PROD prefix 통일, QA 진행중 상태 신설, `재작업 출처` property 추가). 본 시간/보고 정책 자체엔 영향 없음 — 비즈니스 정책 동일. 머신 정의는 `AGENTS.md` / `CLAUDE.md` 의 "Task Board 상태 머신" 섹션 참조. | Claude |
