@@ -54,14 +54,18 @@ const MyHistoryCalendar = dynamic(() => import('@/components/MyHistoryCalendar')
 type TabKey = 'final' | 'raw'
 type FinalView = 'list' | 'calendar'
 
-/** localStorage 안전 read — SSR에서는 default. */
+/**
+ * localStorage 안전 read — SSR에서는 default.
+ * 첫 로그인 (localStorage 미설정) default = 'calendar'.
+ * 사용자가 'list'를 명시 선택한 적이 있으면 그 값을 유지 — 이후 토글은 기존 방식.
+ */
 function readFinalView(): FinalView {
-  if (typeof window === 'undefined') return 'list'
+  if (typeof window === 'undefined') return 'calendar'
   try {
     const v = localStorage.getItem('home-final-view')
-    return v === 'calendar' ? 'calendar' : 'list'
+    return v === 'list' ? 'list' : 'calendar'
   } catch {
-    return 'list'
+    return 'calendar'
   }
 }
 
