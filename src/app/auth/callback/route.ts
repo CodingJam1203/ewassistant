@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendNewAccountApprovalEmail } from '@/lib/notifications/email'
+import { maskEmail } from '@/lib/utils/pii'
 
 /**
  * Google OAuth 콜백 핸들러
@@ -48,9 +49,9 @@ export async function GET(request: Request) {
       const isAuthRecreated = existing && existing.id !== user.id  // Auth 재생성
       const isLockedRelogin = existing && !isAuthRecreated && existing.is_active === false
 
-      // 진단 로그 — 어떤 케이스로 떨어지는지 추적용
+      // 진단 로그 — 어떤 케이스로 떨어지는지 추적용 (PII 마스킹)
       console.log('[Auth Callback] 분기 진단', {
-        email: user.email,
+        email: maskEmail(user.email),
         authUserId: user.id,
         profileExists: !!existing,
         profileId: existing?.id ?? null,
@@ -80,7 +81,7 @@ export async function GET(request: Request) {
             last_login_at: new Date().toISOString(),
           })
           await adminClient.from('pre_approved_emails').delete().eq('email', user.email)
-          console.log(`[Auth Callback] 사전등록 계정 첫 로그인 승인: ${user.email}`)
+          console.log(`[Auth Callback] 사전등록 계정 첫 로그인 승인: ${maskEmail(user.email)}`)
         } else {
           // 완전 신규: 잠금 + 관리자 알림
           await adminClient.from('user_profiles').insert({
@@ -90,7 +91,7 @@ export async function GET(request: Request) {
             is_active: false,
             role: 'user',
           })
-          console.log(`[Auth Callback] 신규 계정 생성 및 잠금: ${user.email} → 메일 발송 시도`)
+          console.log(`[Auth Callback] 신규 계정 생성 및 잠금: ${maskEmail(user.email)} → 메일 발송 시도`)
           sendNewAccountApprovalEmail({
             email: user.email,
             createdAt: new Date().toISOString(),
@@ -116,7 +117,7 @@ export async function GET(request: Request) {
           .eq('email', user.email)
 
         if (isAuthRecreated) {
-          console.log(`[Auth Callback] Auth 재생성 계정 → 재가입 처리: ${user.email} → 메일 발송 시도`)
+          console.log(`[Auth Callback] Auth 재생성 계정 → 재가입 처리: ${maskEmail(user.email)} → 메일 발송 시도`)
           sendNewAccountApprovalEmail({
             email: user.email,
             createdAt: new Date().toISOString(),
@@ -125,7 +126,7 @@ export async function GET(request: Request) {
           )
         } else {
           // 잠금 계정 재로그인도 관리자에게 알림 (재가입 의사 표시로 간주)
-          console.log(`[Auth Callback] 잠금 계정 재로그인 → 약관 초기화 + 메일 발송 시도: ${user.email}`)
+          console.log(`[Auth Callback] 잠금 계정 재로그인 → 약관 초기화 + 메일 발송 시도: ${maskEmail(user.email)}`)
           sendNewAccountApprovalEmail({
             email: user.email,
             createdAt: new Date().toISOString(),
@@ -147,7 +148,7 @@ export async function GET(request: Request) {
             if (error) console.warn('[Auth Callback] last_login_at 갱신 실패:', error.message)
           })
 
-        console.log(`[Auth Callback] 기존 계정 로그인 갱신 (비동기): ${user.email}`)
+        console.log(`[Auth Callback] 기존 계정 로그인 갱신 (비동기): ${maskEmail(user.email)}`)
       }
     }
   } catch (err) {
