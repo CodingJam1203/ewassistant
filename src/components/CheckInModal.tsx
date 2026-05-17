@@ -417,38 +417,11 @@ export default function CheckInModal({
               빈 채로 제출해도 통과. */}
           {!loadingPrefill && (
             <>
-              {/* 케이스 B (prior) + 케이스 today: 동일 UI로 통합 — 4개 필드 editable */}
+              {/* 케이스 B (prior) + 케이스 today: 동일 UI로 통합 — 4개 필드 editable.
+                  순서: 실제출근 → 출근예정/퇴근예정 → 근무장소. 사용자 입력 위계상
+                  "지금 실제로 출근한 시각"을 먼저 받고, 예정값은 보조로 둠. */}
               {(caseMode === 'prior' || caseMode === 'today') && (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">출근예정시간 *</label>
-                      <HalfHourTimeSelect
-                        value={startTime}
-                        onChange={setStartTime}
-                        ariaLabel="출근예정시간"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">퇴근예정시간 *</label>
-                      <HalfHourTimeSelect
-                        value={endTime}
-                        onChange={setEndTime}
-                        allowNextDay
-                        ariaLabel="퇴근예정시간"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">근무장소 (예정) *</label>
-                    <WorkLocationChipsInput
-                      value={locations}
-                      onChange={setLocations}
-                      errors={locErrors}
-                    />
-                  </div>
-
                   <div>
                     <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
                       실제 출근시간{caseMode === 'today' && (
@@ -479,12 +452,52 @@ export default function CheckInModal({
                       )}
                     </div>
                   </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">출근예정시간 *</label>
+                      <HalfHourTimeSelect
+                        value={startTime}
+                        onChange={setStartTime}
+                        ariaLabel="출근예정시간"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">퇴근예정시간 *</label>
+                      <HalfHourTimeSelect
+                        value={endTime}
+                        onChange={setEndTime}
+                        allowNextDay
+                        ariaLabel="퇴근예정시간"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">근무장소 (예정) *</label>
+                    <WorkLocationChipsInput
+                      value={locations}
+                      onChange={setLocations}
+                      errors={locErrors}
+                    />
+                  </div>
                 </>
               )}
 
-              {/* 케이스 A (none): 출근예정시간 = 미보고 표시 + 수정하기 토글. 실제출근 + 퇴근예정 + 근무지 */}
+              {/* 케이스 A (none): 출근예정시간 = 미보고 표시 + 수정하기 토글. 실제출근 + 퇴근예정 + 근무지.
+                  순서: 실제출근 → 출근예정(미보고 토글)/퇴근예정 → 근무장소. */}
               {caseMode === 'none' && (
                 <>
+                  <div>
+                    <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">실제 출근시간 *</label>
+                    <HalfHourTimeSelect
+                      value={actualCheckInTime}
+                      onChange={setActualCheckInTime}
+                      allowNextDay
+                      ariaLabel="실제 출근시간"
+                    />
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
@@ -538,16 +551,6 @@ export default function CheckInModal({
                       출근예정시간을 입력하시면 미보고 상태가 해제되어 일반 출근보고로 등록됩니다.
                     </p>
                   )}
-
-                  <div>
-                    <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">실제 출근시간 *</label>
-                    <HalfHourTimeSelect
-                      value={actualCheckInTime}
-                      onChange={setActualCheckInTime}
-                      allowNextDay
-                      ariaLabel="실제 출근시간"
-                    />
-                  </div>
 
                   <div>
                     <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">근무장소 (예정) *</label>
