@@ -392,16 +392,32 @@ export async function POST(request: Request) {
         || (expectedTimeline ? (firstWorkLocation(expectedTimeline) ? displayLocation(firstWorkLocation(expectedTimeline)!) : '') : '')
         || '사무실'
 
-      // D+1 row 존재 확인
-      const { data: existingNext } = await adminClient
+      // D+1 row 존재 확인 — 동일 (user, leave_date) 중복 row 가능성 대비 (옛 분리 모델 잔재 등)
+      // ABC-180: D+1 출근보고 동시 제출 시 새 값이 무시되는 버그 — 중복 row 정리 + UPDATE 결과 검증 추가
+      const { data: existingNextRows } = await adminClient
         .from('work_logs')
-        .select('id')
+        .select('id, created_at')
         .eq('user_email', user.email!)
         .eq('leave_date', nextDate)
         .eq('is_deleted', false)
         .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
+
+      const existingNext = existingNextRows && existingNextRows.length > 0 ? existingNextRows[0] : null
+
+      // 동일 (user_email, leave_date) 활성 row 가 2개 이상이면 — 가장 최근 1건만 살리고 나머지 soft-delete.
+      // (옛 분리 모델 row 또는 race condition 으로 중복 생성된 경우 대비)
+      if (existingNextRows && existingNextRows.length > 1) {
+        const duplicateIds = existingNextRows.slice(1).map(r => r.id)
+        const { error: dupDeleteErr } = await adminClient
+          .from('work_logs')
+          .update({ is_deleted: true, updated_at: new Date().toISOString(), updated_by: user.id })
+          .in('id', duplicateIds)
+        if (dupDeleteErr) {
+          console.error('[work-logs POST] D+1 duplicate cleanup failed:', dupDeleteErr)
+        } else {
+          console.log(`[work-logs POST] D+1 duplicates soft-deleted: ${duplicateIds.length} rows for leave_date=${nextDate}`)
+        }
+      }
 
       const dPlus1PlannedStart = mod24HHmm(nextStartTime)
       const dPlus1PlannedEnd   = mod24HHmm(nextEndTime)
@@ -429,12 +445,26 @@ export async function POST(request: Request) {
       }
 
       if (existingNext) {
-        const { error: dPlus1UpdErr } = await adminClient
+        // ABC-180: UPDATE 결과 검증 — 사용자 입력값이 실제로 갱신됐는지 확인.
+        const { data: updatedRow, error: dPlus1UpdErr } = await adminClient
           .from('work_logs')
           .update({ ...dPlus1Data, updated_at: new Date().toISOString(), updated_by: user.id })
           .eq('id', existingNext.id)
+          .select('id, leave_date, planned_start_time, planned_end_time')
+          .single()
         if (dPlus1UpdErr) {
           console.error('[work-logs POST] D+1 UPDATE failed:', dPlus1UpdErr)
+        } else if (updatedRow) {
+          const valuesApplied = updatedRow.planned_start_time === dPlus1PlannedStart
+            && updatedRow.planned_end_time === dPlus1PlannedEnd
+          if (!valuesApplied) {
+            console.warn('[work-logs POST] D+1 UPDATE returned but planned_* mismatch:', {
+              rowId: updatedRow.id,
+              leaveDate: updatedRow.leave_date,
+              actualPlanned: { start: updatedRow.planned_start_time, end: updatedRow.planned_end_time },
+              expectedPlanned: { start: dPlus1PlannedStart, end: dPlus1PlannedEnd },
+            })
+          }
         }
       } else {
         // INSERT 시 NOT NULL 컬럼들을 모두 채워야 한다:
