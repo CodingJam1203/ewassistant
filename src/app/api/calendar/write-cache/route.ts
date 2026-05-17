@@ -88,7 +88,7 @@ export async function POST(request: Request) {
 
   if (error) {
     console.error('[calendar/write-cache] upsert error:', error.message)
-    return NextResponse.json({ error: 'cache write failed', detail: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'cache write failed' }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true, written: rows.length, updatedAt: now })

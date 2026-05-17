@@ -14,7 +14,8 @@ export async function GET() {
   // auth.users에서 last_sign_in_at 가져오기
   const { data: authData, error: authError } = await adminClient.auth.admin.listUsers({ perPage: 1000 })
   if (authError) {
-    return NextResponse.json({ error: authError.message }, { status: 500 })
+    console.error('[admin/users] auth.listUsers error:', authError.message)
+    return NextResponse.json({ error: '사용자 목록 조회에 실패했습니다.' }, { status: 500 })
   }
 
   // user_profiles 전체 조회
@@ -24,7 +25,8 @@ export async function GET() {
     .order('created_at', { ascending: false })
 
   if (profileError) {
-    return NextResponse.json({ error: profileError.message }, { status: 500 })
+    console.error('[admin/users] profiles select error:', profileError.message)
+    return NextResponse.json({ error: '사용자 프로필 조회에 실패했습니다.' }, { status: 500 })
   }
 
   // auth.users 맵 (email → user)
@@ -123,13 +125,10 @@ export async function POST(request: Request) {
     .single()
 
   if (error) {
+    // 상세는 server 로그에만 (스키마 추측 방지). 사용자에겐 일반 메시지.
     console.error('[admin/users POST] error:', error)
-    // Supabase 에러의 message/details/hint/code를 함께 노출 → 진짜 원인 즉시 식별
-    const errObj = error as { message?: string; details?: string; hint?: string; code?: string }
-    const detail =
-      errObj.message || errObj.details || errObj.hint || errObj.code || JSON.stringify(error)
     return NextResponse.json(
-      { error: `사용자 추가 실패: ${detail}` },
+      { error: '사용자 추가에 실패했습니다.' },
       { status: 500 },
     )
   }

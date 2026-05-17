@@ -344,7 +344,7 @@ export async function POST(request: Request) {
         .single()
       if (updErr) {
         console.error('DB UPDATE Error:', updErr)
-        return NextResponse.json({ error: `데이터 저장 실패: ${updErr.message}` }, { status: 500 })
+        return NextResponse.json({ error: '데이터 저장에 실패했습니다. 잠시 후 다시 시도해주세요.' }, { status: 500 })
       }
       savedLog = data as Record<string, unknown>
     } else {
@@ -365,7 +365,7 @@ export async function POST(request: Request) {
         .single()
       if (insErr) {
         console.error('DB INSERT Error:', insErr)
-        return NextResponse.json({ error: `데이터 저장 실패: ${insErr.message}` }, { status: 500 })
+        return NextResponse.json({ error: '데이터 저장에 실패했습니다. 잠시 후 다시 시도해주세요.' }, { status: 500 })
       }
       savedLog = data as Record<string, unknown>
       workLogId = savedLog?.id as string ?? null
@@ -469,7 +469,7 @@ export async function POST(request: Request) {
           // D-day 저장은 성공이라 전체 실패 X — 에러는 응답 body에 경고로 포함
           return NextResponse.json({
             ...(savedLog ?? {}),
-            __warning: `다음 출근 예정(${nextDate}) row 생성 실패: ${dPlus1InsErr.message}`,
+            __warning: `다음 출근 예정(${nextDate}) 저장에 실패했습니다. 잠시 후 다시 시도해주세요.`,
           })
         }
       }
