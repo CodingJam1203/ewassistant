@@ -384,6 +384,16 @@ leave_calendar_cache  -- Google Sheets 휴가 캐시 (007, TTL 6h)
 - **적용 전 점검** — 마이그레이션 본문 STEP 1 쿼리로 중복 활성 행 확인 → DEV 0건, PROD 9그룹 31row 발견.
 - **PROD 적용** — 2026-05-17. 9그룹 각각 `updated_at` 최신 1건만 유지, 나머지 31row `is_deleted=true` soft-delete 후 partial unique index 생성. 현재 PROD `pg_indexes` 에 `work_logs_user_date_active_unique` 존재.
 
+✅ **D9. `daily_work_status` ↔ `work_logs` 동기화 (2026-05-18, ABC-188 fix 완료)**
+- **정책** — 본인 카드/팀 카드의 "실제 출근·실제 퇴근" 표시는 `daily_work_status.checked_in_at` / `checked_out_at` 을 SoT로 한다. 단 이 두 컬럼은 항상 동일 `(date, user)`의 **활성** `work_logs.actual_start_time` / `actual_end_time` 과 일치해야 한다.
+- **동기화 트리거**:
+  1. 출근보고 신규 row 생성 (`team-status/check-in`, `willCreateNewLog=true`) → 이전 퇴근 잔재 reset: `daily.checked_out_at = NULL`. 새 출근보고는 "이전 사이클은 더 이상 유효하지 않음" 신호.
+  2. 퇴근보고 (`POST /api/work-logs`) → `actual_start_time`/`actual_end_time` 과 `daily.checked_in_at`/`checked_out_at` 을 동일 폼 시각으로 함께 저장.
+  3. 어드민·운영이 `work_logs` 를 `is_deleted=true` 정리할 때 **반드시** 동일 `(date, user)`의 `daily_work_status.checked_*` 도 NULL 처리 + `status='reported'`. (운영 절차 박제)
+- **이전 상태** — `team-status/check-in/route.ts` 라인 360 코멘트로 "이 라우트에서 checked_out_at은 안 건드림" → 새 출근보고가 들어와도 옛 퇴근 잔재가 남아 UI에 옛 시각 노출. 어제(2026-05-17) QA 데이터 정리 시에도 `daily` 누락.
+- **조치** — `team-status/check-in/route.ts` 의 `dailyUpsertPayload` 에 `willCreateNewLog` 분기 추가: 새 work_log row이면 `checked_out_at = null` 강제. PROD 잔재 8건 일괄 정리 (`log_actual_end_null` 1건 + `no_active_log` 7건).
+- **재발 방지** — 운영 절차 메모: PROD `work_logs` 정리 SQL 작성 시 `daily_work_status` 동시 처리 쿼리도 묶어 보고/실행. CLAUDE.md / AGENTS.md §6 점검 단계에 포함.
+
 ⚠️ **D3. 미보고 토글 NULL 저장 경로**
 - **정책** — 토글 안 풀고 제출 → `planned_start_time = NULL`.
 - **코드** — `CheckInModal` state 추적까진 확인. `team-status/check-in/route.ts` 의 실제 NULL 핸들링 미검증.
@@ -500,3 +510,4 @@ leave_calendar_cache  -- Google Sheets 휴가 캐시 (007, TTL 6h)
 | 2026-05-17 | v1.2 | Task Board 상태 머신 정비 (DEV/STG/PROD prefix 통일, QA 진행중 상태 신설, `재작업 출처` property 추가). 본 시간/보고 정책 자체엔 영향 없음 — 비즈니스 정책 동일. 머신 정의는 `AGENTS.md` / `CLAUDE.md` 의 "Task Board 상태 머신" 섹션 참조. | Claude |
 | 2026-05-17 | v1.3 | [ABC-180](https://www.notion.so/363e23a15c0180e3b714de877a64173f) — D+1 출근보고 동시 제출 시 새 값 무시 버그 fix. `src/app/api/work-logs/route.ts` D+1 UPSERT 로직에 ① 동일 `(user, leave_date)` 중복 row 자동 soft-delete (옛 분리 모델 잔재 정리) ② UPDATE 결과 `.select()` 검증 + 불일치 시 warn 로그. 정책 자체는 §3.3 "동시 제출" 그대로 (사용자 입력값으로 overwrite) — 구현 보강. | Claude |
 | 2026-05-17 | v1.4 | ABC-180 운영 후속 — PROD에 `025_work_logs_user_date_unique` 마이그레이션 적용 완료. 사전 점검에서 발견된 중복 활성 row 31건(9그룹) `is_deleted=true` 정리 후 partial unique index 생성. §12 D2 본문도 PROD 적용 사실 반영. 비즈니스 정책 변경 없음 — §2.2 단일 row 모델이 이제 DB 레벨에서도 강제됨. §E 단축 예외(STG_QA 생략) 사용자 트리거로 적용. | Claude |
+| 2026-05-18 | v1.5 | [ABC-188](https://www.notion.so/363e23a15c01812c9f31ccb4db3358a2) — MY PAGE "실제 퇴근"이 실제 퇴근 안 했는데도 표시되는 버그. 근본 원인: `team-status/check-in` 라우트가 새 출근보고를 받아도 옛 `daily_work_status.checked_out_at` 잔재를 안 건드림. §12에 D9 신설(`daily_work_status` ↔ `work_logs` 동기화 규칙). 코드 fix: `willCreateNewLog`일 때 `checked_out_at = NULL` 강제 reset. PROD `daily_work_status` 잔재 8건 일괄 정리 (`log_actual_end_null` 1 + `no_active_log` 7). §E 단축 예외(STG_QA 생략) 사용자 트리거로 적용. | Claude |

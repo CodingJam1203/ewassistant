@@ -357,9 +357,15 @@ export async function POST(request: Request) {
       status:           checkedInAtIso ? 'working' : 'reported',
       current_location: currentLocation,
       checked_in_at:    checkedInAtIso,  // null이면 출근 안 한 상태로 되돌림
-      // checked_out_at은 이 라우트에서 안 건드림
       is_on_break:      false,
       updated_at:       submissionNow,
+    }
+    // 새 work_log row가 생성되는 케이스(이전 row가 어드민·정리·재제출로 교체된 상황)
+    // 에서는 이전 퇴근 잔재(checked_out_at)가 그대로 남아 UI에 옛 시각이 노출되는 버그를
+    // 유발한다. 새 출근보고는 "이전 퇴근 사이클이 더 이상 유효하지 않다"는 신호이므로
+    // checked_out_at을 명시적으로 NULL로 reset 한다. (status 도 working/reported 로 위에서 결정)
+    if (willCreateNewLog) {
+      dailyUpsertPayload.checked_out_at = null
     }
 
     const { data: daily, error: dailyErr } = await adminClient
