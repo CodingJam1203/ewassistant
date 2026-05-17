@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { withSessionCookieDefaults } from './cookie-options'
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './env'
 
 const CURRENT_TERMS_VERSION   = '2026.1'
 const CURRENT_PRIVACY_VERSION = '2026.1'
@@ -9,8 +10,8 @@ export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY,
     {
       cookies: {
         getAll() { return request.cookies.getAll() },

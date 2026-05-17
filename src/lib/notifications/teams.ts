@@ -18,6 +18,7 @@ import {
   type ReportType,
 } from './teams-routing'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { envOverride } from '@/lib/utils/env-override'
 import type {
   EventType,
   WorklogNotifyPayload,
@@ -72,9 +73,10 @@ function toPlainText(text: string): string {
 }
 
 function isEnabled(eventType: EventType): boolean {
-  if (process.env.ENABLE_TEAMS_NOTIFY === 'false') return false
+  // Preview 환경에서 `_2` override가 있으면 우선 적용 (Vercel 같은 이름 변수 제약 회피).
+  if (envOverride('ENABLE_TEAMS_NOTIFY') === 'false') return false
   const key = EVENT_ENV_MAP[eventType]
-  return process.env[key] !== 'false'
+  return envOverride(key) !== 'false'
 }
 
 // ─── Make Webhook 전송 ────────────────────────────────────────────────────────
@@ -133,7 +135,7 @@ async function sendToMake(
   department: string,
   teamName: string
 ): Promise<void> {
-  const webhookUrl = process.env.MAKE_WEBHOOK_URL
+  const webhookUrl = envOverride('MAKE_WEBHOOK_URL')
   if (!webhookUrl) {
     console.log('[Teams] MAKE_WEBHOOK_URL not set — skipping ' + eventType)
     return
@@ -237,8 +239,8 @@ async function routeAndSend(
     teamId: target.teamId,
     channelId: target.channelId,
     messageId: target.messageId,
-    hasWebhookUrl: !!process.env.MAKE_WEBHOOK_URL,
-    enabled: process.env.ENABLE_TEAMS_NOTIFY
+    hasWebhookUrl: !!envOverride('MAKE_WEBHOOK_URL'),
+    enabled: envOverride('ENABLE_TEAMS_NOTIFY')
   })
 
   try {
