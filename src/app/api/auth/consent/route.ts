@@ -67,29 +67,45 @@ export async function POST(request: Request) {
       )
     }
 
-    // 2. user_profiles에 최신 동의 상태 + 이름 업데이트 (빠른 확인용)
-    const { error: updateError } = await adminClient
+    // 2. user_profiles UPSERT — 무한 redirect fix.
+    //
+    // 옛 UPDATE는 row 없을 때 silent success (0 rows affected). 그 경우 middleware가
+    // 다음 요청에서도 row 못 읽어 PGRST116 → /consent fail-close redirect 무한 루프.
+    //
+    // UPSERT로 변경 — auth/callback에서 INSERT 실패했어도 여기서 보정.
+    // .select()로 결과 검증 + 0 affected rows 시 명시 에러.
+    const { data: upsertedRow, error: upsertError } = await adminClient
       .from('user_profiles')
-      .update({
+      .upsert({
+        id: user.id,
+        email: user.email,
         display_name: displayName,
         terms_version: CURRENT_TERMS_VERSION,
         privacy_version: CURRENT_PRIVACY_VERSION,
         terms_agreed_at: now,
         privacy_agreed_at: now,
-      })
-      .eq('id', user.id)
+        // 신규 row INSERT 시 default — 사전 승인 X 라 잠금. callback에서 만든 row면 보존됨 (id 매칭 conflict).
+        is_active: prevProfile?.is_active ?? false,
+        role: 'user',
+        last_login_at: now,
+      }, { onConflict: 'id' })
+      .select('id, is_active, terms_version, privacy_version')
+      .single()
 
-    if (updateError) {
-      console.error('Consent Profile Update Error:', updateError)
-      return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
+    if (upsertError || !upsertedRow) {
+      console.error('[Consent] user_profiles UPSERT error:', upsertError?.code, upsertError?.message)
+      return NextResponse.json({ error: '프로필 저장 중 오류가 발생했습니다.' }, { status: 500 })
+    }
+
+    // 검증 — 실제 갱신됐는지
+    if (upsertedRow.terms_version !== CURRENT_TERMS_VERSION) {
+      console.error('[Consent] UPSERT returned but terms_version not applied', upsertedRow)
+      return NextResponse.json({ error: '동의 처리가 반영되지 않았습니다. 다시 시도해주세요.' }, { status: 500 })
     }
 
     // 동의 완료 후 is_active 확인 → 클라이언트가 redirect 경로 결정에 사용
-    const { data: profile } = await adminClient
-      .from('user_profiles')
-      .select('is_active')
-      .eq('id', user.id)
-      .single()
+    // upsertedRow에서 바로 읽음 (별도 쿼리 불필요)
+    const profile = { is_active: upsertedRow.is_active }
 
     // 신규 가입(미승인) 케이스에서만 이름 포함 후속 알림 발송
     // - prevProfile.is_active === false: 1차 OAuth 알림만 받았던 상태 → 이름 포함 알림 보내 admin이 식별

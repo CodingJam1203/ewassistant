@@ -84,13 +84,22 @@ export async function GET(request: Request) {
           console.log(`[Auth Callback] 사전등록 계정 첫 로그인 승인: ${maskEmail(user.email)}`)
         } else {
           // 완전 신규: 잠금 + 관리자 알림
-          await adminClient.from('user_profiles').insert({
+          // INSERT 결과 명시 검증 — silent fail 방지 (옛 코드는 await만 함, error 무시).
+          // 실패 시 다음 요청에서 middleware가 PGRST116 → /consent fail-close 무한 루프.
+          const { error: insertError } = await adminClient.from('user_profiles').insert({
             id: user.id,
             email: user.email,
             last_login_at: new Date().toISOString(),
             is_active: false,
             role: 'user',
           })
+          if (insertError) {
+            console.error(
+              `[Auth Callback] 신규 계정 INSERT 실패: ${maskEmail(user.email)}`,
+              insertError.code, insertError.message
+            )
+            // INSERT 실패해도 redirect는 진행 — /consent의 UPSERT에서 한 번 더 시도됨
+          }
           console.log(`[Auth Callback] 신규 계정 생성 및 잠금: ${maskEmail(user.email)} → 메일 발송 시도`)
           sendNewAccountApprovalEmail({
             email: user.email,
