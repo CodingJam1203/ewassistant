@@ -377,11 +377,12 @@ leave_calendar_cache  -- Google Sheets 휴가 캐시 (007, TTL 6h)
 - **코드** — `CheckInModal.tsx:65` — `const flooredMm = mm < 30 ? '00' : '30'`. `nowKstHHmmFloor` 도 동일.
 - **결론** — 0~29분 → 00, 30~59분 → 30. **floor 동작 맞음.** 초기 조사에서 함수명을 round로 오판했던 부분 정정.
 
-✅ **D2. DB UNIQUE 제약 추가됨 (2026-05-17, 마이그레이션 025)**
+✅ **D2. DB UNIQUE 제약 추가됨 (2026-05-17, 마이그레이션 025 + PROD 적용 완료)**
 - **정책** — `(user_email, leave_date)` 단일 row 보장.
 - **이전 상태** — 응용서버 UPSERT만, DB 제약 부재.
 - **조치** — `supabase/migrations/025_work_logs_user_date_unique.sql` 추가. partial unique index `WHERE is_deleted=false`.
-- **적용 전 점검** — 마이그레이션 본문 STEP 1 쿼리로 중복 활성 행 0개 확인 후 STEP 2 실행.
+- **적용 전 점검** — 마이그레이션 본문 STEP 1 쿼리로 중복 활성 행 확인 → DEV 0건, PROD 9그룹 31row 발견.
+- **PROD 적용** — 2026-05-17. 9그룹 각각 `updated_at` 최신 1건만 유지, 나머지 31row `is_deleted=true` soft-delete 후 partial unique index 생성. 현재 PROD `pg_indexes` 에 `work_logs_user_date_active_unique` 존재.
 
 ⚠️ **D3. 미보고 토글 NULL 저장 경로**
 - **정책** — 토글 안 풀고 제출 → `planned_start_time = NULL`.
@@ -498,3 +499,4 @@ leave_calendar_cache  -- Google Sheets 휴가 캐시 (007, TTL 6h)
 | 2026-05-17 | v1.1 | D1·D2·D8 해결. D1은 코드 재확인으로 ✅ (Agent 초기 오판 정정). D2는 마이그레이션 025 추가로 ✅. D8은 현재 분담 유지 결정. §10에 결정 6·7·8 추가. | Claude |
 | 2026-05-17 | v1.2 | Task Board 상태 머신 정비 (DEV/STG/PROD prefix 통일, QA 진행중 상태 신설, `재작업 출처` property 추가). 본 시간/보고 정책 자체엔 영향 없음 — 비즈니스 정책 동일. 머신 정의는 `AGENTS.md` / `CLAUDE.md` 의 "Task Board 상태 머신" 섹션 참조. | Claude |
 | 2026-05-17 | v1.3 | [ABC-180](https://www.notion.so/363e23a15c0180e3b714de877a64173f) — D+1 출근보고 동시 제출 시 새 값 무시 버그 fix. `src/app/api/work-logs/route.ts` D+1 UPSERT 로직에 ① 동일 `(user, leave_date)` 중복 row 자동 soft-delete (옛 분리 모델 잔재 정리) ② UPDATE 결과 `.select()` 검증 + 불일치 시 warn 로그. 정책 자체는 §3.3 "동시 제출" 그대로 (사용자 입력값으로 overwrite) — 구현 보강. | Claude |
+| 2026-05-17 | v1.4 | ABC-180 운영 후속 — PROD에 `025_work_logs_user_date_unique` 마이그레이션 적용 완료. 사전 점검에서 발견된 중복 활성 row 31건(9그룹) `is_deleted=true` 정리 후 partial unique index 생성. §12 D2 본문도 PROD 적용 사실 반영. 비즈니스 정책 변경 없음 — §2.2 단일 row 모델이 이제 DB 레벨에서도 강제됨. §E 단축 예외(STG_QA 생략) 사용자 트리거로 적용. | Claude |
