@@ -31,11 +31,17 @@ export default function ConsentPage() {
     setIsSubmitting(true)
     setError('')
 
+    // 무한 로딩 방지 (티켓: /consent 무한 로딩 — 신규 가입자 진입 차단)
+    // 15초 timeout — 서버 hang 시 사용자에게 에러 표시 + retry 가능 상태로 복귀.
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15000)
+
     try {
       const res = await fetch('/api/auth/consent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ displayName: trimmedName }),
+        signal: controller.signal,
       })
 
       const data = await res.json()
@@ -44,11 +50,20 @@ export default function ConsentPage() {
       }
 
       // API가 반환한 redirectTo 사용 (활성 계정 → /team, 잠금 계정 → /blocked)
+      // router.push가 middleware 차단 등으로 페이지 전환 실패해도 isSubmitting을
+      // 풀어주기 위해 명시적으로 false 처리 (next/navigation push는 Promise 반환 안 함).
+      setIsSubmitting(false)
       router.push(data.redirectTo ?? '/team')
       router.refresh()
     } catch (err: any) {
-      setError(err.message)
+      if (err?.name === 'AbortError') {
+        setError('서버 응답이 너무 오래 걸립니다. 잠시 후 다시 시도해 주세요.')
+      } else {
+        setError(err?.message ?? '동의 처리 중 오류가 발생했습니다.')
+      }
       setIsSubmitting(false)
+    } finally {
+      clearTimeout(timeoutId)
     }
   }
 

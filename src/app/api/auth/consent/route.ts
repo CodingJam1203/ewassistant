@@ -48,13 +48,24 @@ export async function POST(request: Request) {
       .single()
 
     // 1. user_policy_consents에 기록 (이력 관리)
-    await adminClient.from('user_policy_consents').insert({
-      user_email: user.email,
-      terms_version: CURRENT_TERMS_VERSION,
-      privacy_version: CURRENT_PRIVACY_VERSION,
-      terms_agreed_at: now,
-      privacy_agreed_at: now,
-    })
+    // 무한 로딩 fix — silent fail 방지를 위해 INSERT 결과 명시적 체크 + 로그.
+    // 테이블 없음·RLS 차단 등의 에러를 무시하지 않고 명확하게 throw.
+    const { error: consentInsertError } = await adminClient
+      .from('user_policy_consents')
+      .insert({
+        user_email: user.email,
+        terms_version: CURRENT_TERMS_VERSION,
+        privacy_version: CURRENT_PRIVACY_VERSION,
+        terms_agreed_at: now,
+        privacy_agreed_at: now,
+      })
+    if (consentInsertError) {
+      console.error('[Consent] user_policy_consents INSERT error:', consentInsertError.code, consentInsertError.message)
+      return NextResponse.json(
+        { error: '동의 이력 저장 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' },
+        { status: 500 }
+      )
+    }
 
     // 2. user_profiles에 최신 동의 상태 + 이름 업데이트 (빠른 확인용)
     const { error: updateError } = await adminClient
