@@ -365,7 +365,7 @@ export interface SubmissionsRawTableProps {
    *  - scope     : 'check_in' (출근보고 영역) / 'check_out' (퇴근보고 영역)
    *                row의 보고유형으로 자동 판정해서 전달됨.
    */
-  onEditWorkLog?: (workLogId: string, scope: 'check_in' | 'check_out') => void
+  onEditWorkLog?: (workLogId: string, scope: 'check_in' | 'check_out', cellDate?: string) => void
   allowOrgFilter?: boolean
   /**
    * 'raw'  : 모든 제출 row 시간순
@@ -656,7 +656,7 @@ export default function SubmissionsRawTable({
                     <Td className="text-center">
                       {r.work_log_id && onEditWorkLog ? (
                         <button
-                          onClick={() => onEditWorkLog(r.work_log_id!, isCheckOut ? 'check_out' : 'check_in')}
+                          onClick={() => onEditWorkLog(r.work_log_id!, isCheckOut ? 'check_out' : 'check_in', r.target_date)}
                           className="text-text-muted hover:text-primary-600 transition-colors"
                           title={isCheckOut ? '퇴근보고 수정' : '출근보고 수정'}
                           aria-label={isCheckOut ? '퇴근보고 수정' : '출근보고 수정'}
