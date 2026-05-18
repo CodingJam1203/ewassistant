@@ -271,20 +271,26 @@ export async function GET(request: Request) {
             return null as CalendarBatchResponse | null
           })
         : Promise.resolve(null as CalendarBatchResponse | null),
-      adminClient.from('org_teams').select('division_id, name, use_check_in_complete'),
-      adminClient.from('org_divisions').select('id, name'),
+      adminClient.from('org_teams').select('division_id, name, use_check_in_complete, sort_order'),
+      adminClient.from('org_divisions').select('id, name, sort_order'),
     ])
 
-    // 팀별 use_check_in_complete 매핑 — (division_name, team_name) → boolean
+    // 팀별 use_check_in_complete + 본부/팀 정렬 키 매핑.
+    // ABC-194: 둘러보기 정렬을 (division.sort_order → team.sort_order → display_order → name)로
+    // 재정의하기 위해 sort_order를 함께 매핑.
     const divIdToName = new Map<string, string>()
-    for (const d of ((orgDivisionsRes.data ?? []) as Array<{ id: string; name: string }>)) {
+    const divSortMap  = new Map<string, number>()   // division_name → sort_order
+    for (const d of ((orgDivisionsRes.data ?? []) as Array<{ id: string; name: string; sort_order: number | null }>)) {
       divIdToName.set(d.id, d.name)
+      divSortMap.set(d.name, d.sort_order ?? 999)
     }
     const teamSettings = new Map<string, boolean>()
-    for (const t of ((orgTeamsRes.data ?? []) as Array<{ division_id: string; name: string; use_check_in_complete: boolean | null }>)) {
+    const teamSortMap  = new Map<string, number>()  // `${div_name}::${team_name}` → sort_order
+    for (const t of ((orgTeamsRes.data ?? []) as Array<{ division_id: string; name: string; use_check_in_complete: boolean | null; sort_order: number | null }>)) {
       const divName = divIdToName.get(t.division_id)
       if (!divName) continue
       teamSettings.set(`${divName}::${t.name}`, t.use_check_in_complete ?? true)
+      teamSortMap.set(`${divName}::${t.name}`, t.sort_order ?? 999)
     }
 
     const workLogsLeave    = workLogsLeaveRes.data
@@ -446,9 +452,32 @@ export async function GET(request: Request) {
       }
     })
 
+    // ABC-194: 둘러보기 정렬 — 조직 구조 그룹화 + 팀 내 사용자 순서.
+    //   1) is_self 최상단
+    //   2) division.sort_order (본부 간)
+    //   3) division 이름 fallback (sort_order 동률 시)
+    //   4) team.sort_order (같은 본부 안)
+    //   5) team 이름 fallback (sort_order 동률 시)
+    //   6) user_profiles.display_order (팀 내 사용자 순서)
+    //   7) display_name fallback
     cards.sort((a, b) => {
       if (a.is_self && !b.is_self) return -1
       if (!a.is_self && b.is_self) return 1
+
+      const aDivSort = divSortMap.get(a.division ?? '') ?? 999
+      const bDivSort = divSortMap.get(b.division ?? '') ?? 999
+      if (aDivSort !== bDivSort) return aDivSort - bDivSort
+
+      const dCmp = (a.division ?? '').localeCompare(b.division ?? '')
+      if (dCmp !== 0) return dCmp
+
+      const aTeamSort = teamSortMap.get(`${a.division ?? ''}::${a.team ?? ''}`) ?? 999
+      const bTeamSort = teamSortMap.get(`${b.division ?? ''}::${b.team ?? ''}`) ?? 999
+      if (aTeamSort !== bTeamSort) return aTeamSort - bTeamSort
+
+      const tCmp = (a.team ?? '').localeCompare(b.team ?? '')
+      if (tCmp !== 0) return tCmp
+
       if (a.display_order !== b.display_order) return a.display_order - b.display_order
       return (a.display_name ?? a.email).localeCompare(b.display_name ?? b.email)
     })
