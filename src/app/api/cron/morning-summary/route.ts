@@ -21,6 +21,23 @@ import { formatMorningWorklogStatus } from '@/lib/notifications/messages'
 import { forceRefreshCalendar, getDepartmentDailyParsed } from '@/lib/leave-calendar'
 import { parseLeaveLabel } from '@/lib/leave-timeline'
 import type { LeaveType, LeaveTimeline } from '@/types/leave-timeline'
+import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
+import type { WorkLocations } from '@/types/work-locations-v2'
+
+/** planned_work_locations(WorkLocations 배열) → 표시용 string ("사무실 → 재택") */
+function fmtPlannedLocations(planned: WorkLocations | null | undefined): string | null {
+  if (!planned) return null
+  const chips = resolveDisplayLocations({
+    actual: null,
+    planned: planned,
+    legacyActualTimeline: null,
+    legacyExpectedTimeline: null,
+    legacyWorkLocation: null,
+    legacyExpectedWorkLocation: null,
+  })
+  if (!chips || chips.length === 0) return null
+  return formatChipsArrow(chips)
+}
 
 function getKstDate(offsetDays = 0): string {
   const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
@@ -72,13 +89,25 @@ export async function GET(request: Request) {
   }
 
   // ─── 오늘 출근보고(work_logs) 조회 — leave_timeline까지 ─────────────────────
-  const { data: checkins } = await adminClient
+  // Stage 0-4a 단일 row 모델: 옛 분리 모델(expected_start_date='오늘') 쿼리는 deprecate.
+  // todayDate의 work_log row를 leave_date 기준으로 찾고, planned_*를 expected_* 자리에 매핑.
+  const { data: checkinsRaw } = await adminClient
     .from('work_logs')
-    .select('user_email, expected_work_location, expected_work_time, leave_timeline, expected_leave_timeline, created_at')
-    .eq('expected_start_date', todayDate)
-    .eq('attendance_record_type', '출근보고 진행 (주말출근, 휴가 포함)')
+    .select('user_email, planned_start_time, planned_work_locations, leave_timeline, expected_leave_timeline, created_at')
+    .eq('leave_date', todayDate)
     .eq('is_deleted', false)
+    .not('planned_start_time', 'is', null)
     .order('created_at', { ascending: false })
+
+  // 메시지 빌드(formatMorningCheckinStatus)가 기대하는 옛 필드명으로 매핑
+  const checkins = (checkinsRaw ?? []).map(c => ({
+    user_email: c.user_email,
+    expected_work_location: fmtPlannedLocations(c.planned_work_locations as WorkLocations | null),
+    expected_work_time:     c.planned_start_time,
+    leave_timeline:         c.leave_timeline,
+    expected_leave_timeline: c.expected_leave_timeline,
+    created_at:             c.created_at,
+  }))
 
   // 사용자가 직접 입력한 오늘의 work_log (오늘 leave_date 기준)
   const { data: todayLogs } = await adminClient

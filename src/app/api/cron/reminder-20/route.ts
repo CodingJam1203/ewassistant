@@ -8,6 +8,23 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyDailyCheckinReminder } from '@/lib/notifications/teams'
 import { formatNightlyCheckinStatus } from '@/lib/notifications/messages'
+import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
+import type { WorkLocations } from '@/types/work-locations-v2'
+
+/** planned_work_locations(WorkLocations 배열) → 표시용 string ("사무실 → 재택") */
+function fmtPlannedLocations(planned: WorkLocations | null | undefined): string | null {
+  if (!planned) return null
+  const chips = resolveDisplayLocations({
+    actual: null,
+    planned: planned,
+    legacyActualTimeline: null,
+    legacyExpectedTimeline: null,
+    legacyWorkLocation: null,
+    legacyExpectedWorkLocation: null,
+  })
+  if (!chips || chips.length === 0) return null
+  return formatChipsArrow(chips)
+}
 
 function getKstDate(offsetDays = 0): string {
   const d = new Date(Date.now() + 9 * 60 * 60 * 1000)
@@ -47,22 +64,33 @@ export async function GET(request: Request) {
     return NextResponse.json({ skipped: true, reason: 'no active users' })
   }
 
+  // Stage 0-4a 단일 row 모델: targetDate(내일)의 work_log row를 leave_date 기준으로 찾는다.
+  // 옛 분리 모델(expected_start_date='내일') 쿼리는 deprecate — 새 모델 데이터를 못 찾아 전부 미보고 처리되던 버그.
+  // 출근보고 작성 신호: planned_start_time NOT NULL (미보고 토글 OFF + 입력)
   const { data: checkins } = await adminClient
     .from('work_logs')
-    .select('user_email, expected_work_location, expected_work_time, attendance_record_type, expected_start_date, created_at')
-    .eq('expected_start_date', targetDate)
-    .eq('attendance_record_type', '출근보고 진행 (주말출근, 휴가 포함)')
+    .select('user_email, planned_start_time, planned_end_time, planned_work_locations, leave_timeline, attendance_record_type, leave_date, created_at')
+    .eq('leave_date', targetDate)
     .eq('is_deleted', false)
+    .not('planned_start_time', 'is', null)
     .order('created_at', { ascending: false })
 
-  const checkinMap = new Map<string, any>()
+  // 메시지 빌드가 기대하는 옛 필드명(expected_work_location/expected_work_time)로 매핑.
+  // 새 컬럼 → 호환 필드 변환만, 메시지 함수 자체는 무변경.
+  interface CheckinAdapter {
+    expected_work_location: string | null
+    expected_work_time: string | null
+    attendance_record_type: string | null
+    expected_start_date: string | null
+  }
+  const checkinMap = new Map<string, CheckinAdapter>()
   for (const c of checkins ?? []) {
     if (!checkinMap.has(c.user_email)) {
       checkinMap.set(c.user_email, {
-        expected_work_location: c.expected_work_location,
-        expected_work_time:     c.expected_work_time,
-        attendance_record_type: c.attendance_record_type,
-        expected_start_date:    c.expected_start_date,
+        expected_work_location: fmtPlannedLocations(c.planned_work_locations as WorkLocations | null),
+        expected_work_time:     c.planned_start_time,   // HH:MM:SS — fmtTime이 trim 처리
+        attendance_record_type: c.attendance_record_type ?? '출근보고 진행 (주말출근, 휴가 포함)',
+        expected_start_date:    c.leave_date,
       })
     }
   }
