@@ -280,9 +280,9 @@ interface WorkLogRow {
  * 같은 날짜의 출근보고 + 퇴근보고 두 row로 펼친다.
  *
  * 출력:
- *   planned_only  → [출근보고]                   (1건)
- *   check_in_done → [출근보고, 퇴근보고(end=null)] (2건, 퇴근 미완료)
- *   check_out_done→ [출근보고, 퇴근보고]            (2건)
+ *   planned_only  → [출근보고]              (1건)
+ *   check_in_done → [출근보고]              (1건 — 퇴근 미보고는 행 X)
+ *   check_out_done→ [출근보고, 퇴근보고]      (2건)
  *   no_data       → [] (거의 발생 X)
  *
  * 시간:
@@ -341,14 +341,16 @@ function workLogToFinalRows(row: WorkLogRow): SubmissionRow[] {
     })
   }
 
-  // 퇴근보고 row — actual_start_time이 set된 경우만 (출근완료 이상)
-  // Stage 5: effective_actual_start_time(서버 보정)이 있으면 그걸 우선 — Stage 4 자동 보정 반영
-  if (state === 'check_in_done' || state === 'check_out_done') {
+  // 퇴근보고 row — 퇴근보고를 실제로 작성한 경우(check_out_done)만 노출.
+  // check_in_done(출근완료 + 퇴근 미보고)은 퇴근보고가 아직 없으니 행 생성 X
+  // (이전엔 actual_start_time 기준으로 행을 만들어서 end_time만 "-"로 비는 위장 행이 노출됨).
+  if (state === 'check_out_done') {
     out.push({
       ...base,
       report_type: 'check_out',
+      // Stage 5: effective_actual_start_time(서버 보정)이 있으면 그걸 우선
       start_time: row.effective_actual_start_time ?? row.actual_start_time,
-      end_time:   row.actual_end_time,  // check_in_done이면 null
+      end_time:   row.actual_end_time,
     })
   }
 
