@@ -37,22 +37,62 @@ export async function GET(request: Request) {
 
   const t0 = Date.now()
   const supabase = createAdminClient()
-  // user_profiles는 항상 존재하는 테이블 + RLS 영향 없음(admin client) + LIMIT 1로 부하 최소
+
+  // 1) Postgres compute ping — user_profiles는 항상 존재 + RLS 영향 없음(admin client) + LIMIT 1
   const { error } = await supabase.from('user_profiles').select('id').limit(1)
-  const latencyMs = Date.now() - t0
+  const pgLatencyMs = Date.now() - t0
 
   if (error) {
-    console.warn('[cron/keep-alive] query failed', error.code, error.message, `${latencyMs}ms`)
+    console.warn('[cron/keep-alive] postgres ping failed', error.code, error.message, `${pgLatencyMs}ms`)
     return NextResponse.json(
-      { ok: false, latencyMs, error: error.message },
+      { ok: false, layer: 'postgres', latencyMs: pgLatencyMs, error: error.message },
       { status: 502 },
     )
   }
 
-  // latency가 평소(100-300ms) 대비 길면 sleep wake-up 발생 신호 — 추후 간격 조정 판단 근거
-  if (latencyMs > 2000) {
-    console.warn(`[cron/keep-alive] slow response — possible compute wake-up: ${latencyMs}ms`)
+  // 2) Supabase Auth(GoTrue) ping — /auth/v1/health 엔드포인트.
+  //    Postgres와 별도 컨테이너라 user_profiles SELECT만으로는 안 깨워짐.
+  //    로그인 흐름의 /auth/v1/authorize cold start 29초+ 사례 (2026-05-18) 회피용.
+  //    인증 불필요·가벼움. 실패해도 keep-alive 자체는 ok (best-effort).
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  let authLatencyMs: number | null = null
+  let authError: string | null = null
+  if (supabaseUrl) {
+    const t1 = Date.now()
+    try {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 5000)
+      const res = await fetch(`${supabaseUrl}/auth/v1/health`, {
+        method: 'GET',
+        signal: controller.signal,
+      })
+      clearTimeout(timer)
+      authLatencyMs = Date.now() - t1
+      if (!res.ok) authError = `HTTP ${res.status}`
+    } catch (err: unknown) {
+      authLatencyMs = Date.now() - t1
+      authError = err instanceof Error ? err.message : String(err)
+    }
   }
 
-  return NextResponse.json({ ok: true, latencyMs })
+  const totalLatencyMs = Date.now() - t0
+
+  // latency가 평소(각 100-300ms) 대비 길면 sleep wake-up 발생 신호
+  if (pgLatencyMs > 2000) {
+    console.warn(`[cron/keep-alive] slow postgres — possible wake-up: ${pgLatencyMs}ms`)
+  }
+  if (authLatencyMs !== null && authLatencyMs > 2000) {
+    console.warn(`[cron/keep-alive] slow auth — possible wake-up: ${authLatencyMs}ms`)
+  }
+  if (authError) {
+    console.warn(`[cron/keep-alive] auth ping non-ok: ${authError}`)
+  }
+
+  return NextResponse.json({
+    ok: true,
+    latencyMs: totalLatencyMs,
+    pgLatencyMs,
+    authLatencyMs,
+    authError,
+  })
 }
