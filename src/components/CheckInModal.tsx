@@ -293,6 +293,14 @@ export default function CheckInModal({
             : startTime)
         : (isAllDayLeave ? null : startTime)
 
+      // C2 정책: 사용자가 N-Click에서 시간을 명시 입력했으면 Google 캘린더 자동 매핑된
+      // leave_timeline(source='calendar')을 제거 — N-Click 입력이 우선.
+      // 사용자가 LeaveTimelineInput에서 직접 추가한 항목(source !== 'calendar')은 유지.
+      const hasUserTimeInput = !!(startTime || endTime || safeActualCheckIn)
+      const finalLeaveTimeline = hasUserTimeInput
+        ? leaveTimeline.filter(item => item?.source !== 'calendar')
+        : leaveTimeline
+
       const res = await fetch('/api/team-status/check-in', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -305,7 +313,7 @@ export default function CheckInModal({
           actualCheckInTime: safeActualCheckIn || null,
           // Stage 2: true면 서버가 planned_start_time = NULL로 저장 (미보고 SoT)
           plannedStartTimeUnreported: planned_start_time_unreported,
-          leaveTimeline,
+          leaveTimeline: finalLeaveTimeline,
           break_time: '00:00',
           work_content: workContent.trim() || null,
         }),

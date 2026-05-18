@@ -761,9 +761,14 @@ export default function WorkLogForm({
         actualWasTouched ||
         (data.workContent && data.workContent.trim().length > 0)
       )
-      const submittedLeave: LeaveTimeline = isRegularWorkSubmit
+      // C2 정책 (2026-05-19): Google 캘린더 자동 매핑(source='calendar') 항목은
+      // 사용자가 N-Click에서 출퇴근보고를 제출하는 행위 자체로 N-Click 입력 우선 →
+      // submit 시 항상 자동 제거. 사용자가 LeaveTimelineInput에서 직접 추가한 항목
+      // (source='user' 또는 source 없음)은 유지.
+      const submittedLeave: LeaveTimeline = (isRegularWorkSubmit
         ? rawSubmittedLeave.filter(it => it.leaveType !== 'full_day')
         : rawSubmittedLeave
+      ).filter(it => it?.source !== 'calendar')
 
       const submittedIsAllDay = isFullDayLeave(submittedLeave)
       const submittedHasReducedLeave = submittedLeave.some(it =>

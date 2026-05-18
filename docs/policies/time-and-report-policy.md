@@ -123,6 +123,15 @@ N-Click의 시간 데이터(출근예정·퇴근예정·실제출근·실제퇴�
 | 알림 1건 (퇴근보고 채널) | 명일 출근 채널 별도 발송 X | `teams.ts:271-289`, `:551-556` | ✅ |
 | 명일 default | 09:00 / 18:00 / 사무실 / 빈 메모 | `route.ts:379-394` | ✅ |
 
+### 3.4 Google 캘린더 휴가 자동 매핑 · N-Click 입력 우선 (v1.7, 2026-05-19)
+
+| 항목 | 정책 | 구현 위치 | 상태 |
+|---|---|---|---|
+| 매핑 날짜 기준 | **보고 대상일(leave_date) 기준**으로만 Google Sheets 휴가 캐시 조회. 보고 작성일(today)과 명확 구분 — 전일·명일 사전등록 시에도 leave_date 사용 | `CheckInModal.tsx:214-236` calendar-events effect (`date` prop = leave_date) | ✅ |
+| N-Click 입력 우선 | 사용자가 N-Click에서 출근/퇴근보고를 submit하면 Google 자동 매핑(source='calendar') leave_timeline 항목은 자동 제거. 사용자가 LeaveTimelineInput에서 직접 추가한 항목(source='user'/미지정)은 유지 | `CheckInModal.tsx` submit 직전 + `WorkLogForm.tsx:onSubmit` submittedLeave 분기 | ✅ |
+| UI 안내 | Google 캘린더 휴가 정보는 LeaveTimelineInput에 prefill로 표시 (사용자가 확인·수정 가능). submit 시점에 자동 매핑 항목은 보관 안 함 | 동일 | ✅ |
+| 발견 케이스 | 윤정인 5/19 work_log에 5/18 휴가 "단이 건강검진"이 잘못 매핑 (2026-05-18 보고). 데이터 정정(planned 10:00~17:30) + 정책 보강으로 재발 방지 | PROD update 완료 | ✅ |
+
 ---
 
 ## 4. 시간 노출 정책
@@ -515,3 +524,4 @@ leave_calendar_cache  -- Google Sheets 휴가 캐시 (007, TTL 6h)
 | 2026-05-17 | v1.4 | ABC-180 운영 후속 — PROD에 `025_work_logs_user_date_unique` 마이그레이션 적용 완료. 사전 점검에서 발견된 중복 활성 row 31건(9그룹) `is_deleted=true` 정리 후 partial unique index 생성. §12 D2 본문도 PROD 적용 사실 반영. 비즈니스 정책 변경 없음 — §2.2 단일 row 모델이 이제 DB 레벨에서도 강제됨. §E 단축 예외(STG_QA 생략) 사용자 트리거로 적용. | Claude |
 | 2026-05-18 | v1.5 | [ABC-188](https://www.notion.so/363e23a15c01812c9f31ccb4db3358a2) — MY PAGE "실제 퇴근"이 실제 퇴근 안 했는데도 표시되는 버그. 근본 원인: `team-status/check-in` 라우트가 새 출근보고를 받아도 옛 `daily_work_status.checked_out_at` 잔재를 안 건드림. §12에 D9 신설(`daily_work_status` ↔ `work_logs` 동기화 규칙). 코드 fix: `willCheckInComplete`일 때 `checked_out_at = NULL` 강제 reset. PROD `daily_work_status` 잔재 8건 일괄 정리 (`log_actual_end_null` 1 + `no_active_log` 7). §E 단축 예외(STG_QA 생략) 사용자 트리거로 적용. | Claude |
 | 2026-05-18 | v1.6 | **미보고 게이트 정책 변경** — "오늘"은 보고 의무 게이트에서 제외 (퇴근 시각 전일 수 있음). 사용자 보고 캘린더 셀에 "퇴근누락" 뱃지가 당일에도 표시되던 false positive 수정. 구현 — ① `submission-status/route.ts` — 오늘 + (출근만 / 둘 다 없음) → `'future'` 분류 (미보고 카운트·뱃지 X). 단 오늘 + 출/퇴근 모두 작성됐으면 `complete` 그대로 인정. ② `missing-reports/route.ts` — `effectiveTo`를 `yesterday`로 클램프, 회사 미보고 리스트에서 오늘 자동 제외. ③ Teams nudge — `/api/missing-reports`와 같은 판정 소스라 자동 일관 (오늘은 리스트에 안 뜨므로 nudge 후보에서도 자연 제외). §4.1·§4.2 표 갱신, D5 ⚠️→✅ 전환. | Claude |
+| 2026-05-19 | v1.7 | **Google 캘린더 휴가 자동 매핑 정책 명시 + N-Click 입력 우선** — 윤정인 5/19 work_log에 5/18 휴가 "단이 건강검진"이 잘못 매핑된 케이스 보고. 원인: (1) 매핑 날짜 기준 혼재 (보고 작성일 today vs 보고 대상일 leave_date), (2) Google 자동 매핑이 사용자 시간 입력보다 우선 적용. 조치 — ① 매핑 기준 명확화: **항상 leave_date 기준**으로만 Google Sheets 휴가 캐시 조회. 전일·명일 사전등록 시에도 동일 적용. ② N-Click 입력 우선: 사용자가 출근/퇴근보고 submit 시 source='calendar' leave_timeline 항목은 자동 제거 (CheckInModal + WorkLogForm). 사용자가 LeaveTimelineInput에서 직접 추가한 항목은 유지. ③ 정책서 §3.4 신설. PROD 데이터 정정 완료(윤정인 5/19 planned=10:00~17:30, leave_timeline=NULL). | Claude |
