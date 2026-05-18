@@ -4,6 +4,10 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import { calculateEw } from '@/lib/ew-calculator'
 import { notifyCheckinSubmitted } from '@/lib/notifications/teams'
+
+// 알림 발송(notifyCheckinSubmitted)이 fire-and-forget + sendToMake retry(최대 31.5s).
+// 응답 후 Vercel function grace period 안에 retry promise 완주하도록 30s 확보.
+export const maxDuration = 30
 import {
   validateTimeline,
   firstWorkLocation,

@@ -141,47 +141,74 @@ async function sendToMake(
     return
   }
 
-  // Make.com 시나리오가 모듈 여러 개 거치면 3초로 부족 — 10초로 상향.
-  // (Vercel serverless function의 기본 max duration 10s 이내라 안전.)
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 10000)
+  // In-process retry — 일시적 외부 실패(5xx / Timeout / network)에 대해 exponential backoff.
+  //   - 최대 3회 시도 (1 + 재시도 2)
+  //   - backoff: 500ms → 1000ms
+  //   - 4xx는 영구 실패로 즉시 중단 (재시도 낭비 방지)
+  //   - 각 시도 fetch timeout 10s (Make.com 시나리오 응답 여유)
+  // 최악 케이스 wall-time: 10×3 + 0.5 + 1 = 31.5s → 호출처 maxDuration 30s+ 권장.
+  const MAX_ATTEMPTS = 3
+  const RETRY_DELAYS_MS = [500, 1000]
+  let lastError: string | null = null
 
-  // console.log('[Teams] Webhook Payload:', JSON.stringify(payload, null, 2))
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 10000)
 
-  try {
-    const res = await fetch(webhookUrl, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(payload),
-      signal:  controller.signal,
-    })
-    
-    console.log('[Teams notify result]', {
-      eventType,
-      status: res.status,
-      ok: res.ok
-    })
+    try {
+      const res = await fetch(webhookUrl, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+        signal:  controller.signal,
+      })
 
-    if (!res.ok) {
+      console.log('[Teams notify result]', {
+        eventType,
+        attempt,
+        status: res.status,
+        ok: res.ok,
+      })
+
+      if (res.ok) {
+        const note = attempt > 1 ? `재시도 ${attempt}회차 성공` : null
+        await logNotification(eventType, 'SUCCESS', department, teamName, payload.channelId, payload, note)
+        return
+      }
+
       const text = await res.text().catch(() => '(no response)')
-      const errorMsg = 'HTTP ' + res.status + ': ' + text
-      console.warn('[Teams] Make error ' + eventType + ' ' + errorMsg)
-      await logNotification(eventType, 'FAILURE', department, teamName, payload.channelId, payload, errorMsg)
-    } else {
-      await logNotification(eventType, 'SUCCESS', department, teamName, payload.channelId, payload, null)
+      lastError = `HTTP ${res.status}: ${text}`
+
+      // 4xx — 영구 실패. 재시도해도 결과 동일 → 즉시 종료.
+      if (res.status >= 400 && res.status < 500) {
+        console.warn(`[Teams] Make 4xx ${eventType}: ${lastError} (재시도 없음)`)
+        await logNotification(
+          eventType, 'FAILURE', department, teamName, payload.channelId, payload,
+          `${lastError} (4xx — 재시도 없음)`,
+        )
+        return
+      }
+
+      // 5xx — 재시도 대상
+      console.warn(`[Teams] Make 5xx ${eventType} attempt ${attempt}/${MAX_ATTEMPTS}: ${lastError}`)
+    } catch (err: unknown) {
+      const isAbort = err instanceof Error && err.name === 'AbortError'
+      lastError = isAbort ? 'Timeout' : (err instanceof Error ? err.message : String(err))
+      console.warn(`[Teams] Make ${isAbort ? 'timeout' : 'error'} ${eventType} attempt ${attempt}/${MAX_ATTEMPTS}: ${lastError}`)
+    } finally {
+      clearTimeout(timer)
     }
-  } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err)
-    if (err instanceof Error && err.name === 'AbortError') {
-      console.warn('[Teams] Make timeout — ' + eventType)
-      await logNotification(eventType, 'FAILURE', department, teamName, payload.channelId, payload, 'Timeout')
-    } else {
-      console.warn('[Teams] Make request failed — ' + eventType + ':', err)
-      await logNotification(eventType, 'FAILURE', department, teamName, payload.channelId, payload, errMsg)
+
+    // 마지막 시도면 backoff 없이 종료
+    if (attempt < MAX_ATTEMPTS) {
+      await new Promise(r => setTimeout(r, RETRY_DELAYS_MS[attempt - 1]))
     }
-  } finally {
-    clearTimeout(timer)
   }
+
+  // 모든 시도 실패
+  const finalMsg = `${lastError ?? 'unknown'} (${MAX_ATTEMPTS}회 시도 모두 실패)`
+  console.warn(`[Teams] Make all attempts failed — ${eventType}: ${finalMsg}`)
+  await logNotification(eventType, 'FAILURE', department, teamName, payload.channelId, payload, finalMsg)
 }
 
 // ─── 라우팅 후 전송 ───────────────────────────────────────────────────────────
