@@ -43,6 +43,7 @@ export async function GET() {
       role: profile.role,
       is_active: profile.is_active,
       is_pre_registered: false,
+      display_order: profile.display_order ?? 999,  // ABC-194: 응답 매핑 누락 fix
       created_at: profile.created_at,
       last_login_at: profile.last_login_at ?? authUser?.last_sign_in_at ?? null,
       last_submitted_at: profile.last_submitted_at ?? null,
@@ -64,6 +65,7 @@ export async function GET() {
     role: p.role,
     is_active: true,
     is_pre_registered: true,
+    display_order: 999,  // pre_approved_emails는 컬럼 없음 → default 999 (가입 후 admin이 설정)
     created_at: p.created_at,
     last_login_at: null,
     last_submitted_at: null,
