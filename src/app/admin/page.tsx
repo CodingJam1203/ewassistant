@@ -398,6 +398,13 @@ function EditUserModal({
 
     setSaving(true)
     try {
+      // display_order 정정 (ABC-194):
+      //   기존: Number(form.display_order) || 999 — 빈 input·0 모두 falsy라 999 reset.
+      //   PROD에서 사용자 form 열고 다른 컬럼만 수정해도 display_order가 999로 박히는 버그.
+      //   수정: 유효한 양수만 새 값으로 보내고, 그 외엔 기존 값 유지(payload에서 빼면 서버가 안 건드림).
+      const inputOrder = Number(form.display_order)
+      const sanitizedOrder = Number.isFinite(inputOrder) && inputOrder > 0 ? inputOrder : user.display_order
+
       const res = await fetch(`/api/admin/users/${encodeURIComponent(user.email)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -408,7 +415,7 @@ function EditUserModal({
           team: form.team || null,
           role: form.role,
           is_active: form.is_active,
-          display_order: Number(form.display_order) || 999,
+          display_order: sanitizedOrder,
         }),
       })
       const data = await res.json()
