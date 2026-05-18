@@ -507,15 +507,17 @@ export default function WorkLogForm({
 
   const formValues = watch()
 
-  // 다음 출근 사전등록(D+1) 영역 hide 조건 — "당일 + 최초 작성"에만 노출, 나머지는 모두 hide.
-  //   - 퇴근보고 수정 (editScope='check_out'): D+1 의미 없음 → hide
-  //   - 신규/수정 + leaveDate != 오늘 (과거 또는 미래): D+1 의미 없음 → hide
+  // 다음 출근 사전등록(D+1) 영역 hide 조건.
+  //   - 퇴근보고 수정 (editScope='check_out'): 출근 영역 무관 → hide
+  //   - 신규 작성 + leaveDate != 오늘 (과거/미래): "동시 제출" 케이스 아님 → hide
+  //   - 출근보고 수정 (editingLog + editScope='check_in'): 이 영역이 곧 수정 대상이라 항상 노출
   //   - 당일 + 신규 작성: D+1 사전등록 영역 노출
-  // 지각/감사 마카롱은 항상 노출 (기존 isCheckOutEdit hide 정책 제거).
+  // 지각/감사 마카롱은 항상 노출.
   const isCheckOutEdit = !!editingLog && editScope === 'check_out'
   const todayKstForD1 = getKstTodayDateString()
   const isTodayLeaveDate = ((formValues.leaveDate ?? todayKstForD1) as string) === todayKstForD1
-  const hideD1Section = isCheckOutEdit || !isTodayLeaveDate
+  // 출근보고 수정 모드는 hide 예외 — D+1 영역이 사용자가 수정하려는 입력 자체
+  const hideD1Section = isCheckOutEdit || (!editingLog && !isTodayLeaveDate)
 
   // 날짜에 따른 근무유형 카테고리 + 한국 공휴일명 (잠금/안내 UI에 사용)
   const dateCategory: DateCategory = categorizeDate(formValues.leaveDate ?? getKstTodayDateString())
