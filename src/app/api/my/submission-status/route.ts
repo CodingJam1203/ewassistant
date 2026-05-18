@@ -255,23 +255,33 @@ export async function GET(request: Request) {
         // 오늘 이후 + 휴가 아님 → 미래. 보고 의무 없음 (사전 등록만 가능).
         status = 'future'
       } else {
-        // 평일 + 휴일 아님 + 종일 휴가 아님 → 보고 의무 있음
-        totalWorkdays++
+        // 평일 + 휴일 아님 + 종일 휴가 아님 → 보고 의무 대상.
+        // 단, 오늘은 아직 퇴근 시간 전일 수 있어 미보고 게이트 외부.
+        //   - 출/퇴근 모두 작성됐으면 complete로 인정 (조기 퇴근 케이스)
+        //   - 그 외 (출근만 / 둘 다 없음)는 future와 같이 진행 중 처리 → 미보고 카운트·뱃지 X
         const hasIn = !!per?.checkInLogId
         const hasOut = !!per?.checkOutLogId
+        const isToday = d === today
         if (hasIn && hasOut) {
           status = 'complete'
           complete++
+          totalWorkdays++
+        } else if (!hasIn && hasOut) {
+          // 출근보고 없이 퇴근만 — 드문 케이스. complete 취급 (사용자 의도 명확)
+          status = 'complete'
+          complete++
+          totalWorkdays++
+        } else if (isToday) {
+          // 오늘 + 진행 중(출근만 또는 둘 다 없음) → 미보고로 잡지 않음
+          status = 'future'
         } else if (hasIn && !hasOut) {
           status = 'missing_checkout'
           missingCheckout++
-        } else if (!hasIn && hasOut) {
-          // 출근보고 없이 퇴근만 — 드문 케이스. 일단 complete처럼 취급 (퇴근만 있어도 사용자 의도가 명확)
-          status = 'complete'
-          complete++
+          totalWorkdays++
         } else {
           status = 'missing_all'
           missingAll++
+          totalWorkdays++
         }
       }
 

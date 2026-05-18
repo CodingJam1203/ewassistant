@@ -8,7 +8,7 @@
  *   - 한국 공휴일 아님
  *   - 토/일 아님
  *   - 사용자 가입(created_at) 이후
- *   - 오늘 이하 (미래 제외)
+ *   - **어제 이하** (오늘은 아직 퇴근 시간 전일 수 있어 미보고 게이트 외부 — submission-status와 동일)
  *   - 종일 휴가 아님
  *   - 출근/퇴근보고 둘 다 없음(missing_all) 또는 출근만 있음(missing_checkout)
  *
@@ -90,8 +90,10 @@ export async function GET(request: Request) {
     }
 
     const today = getKstTodayDateString()
-    // to가 미래여도 오늘까지만 미보고 후보로 잡음
-    const effectiveTo = to > today ? today : to
+    // 오늘은 아직 퇴근 시간 전일 수 있어 미보고 게이트 외부.
+    // → 미보고 후보는 어제까지만. (submission-status와 동일 정책)
+    const yesterday = addDays(today, -1)
+    const effectiveTo = to > yesterday ? yesterday : to
 
     const adminClient = createAdminClient()
 

@@ -133,7 +133,7 @@ N-Click의 시간 데이터(출근예정·퇴근예정·실제출근·실제퇴�
 
 | 상태 | 조건 | 표시 | 상태 |
 |---|---|---|---|
-| `no_data` | 모든 시간 컬럼 NULL + 휴가 아님 | "미보고" 칩 (오늘/과거) 또는 비워둠 (미래) | ✅ |
+| `no_data` | 모든 시간 컬럼 NULL + 휴가 아님 | "미보고" 칩 (과거 = 어제 이전) 또는 비워둠 (**오늘** / 미래) | ✅ |
 | `planned_only` | `planned_*` 만 있음 | `planned_start → planned_end` | ✅ |
 | `check_in_done` | `actual_start` 있고 `actual_end` NULL | `actual_start → planned_end` | ✅ |
 | `check_out_done` | `actual_start` + `actual_end` 둘 다 있음 | `actual_start → actual_end` | ✅ |
@@ -146,8 +146,9 @@ N-Click의 시간 데이터(출근예정·퇴근예정·실제출근·실제퇴�
 | `planned_only` | planned_start → planned_end | `unified-times.ts:81-92` `displayTimeRange` | ✅ |
 | `check_in_done` | actual_start → planned_end | 동일 | ✅ |
 | `check_out_done` | actual_start → actual_end | 동일 | ✅ |
-| 미보고 + 오늘/과거 | "미보고" 칩 | `MyHistoryCalendar.tsx` (렌더 detail 미확인) | ⚠️ — UI 칩 렌더 verify |
-| 미보고 + 미래 | 비워둠 | `submission-status/route.ts:254-256` (`d > today → 'future'`) | ✅ |
+| 미보고 + 과거 (어제 이전) | "미보고" / "퇴근누락" 칩 | `MyHistoryCalendar.tsx:582-613` | ✅ |
+| 미보고 + **오늘** | 비워둠 (진행 중 — 퇴근 시간 전일 수 있음) | `submission-status/route.ts` (`isToday && !complete → 'future'`) | ✅ (v1.6, 2026-05-18) |
+| 미보고 + 미래 | 비워둠 | `submission-status/route.ts` (`d > today → 'future'`) | ✅ |
 
 ### 4.3 제출내역 및 리스트뷰 노출 정책
 
@@ -404,10 +405,12 @@ leave_calendar_cache  -- Google Sheets 휴가 캐시 (007, TTL 6h)
 - **코드** — 모달 context 정지 부분만 확인 (`CheckInModal.tsx:86-87`). 60초/30초 interval 코드 위치 미확인.
 - **검증** — `useAutoRefetch` 같은 훅 위치·구현 확인 필요.
 
-⚠️ **D5. 캘린더 "미보고" 칩 렌더**
-- **정책** — 오늘/과거 + `no_data` → "미보고" 칩, 미래 → 비워둠.
-- **코드** — `unified-times.ts` 의 `classifyWorkLog` 까진 확인. `MyHistoryCalendar.tsx` 의 칩 렌더 detail 미검증.
-- **검증** — UI 스냅샷 또는 수동 확인.
+✅ **D5. 캘린더 "미보고" 칩 렌더 (2026-05-18 v1.6 — 정책 갱신 후 ✅)**
+- **정책** — **과거(어제 이전)** + `no_data` → "미보고" 칩, **오늘** + 미래 → 비워둠. (v1.6 이전: 오늘도 미보고 게이트에 포함 → "퇴근누락" 뱃지가 오늘 출근만 한 사용자에게 표시되는 버그)
+- **이유** — 오늘은 아직 퇴근 시간 전일 수 있음. 사용자가 출근 후 퇴근 보고 시각이 도래하기 전인 상태에서 "퇴근누락"으로 잡히면 false positive. 보고 의무 게이트는 어제까지로 한정.
+- **예외** — 오늘이라도 출/퇴근 모두 작성된 경우(조기 퇴근)는 `complete`로 인정.
+- **구현** — `submission-status/route.ts` (오늘 미보고는 `'future'`로 분류), `missing-reports/route.ts` (`effectiveTo = yesterday`).
+- **Teams nudge** — 회사 미보고 리스트(`/api/missing-reports`)와 같은 데이터 소스라 자동 일관 (오늘 미보고는 리스트에 안 떠서 nudge 후보에서도 자연 제외).
 
 ⚠️ **D6. WorkLogForm 신규 미보고 분기 prefill**
 - **정책** — 미보고 + 신규 퇴근보고 시 실제출근 09:00 / 실제퇴근 18:00.
@@ -510,4 +513,5 @@ leave_calendar_cache  -- Google Sheets 휴가 캐시 (007, TTL 6h)
 | 2026-05-17 | v1.2 | Task Board 상태 머신 정비 (DEV/STG/PROD prefix 통일, QA 진행중 상태 신설, `재작업 출처` property 추가). 본 시간/보고 정책 자체엔 영향 없음 — 비즈니스 정책 동일. 머신 정의는 `AGENTS.md` / `CLAUDE.md` 의 "Task Board 상태 머신" 섹션 참조. | Claude |
 | 2026-05-17 | v1.3 | [ABC-180](https://www.notion.so/363e23a15c0180e3b714de877a64173f) — D+1 출근보고 동시 제출 시 새 값 무시 버그 fix. `src/app/api/work-logs/route.ts` D+1 UPSERT 로직에 ① 동일 `(user, leave_date)` 중복 row 자동 soft-delete (옛 분리 모델 잔재 정리) ② UPDATE 결과 `.select()` 검증 + 불일치 시 warn 로그. 정책 자체는 §3.3 "동시 제출" 그대로 (사용자 입력값으로 overwrite) — 구현 보강. | Claude |
 | 2026-05-17 | v1.4 | ABC-180 운영 후속 — PROD에 `025_work_logs_user_date_unique` 마이그레이션 적용 완료. 사전 점검에서 발견된 중복 활성 row 31건(9그룹) `is_deleted=true` 정리 후 partial unique index 생성. §12 D2 본문도 PROD 적용 사실 반영. 비즈니스 정책 변경 없음 — §2.2 단일 row 모델이 이제 DB 레벨에서도 강제됨. §E 단축 예외(STG_QA 생략) 사용자 트리거로 적용. | Claude |
-| 2026-05-18 | v1.5 | [ABC-188](https://www.notion.so/363e23a15c01812c9f31ccb4db3358a2) — MY PAGE "실제 퇴근"이 실제 퇴근 안 했는데도 표시되는 버그. 근본 원인: `team-status/check-in` 라우트가 새 출근보고를 받아도 옛 `daily_work_status.checked_out_at` 잔재를 안 건드림. §12에 D9 신설(`daily_work_status` ↔ `work_logs` 동기화 규칙). 코드 fix: `willCreateNewLog`일 때 `checked_out_at = NULL` 강제 reset. PROD `daily_work_status` 잔재 8건 일괄 정리 (`log_actual_end_null` 1 + `no_active_log` 7). §E 단축 예외(STG_QA 생략) 사용자 트리거로 적용. | Claude |
+| 2026-05-18 | v1.5 | [ABC-188](https://www.notion.so/363e23a15c01812c9f31ccb4db3358a2) — MY PAGE "실제 퇴근"이 실제 퇴근 안 했는데도 표시되는 버그. 근본 원인: `team-status/check-in` 라우트가 새 출근보고를 받아도 옛 `daily_work_status.checked_out_at` 잔재를 안 건드림. §12에 D9 신설(`daily_work_status` ↔ `work_logs` 동기화 규칙). 코드 fix: `willCheckInComplete`일 때 `checked_out_at = NULL` 강제 reset. PROD `daily_work_status` 잔재 8건 일괄 정리 (`log_actual_end_null` 1 + `no_active_log` 7). §E 단축 예외(STG_QA 생략) 사용자 트리거로 적용. | Claude |
+| 2026-05-18 | v1.6 | **미보고 게이트 정책 변경** — "오늘"은 보고 의무 게이트에서 제외 (퇴근 시각 전일 수 있음). 사용자 보고 캘린더 셀에 "퇴근누락" 뱃지가 당일에도 표시되던 false positive 수정. 구현 — ① `submission-status/route.ts` — 오늘 + (출근만 / 둘 다 없음) → `'future'` 분류 (미보고 카운트·뱃지 X). 단 오늘 + 출/퇴근 모두 작성됐으면 `complete` 그대로 인정. ② `missing-reports/route.ts` — `effectiveTo`를 `yesterday`로 클램프, 회사 미보고 리스트에서 오늘 자동 제외. ③ Teams nudge — `/api/missing-reports`와 같은 판정 소스라 자동 일관 (오늘은 리스트에 안 뜨므로 nudge 후보에서도 자연 제외). §4.1·§4.2 표 갱신, D5 ⚠️→✅ 전환. | Claude |
