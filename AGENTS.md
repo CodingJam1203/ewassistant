@@ -13,15 +13,58 @@
 4. 작업 중 발견한 후속 작업/리팩토링 포인트는 같은 자리에서 신규 task로 `pending` 상태로 추가 (작업 누락 방지).
 5. 환경별 배포 흐름은 본 문서의 "Task Board 상태 머신" 섹션을 따른다.
 
-### 2. 사용자 즉석 지시도 Task Board에 등록
+### 2. 사용자 즉석 지시 등록 — 두 단계 추적
 
-사용자가 Task Board와 별개로 채팅에서 부수적인 수정/추가/디버깅을 시키면.
+사용자가 채팅에서 부수적인 수정/추가/디버깅을 시키면 다음 **두 곳에 모두** 등록한다. "작은 작업이라 패스"하지 말 것.
+
+#### 2.1 In-session 추적 — TodoWrite (Claude Code native)
 
 1. 작업 착수 전 해당 요청을 **TodoWrite 로 신규 등록**. subject는 간결한 imperative form, description에 사용자 요청 원문 인용.
 2. 진행 상태에 맞게 `in_progress` → `completed` 갱신.
-3. 완료 시 동일하게 "무엇을 / 어디서" 한 줄 히스토리 남김.
+3. 완료 시 "무엇을 / 어디서" 한 줄 히스토리 남김.
 
-→ "작은 작업이라 패스"하지 말 것. 모든 변경 흔적이 Task Board에 남아야 이후 세션에서 추적 가능.
+#### 2.2 영구 추적 — Notion Task Board (`개발 진행상황` DB)
+
+**기준** — **코드 변경·배포·DB 정리·마이그레이션·정책 변경 등 실질 변경 작업**이면 신규 티켓 생성. 단순 정보 조회/확인/잡담은 제외. 모호하면 작업 후에 commit/PR이 만들어질 가능성 있으면 → 티켓 생성.
+
+**티켓 생성 시점** — TodoWrite 등록 직후, 코드 변경 착수 전. (배포 끝나고 한꺼번에 만드는 거 X — 이후 세션 추적·QA 인계가 작업 도중부터 가능해야 함)
+
+**기본 속성** (`mcp__claude_ai_Notion__notion-create-pages` · data source `collection://363e23a1-5c01-81df-9555-000b043c024e`):
+
+| 속성 | 값 |
+|---|---|
+| `수정사항` (title) | `"[버그/기능/리팩토링] 한 줄 요약"` — 사용자 가시 의도 반영 |
+| `개발 진행상황` | 작업 시작 시 `🔨 개발 진행중`. 이후 §C 상태 머신 그대로 |
+| `우선순위` | default `중💥`. 사용자가 "긴급/핫픽스/즉시" 명시 시 `🔥상🔥` |
+| `태그` | 영향 영역 multi-select (예 — 캘린더·리스트·출근보고·퇴근보고·알림·시간계산 등) |
+| `Branch` | 작업 브랜치 (default `dev`) |
+| `Files/Path` | 변경 파일 경로 `·` 구분 |
+| `PR Link` | commit URL (PR 없으면 `github.com/.../commit/<sha>`) |
+| `Acceptance Criteria` | 사용자 가시 검증 포인트 한 줄 |
+| `비고` | `"사용자 즉석 지시 (채팅) 트리거 · YYYY-MM-DD · 원문 요지"` |
+
+**티켓 본문 구조** (기존 티켓 패턴 — 예: ABC-188):
+
+1. `### 🔴 작업요청` — 발견 시점·심각도 (🟥 Critical / 🟧 Medium / 🟩 Low)
+2. `### 📍 화면 / 경로` — 영향 받는 화면·API
+3. `### ▶ 재현 / 증상` — 사용자가 보는 잘못된 결과 (버그 케이스)
+4. `### 🎯 근본원인` — 코드·정책 차원의 원인
+5. `### ✅ 조치` — 코드 fix / 정책서 / PRD 갱신 분류
+6. `### ✅ Acceptance Criteria` — checkbox 체크리스트
+7. `## ✅ 작업 완료 요약 (YYYY-MM-DD · Claude)` — 배포 완료 후 최종 박제
+
+**상태 갱신 흐름**:
+
+- 작업 시작 → `🔨 개발 진행중`
+- dev push → `🚀 DEV_배포완료` + Branch·Files/Path·PR Link 갱신
+- 사용자가 §E 단축 트리거 ("한 번에 운영까지", "stg 거치지 말고 main까지") → 단축 경로 그대로 진행 후 `🎉 PROD_배포완료` 로 직행. `비고`에 단축 경로 박제 (예 — "STG_QA 생략 — 사용자 명시 트리거 YYYY-MM-DD")
+- 일반 흐름 → §C 머신 한 단계씩 이동
+
+**TodoWrite vs Notion Task Board 동기화**:
+
+- TodoWrite는 in-session 실시간 진행도, Notion은 영구 기록·이후 세션 추적·QA 인계
+- 두 곳을 분리해서 갱신. TodoWrite가 `in_progress`인 동안 Notion은 `🔨 개발 진행중`. TodoWrite가 `completed`된 시점에 Notion 상태도 다음 단계로 이동
+- 작업이 여러 commit으로 나뉘면 Notion 티켓 1건 + PR Link 컬럼에 모든 commit URL 누적 (혹은 가장 대표 commit 1건)
 
 ### 3. 정책서·PRD 동기화
 
