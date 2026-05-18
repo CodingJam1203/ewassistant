@@ -514,10 +514,11 @@ export default function WorkLogForm({
   //   - 당일 + 신규 작성: D+1 사전등록 영역 노출
   // 지각/감사 마카롱은 항상 노출.
   const isCheckOutEdit = !!editingLog && editScope === 'check_out'
+  const isCheckInEdit  = !!editingLog && editScope === 'check_in'
   const todayKstForD1 = getKstTodayDateString()
   const isTodayLeaveDate = ((formValues.leaveDate ?? todayKstForD1) as string) === todayKstForD1
   // 출근보고 수정 모드는 hide 예외 — D+1 영역이 사용자가 수정하려는 입력 자체
-  const hideD1Section = isCheckOutEdit || (!editingLog && !isTodayLeaveDate)
+  const hideD1Section = isCheckOutEdit || (!isCheckInEdit && !isTodayLeaveDate)
 
   // 날짜에 따른 근무유형 카테고리 + 한국 공휴일명 (잠금/안내 UI에 사용)
   const dateCategory: DateCategory = categorizeDate(formValues.leaveDate ?? getKstTodayDateString())
@@ -1001,6 +1002,9 @@ export default function WorkLogForm({
             )}
           </div>
 
+          {/* 퇴근일자 — 출근보고 수정 모드(check_in)에서는 row 키라 변경 의미 없음 → hide.
+              헤더에 이미 날짜가 표시되고, leaveDate 값은 defaultValues로 유지돼 submit 정상. */}
+          {!isCheckInEdit && (
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-text-primary">퇴근일자 *</label>
             <div className="mt-1">
@@ -1012,6 +1016,7 @@ export default function WorkLogForm({
             </div>
             {errors.leaveDate && <p className="mt-1 text-sm text-danger-text">{errors.leaveDate.message as string}</p>}
           </div>
+          )}
         </div>
       </div>
 
