@@ -1,14 +1,18 @@
 'use client'
 
 /**
- * HalfHourTimeSelect — 30분 단위 단일 select.
+ * HalfHourTimeSelect — 30분 단위 단일 dropdown.
  *
- * 시/분 분리 select(TimeSelect) 대신, 09:00 / 09:30 / 10:00 ... 한 번에 고를 수 있는 UX.
+ * 시/분 분리(TimeSelect) 대신 09:00 / 09:30 / 10:00 ... 한 번에 고를 수 있는 UX.
+ * 2026-05-19 v1.14: native <select> → CustomDropdown 교체. 선택값이 popover
+ * 열렸을 때 위에서 3번째 위치에 보이도록 스크롤 제어.
+ *
  * value: 'HH:mm' 또는 ''
  * allowNextDay=true: 24:00 ~ 36:00 ('명일 00:00' ~ '명일 12:00') 옵션 추가
  */
 
 import { useMemo } from 'react'
+import CustomDropdown, { type CustomDropdownOption } from '@/components/ui/CustomDropdown'
 
 interface Props {
   value?: string
@@ -37,11 +41,14 @@ export default function HalfHourTimeSelect({
 }: Props) {
   const maxHour = allowNextDay ? 36 : 23
 
-  const options = useMemo(() => {
-    const arr: string[] = []
+  const options: CustomDropdownOption[] = useMemo(() => {
+    const arr: CustomDropdownOption[] = []
     for (let h = 0; h <= maxHour; h++) {
-      arr.push(`${pad2(h)}:00`)
-      arr.push(`${pad2(h)}:30`)
+      for (const mi of [0, 30]) {
+        const v = `${pad2(h)}:${pad2(mi)}`
+        const label = h >= 24 ? `(명일) ${pad2(h - 24)}:${pad2(mi)}` : v
+        arr.push({ value: v, label })
+      }
     }
     return arr
   }, [maxHour])
@@ -59,27 +66,14 @@ export default function HalfHourTimeSelect({
   }, [value, maxHour])
 
   return (
-    <select
+    <CustomDropdown
       value={normalized}
-      onChange={e => onChange(e.target.value)}
+      options={options}
+      onChange={onChange}
       disabled={disabled}
-      aria-label={ariaLabel}
-      className={
-        `select-tight block h-10 w-full rounded-[10px] border border-border-strong bg-surface ` +
-        `text-sm tabular-nums px-3 py-2 ` +
-        `focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 ` +
-        `disabled:bg-surface-muted disabled:text-text-disabled disabled:cursor-not-allowed ` +
-        (className ?? '')
-      }
-    >
-      <option value="">{placeholder}</option>
-      {options.map(t => {
-        const h = parseInt(t.split(':')[0], 10)
-        const display = h >= 24
-          ? `(명일) ${pad2(h - 24)}:${t.split(':')[1]}`
-          : t
-        return <option key={t} value={t}>{display}</option>
-      })}
-    </select>
+      ariaLabel={ariaLabel}
+      placeholder={placeholder}
+      className={className}
+    />
   )
 }

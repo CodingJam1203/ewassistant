@@ -2,9 +2,9 @@
 
 /**
  * TimeSelect
- * - HH:MM (24h, optionally 36h) 문자열을 시 / 분 두 개의 native <select>로 입력
- * - mobile에서는 native scroll picker, desktop에서는 native dropdown으로 렌더되어
- *   브라우저 종속 시계 UI(아날로그 다이얼) 대신 일관된 dropdown UX 제공
+ * - HH:MM (24h, optionally 36h) 문자열을 시 / 분 두 개의 dropdown으로 입력
+ * - 2026-05-19 v1.14: native <select> → CustomDropdown 교체.
+ *   선택값이 popover 열렸을 때 위에서 3번째 위치에 보이도록 스크롤 제어.
  *
  * value: "" | "HH:MM"  (빈 문자열 허용 — placeholder 동작)
  * onChange: (v: string) => void   "HH:MM" 또는 ""
@@ -14,6 +14,7 @@
  */
 
 import { useMemo } from 'react'
+import CustomDropdown, { type CustomDropdownOption } from '@/components/ui/CustomDropdown'
 
 interface TimeSelectProps {
   value?: string
@@ -63,16 +64,23 @@ export default function TimeSelect({
     return [pad2(h), pad2(mi)]
   }, [value, maxHour])
 
-  const hourOptions = useMemo(
-    () => Array.from({ length: maxHour + 1 }, (_, i) => pad2(i)),
+  const hourOptions: CustomDropdownOption[] = useMemo(
+    () => Array.from({ length: maxHour + 1 }, (_, i) => {
+      const v = pad2(i)
+      const label = i >= 24 ? `(명일) ${pad2(i - 24)}` : v
+      return { value: v, label }
+    }),
     [maxHour]
   )
-  const minuteOptions = useMemo(() => {
-    const arr: string[] = []
-    for (let i = 0; i < 60; i += safeStep) arr.push(pad2(i))
-    if (minuteStr && !arr.includes(minuteStr)) {
-      arr.push(minuteStr)
-      arr.sort()
+  const minuteOptions: CustomDropdownOption[] = useMemo(() => {
+    const arr: CustomDropdownOption[] = []
+    for (let i = 0; i < 60; i += safeStep) {
+      const v = pad2(i)
+      arr.push({ value: v, label: v })
+    }
+    if (minuteStr && !arr.some(x => x.value === minuteStr)) {
+      arr.push({ value: minuteStr, label: minuteStr })
+      arr.sort((a, b) => a.value.localeCompare(b.value))
     }
     return arr
   }, [safeStep, minuteStr])
@@ -87,40 +95,27 @@ export default function TimeSelect({
     onChange(`${finalH}:${finalM}`)
   }
 
-  const baseSelectCls =
-    'select-tight block h-10 rounded-[10px] border border-border-strong bg-surface ' +
-    'text-sm tabular-nums focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 px-3 py-2 ' +
-    'disabled:bg-surface-muted disabled:text-text-disabled disabled:cursor-not-allowed'
-
   return (
     <div className={`flex items-center gap-2 ${className ?? ''}`}>
-      <select
-        aria-label={ariaLabelHour}
-        disabled={disabled}
+      <CustomDropdown
         value={hourStr}
-        onChange={(e) => emit(e.target.value, minuteStr)}
-        className={`${baseSelectCls} flex-1 min-w-0`}
-      >
-        <option value="">시</option>
-        {hourOptions.map(h => {
-          const hn = parseInt(h, 10)
-          const display = hn >= 24 ? `(명일) ${pad2(hn - 24)}` : h
-          return <option key={h} value={h}>{display}</option>
-        })}
-      </select>
-      <span className="text-text-muted text-sm select-none">:</span>
-      <select
-        aria-label={ariaLabelMinute}
+        options={hourOptions}
+        onChange={(v) => emit(v, minuteStr)}
         disabled={disabled}
+        ariaLabel={ariaLabelHour}
+        placeholder="시"
+        className="flex-1 min-w-0"
+      />
+      <span className="text-text-muted text-sm select-none">:</span>
+      <CustomDropdown
         value={minuteStr}
-        onChange={(e) => emit(hourStr, e.target.value)}
-        className={`${baseSelectCls} flex-1 min-w-0`}
-      >
-        <option value="">분</option>
-        {minuteOptions.map(m => (
-          <option key={m} value={m}>{m}</option>
-        ))}
-      </select>
+        options={minuteOptions}
+        onChange={(v) => emit(hourStr, v)}
+        disabled={disabled}
+        ariaLabel={ariaLabelMinute}
+        placeholder="분"
+        className="flex-1 min-w-0"
+      />
     </div>
   )
 }
