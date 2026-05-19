@@ -28,13 +28,17 @@ export async function GET() {
 
   const admin = createAdminClient()
 
-  // 3개 fetch 병렬
-  const [usersRes, divsRes, teamsRes] = await Promise.all([
+  // 4개 fetch 병렬 — users(active) + 모든 division/team + currentUser 본인 정보
+  const [usersRes, divsRes, teamsRes, meRes] = await Promise.all([
     admin.from('user_profiles')
       .select('email, display_name, role, division, team, display_order')
       .eq('is_active', true),
     admin.from('org_divisions').select('id, name, sort_order'),
     admin.from('org_teams').select('id, name, sort_order, division_id'),
+    admin.from('user_profiles')
+      .select('division, team')
+      .eq('email', user.email!)
+      .maybeSingle(),
   ])
 
   if (usersRes.error) {
@@ -97,5 +101,22 @@ export async function GET() {
       return a.displayName.localeCompare(b.displayName, 'ko')
     })
 
-  return NextResponse.json({ users, userEmail: user.email })
+  // 본부 dropdown 옵션 목록 — sort_order 정렬
+  const divisions = (divsRes.data ?? [])
+    .slice()
+    .sort((a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999))
+    .map(d => ({ id: d.id, name: d.name, sortOrder: d.sort_order ?? 999 }))
+
+  // 현재 사용자의 본부 id
+  const myDivisionName = meRes.data?.division ?? null
+  const myDivisionId = myDivisionName ? (divByName.get(myDivisionName)?.id ?? null) : null
+
+  return NextResponse.json({
+    users,
+    divisions,
+    userEmail: user.email,
+    myDivisionId,
+    myDivisionName,
+    myTeamName: meRes.data?.team ?? null,
+  })
 }

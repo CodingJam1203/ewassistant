@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight, Home } from 'lucide-react'
+import CustomDropdown from '@/components/ui/CustomDropdown'
 
 type CalendarType = 'meeting' | 'vacation' | 'birthday' | 'other'
 type RangeView = '1week' | '2weeks' | 'month'
@@ -124,8 +125,11 @@ function eventOnDate(ev: ApiEvent, dateIso: string): EventCellEntry | null {
   }
 }
 
+interface ApiDivision { id: string; name: string; sortOrder: number }
+
 export default function CalendarMatrixPage() {
   const [users, setUsers] = useState<ApiUser[]>([])
+  const [divisions, setDivisions] = useState<ApiDivision[]>([])
   const [events, setEvents] = useState<ApiEvent[]>([])
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -134,6 +138,9 @@ export default function CalendarMatrixPage() {
   // 좌측 시작일 (KST 자정). default = 오늘
   const [startDate, setStartDate] = useState<Date>(() => todayKst())
   const [rangeView, setRangeView] = useState<RangeView>('2weeks')
+
+  // 본부 dropdown — 단일 선택. default = 사용자 본부 (load 응답에서 set)
+  const [selectedDivisionId, setSelectedDivisionId] = useState<string>('')
 
   const days = useMemo(() => {
     const n = RANGE_DAYS[rangeView]
@@ -159,8 +166,17 @@ export default function CalendarMatrixPage() {
       const usersData  = await usersRes.json()
       const eventsData = await eventsRes.json()
       setUsers(usersData.users ?? [])
+      setDivisions(usersData.divisions ?? [])
       setEvents(eventsData.events ?? [])
       setUserEmail(usersData.userEmail ?? eventsData.userEmail ?? null)
+      // 첫 load 시에만 사용자 본부를 default로 설정. 이후 사용자가 dropdown으로 바꿔도 유지.
+      setSelectedDivisionId(prev => {
+        if (prev) return prev
+        const myDiv = usersData.myDivisionId
+        if (myDiv) return myDiv
+        // 사용자 본부 정보 없으면 첫 번째 division 선택
+        return usersData.divisions?.[0]?.id ?? ''
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -170,14 +186,25 @@ export default function CalendarMatrixPage() {
 
   useEffect(() => { load() }, [load])
 
+  // 선택된 본부의 users / events만 필터링
+  const filteredUsers = useMemo(() => {
+    if (!selectedDivisionId) return users
+    return users.filter(u => u.divisionId === selectedDivisionId)
+  }, [users, selectedDivisionId])
+
+  const filteredEvents = useMemo(() => {
+    if (!selectedDivisionId) return events
+    return events.filter(ev => ev.divisionId === selectedDivisionId)
+  }, [events, selectedDivisionId])
+
   // events를 (user_email + date)로 그룹화 + division 단위 이벤트는 division별 그룹
   const userMatrix = useMemo(() => {
     // map[email][dateIso] = events
     const m = new Map<string, Map<string, EventCellEntry[]>>()
-    for (const u of users) {
+    for (const u of filteredUsers) {
       m.set(u.email.toLowerCase(), new Map())
     }
-    for (const ev of events) {
+    for (const ev of filteredEvents) {
       for (const day of days) {
         const dateIso = toKstIsoDate(day)
         const entry = eventOnDate(ev, dateIso)
@@ -192,12 +219,12 @@ export default function CalendarMatrixPage() {
       }
     }
     return m
-  }, [users, events, days])
+  }, [filteredUsers, filteredEvents, days])
 
   // 본부 단위 이벤트 (teamId == null인 캘린더의 이벤트) — division별 그룹
   const divisionMatrix = useMemo(() => {
     const m = new Map<string, Map<string, EventCellEntry[]>>()
-    for (const ev of events) {
+    for (const ev of filteredEvents) {
       if (ev.teamId !== null) continue  // 본부 단위만
       for (const day of days) {
         const dateIso = toKstIsoDate(day)
@@ -211,12 +238,12 @@ export default function CalendarMatrixPage() {
       }
     }
     return m
-  }, [events, days])
+  }, [filteredEvents, days])
 
-  // 본부별 그룹화 (헤더 + 사용자들)
+  // 본부별 그룹화 (헤더 + 사용자들). 단일 본부만 선택되어 있어도 같은 구조 유지.
   const divisionGroups = useMemo(() => {
     const groups = new Map<string, { divisionName: string; users: ApiUser[] }>()
-    for (const u of users) {
+    for (const u of filteredUsers) {
       const key = u.divisionId || '__none__'
       const g = groups.get(key) ?? { divisionName: u.divisionName, users: [] }
       g.users.push(u)
@@ -227,7 +254,7 @@ export default function CalendarMatrixPage() {
       divisionName: g.divisionName,
       users: g.users,
     }))
-  }, [users])
+  }, [filteredUsers])
 
   const handlePrev = () => setStartDate(d => addDays(d, -RANGE_DAYS[rangeView]))
   const handleNext = () => setStartDate(d => addDays(d, +RANGE_DAYS[rangeView]))
@@ -244,9 +271,23 @@ export default function CalendarMatrixPage() {
 
       {/* 헤더 + 범위 컨트롤 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold text-text-primary flex items-center gap-2">
-          <CalendarIcon className="h-5 w-5" /> 본부 캘린더
-        </h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-xl font-semibold text-text-primary flex items-center gap-2">
+            <CalendarIcon className="h-5 w-5" /> 본부 캘린더
+          </h1>
+          {/* 본부 dropdown — 1본부만 선택. default = 사용자 본부 */}
+          {divisions.length > 0 && (
+            <div className="w-48">
+              <CustomDropdown
+                value={selectedDivisionId}
+                onChange={setSelectedDivisionId}
+                ariaLabel="본부 선택"
+                placeholder="본부 선택"
+                options={divisions.map(d => ({ value: d.id, label: d.name }))}
+              />
+            </div>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* 범위 토글 */}
           <div className="inline-flex items-center rounded-[10px] border border-border-strong bg-surface overflow-hidden">
@@ -410,7 +451,10 @@ export default function CalendarMatrixPage() {
 
       {!loading && !error && (
         <div className="text-xs text-text-muted px-1">
-          범위 {range.from} ~ {range.to} · 사용자 {users.length}명 · 이벤트 {events.length}건
+          범위 {range.from} ~ {range.to} · 사용자 {filteredUsers.length}명 · 이벤트 {filteredEvents.length}건
+          {selectedDivisionId && users.length !== filteredUsers.length && (
+            <span> (필터링됨, 전체 {users.length}명)</span>
+          )}
         </div>
       )}
     </div>
