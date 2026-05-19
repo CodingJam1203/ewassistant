@@ -2,7 +2,7 @@
 import { DateInputWithDow } from '@/components/ui'
 import { dowKo } from '@/lib/utils/date'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { X, Loader2, Calendar } from 'lucide-react'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
 import LeaveTimelineInput from '@/components/LeaveTimelineInput'
@@ -106,6 +106,9 @@ export default function CheckInModal({
   // submit 시 true면 planned_start_time = NULL로 저장 (미보고 유지)
   const [plannedStartUnreported, setPlannedStartUnreported] = useState(true)
 
+  // 첫 fetch flag — initialStartTime prop 보호용 (날짜 변경 시 prefill 재적용에서 첫 진입과 구분)
+  const isFirstFetchRef = useRef(true)
+
   /** prefill — 케이스 자동 판별 */
   useEffect(() => {
     let cancelled = false
@@ -153,28 +156,45 @@ export default function CheckInModal({
         }
         setCaseMode(mode)
 
-        // chips
+        // ── 날짜 변경 시 form prefill 재적용 정책 (2026-05-19 v1.8) ──
+        // 응답에 데이터 있으면 그 값, 없으면 default로 reset.
+        // 이전 날짜의 form 값이 새 날짜로 끌려가지 않도록 항상 setX 호출.
+        // 단 첫 진입 시 initialStartTime prop이 있으면 그 값 우선 (useRef 가드).
+        const isFirstRun = isFirstFetchRef.current
+
+        // chips — 응답 우선, 없으면 default reset
         const v2Locs = normalizeWorkLocations(data.plannedLocations)
-        if (v2Locs && v2Locs.length > 0) setLocations(v2Locs)
-        else if (data.timeline && data.timeline.length > 0) {
+        if (v2Locs && v2Locs.length > 0) {
+          setLocations(v2Locs)
+        } else if (data.timeline && data.timeline.length > 0) {
           const fromTl = legacyTimelineToLocations(data.timeline)
-          if (fromTl && fromTl.length > 0) setLocations(fromTl)
+          setLocations(fromTl && fromTl.length > 0 ? fromTl : defaultWorkLocations())
+        } else {
+          setLocations(defaultWorkLocations())
         }
 
-        // 시간 prefill
-        if (!initialStartTime) {
-          if (data.expectedStartTime) setStartTime(data.expectedStartTime)
-          else if (data.timeline && data.timeline.length > 0) {
+        // 시간 prefill — 첫 진입 시 initialStartTime 보호, 그 외엔 항상 응답 or default
+        if (!isFirstRun || !initialStartTime) {
+          if (data.expectedStartTime) {
+            setStartTime(data.expectedStartTime)
+          } else if (data.timeline && data.timeline.length > 0) {
             const first = data.timeline.find(e => e.kind === 'work_location')
-            if (first?.startTime) setStartTime(first.startTime)
+            setStartTime(first?.startTime ?? '09:00')
+          } else {
+            setStartTime('09:00')
           }
         }
-        if (data.expectedEndTime) setEndTime(data.expectedEndTime)
-        else if (data.timeline && data.timeline.length > 0) {
+        if (data.expectedEndTime) {
+          setEndTime(data.expectedEndTime)
+        } else if (data.timeline && data.timeline.length > 0) {
           const last = data.timeline[data.timeline.length - 1]
           if ((last?.kind === 'expected_checkout' || last?.kind === 'checkout') && last.startTime) {
             setEndTime(last.startTime)
+          } else {
+            setEndTime('18:00')
           }
+        } else {
+          setEndTime('18:00')
         }
 
         // actualCheckInTime — 케이스별 prefill
@@ -190,18 +210,24 @@ export default function CheckInModal({
           setActualCheckInTime(nowKstHHmmFloor())
         }
 
-        // 휴가
+        // 휴가 — 응답 우선, 없으면 reset (이전 날짜의 휴가가 끌려가지 않게).
+        // calendar-events effect가 별개로 Google 자동 매핑 시도하므로 여기선 reset만 담당.
         if (Array.isArray(data.leaveTimeline) && data.leaveTimeline.length > 0) {
           setLeaveTimeline(data.leaveTimeline)
+        } else {
+          setLeaveTimeline([])
         }
 
-        // 메모 — D-day 본문 row가 있을 때만 채워짐 (today 모드)
+        // 메모 — 응답 우선, 없으면 reset
         if (typeof data.workContent === 'string' && data.workContent.length > 0) {
           setWorkContent(data.workContent)
+        } else {
+          setWorkContent('')
         }
       } catch {
         // 무시
       } finally {
+        isFirstFetchRef.current = false
         if (!cancelled) setLoadingPrefill(false)
       }
     }

@@ -631,16 +631,19 @@ export default function WorkLogForm({
         checkedInAt?: string | null
         hasExisting?: boolean
       } | null) => {
-        if (!data?.hasExisting) return  // 미보고 → default 유지
+        if (!data?.hasExisting) {
+          // 2026-05-19 v1.8: leaveDate 변경 시 새 일자에 보고가 없으면 default로 reset.
+          // 이전 leaveDate의 prefill 값(startTime/endTime)이 끌려가지 않게 명시 reset.
+          setValue('startTime', '09:00', { shouldDirty: false, shouldValidate: false })
+          setValue('endTime',   '18:00', { shouldDirty: false, shouldValidate: false })
+          return
+        }
         // 실제출근 우선, 없으면 planned (= legacy start_time)
         const newStart = data.checkedInAt ?? data.expectedStartTime ?? null
         const newEnd   = data.expectedEndTime ?? null
-        if (newStart) {
-          setValue('startTime', newStart, { shouldDirty: false, shouldValidate: false })
-        }
-        if (newEnd) {
-          setValue('endTime', newEnd, { shouldDirty: false, shouldValidate: false })
-        }
+        // 응답 있으면 그 값, 응답에 해당 필드가 없으면 default reset
+        setValue('startTime', newStart ?? '09:00', { shouldDirty: false, shouldValidate: false })
+        setValue('endTime',   newEnd   ?? '18:00', { shouldDirty: false, shouldValidate: false })
       })
       .catch(err => {
         if (err?.name === 'AbortError') return  // StrictMode 시뮬 cleanup으로 abort된 경우
