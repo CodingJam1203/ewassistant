@@ -172,6 +172,8 @@ label[for] {
  * 2026-05-19 v1.16
  * --------------------------------------------------------------------------- */
 .rdp-themed {
+  /* popover wrapper가 자식 컨텐츠(달력 grid) width에 맞춰지도록 — popover 가운데 정렬과 시너지 */
+  width: fit-content;
   --rdp-accent-color: var(--color-primary-600);
   --rdp-accent-background-color: var(--color-primary-50);
   --rdp-day_button-border-radius: 8px;

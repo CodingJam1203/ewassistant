@@ -160,7 +160,10 @@ const DateInputWithDow = forwardRef<HTMLInputElement, DateInputWithDowProps>(
         {open && (
           <div
             role="dialog"
-            className="rdp-themed absolute z-[100] mt-1 left-0 rounded-[10px] border border-border-strong bg-surface shadow-lg p-3"
+            // 2026-05-19 v1.17: popover를 트리거(input button) 가로 중앙 기준 가운데 정렬.
+            // 모바일에서 popover가 input width를 따라가서 화살표가 모달 우측 끝에 붙던 문제 해결.
+            // w-fit으로 popover width를 자식(달력 grid) 컨텐츠에 맞춰 단정한 박스로 표시.
+            className="rdp-themed absolute z-[100] mt-1 left-1/2 -translate-x-1/2 w-fit rounded-[10px] border border-border-strong bg-surface shadow-lg p-3"
           >
             <DayPicker
               mode="single"
