@@ -31,6 +31,7 @@ import LeaveTimelineInput from '@/components/LeaveTimelineInput'
 import type { UserCalendarLookup } from '@/types/leave-calendar'
 import TimeSelect from '@/components/TimeSelect'
 import HalfHourTimeSelect from '@/components/HalfHourTimeSelect'
+import CustomDropdown from '@/components/ui/CustomDropdown'
 import {
   defaultWorkLocations,
   type WorkLocations,
@@ -1014,28 +1015,27 @@ export default function WorkLogForm({
 
           <div>
             <label className="block text-sm font-medium text-text-primary">근무유형 *</label>
-            <select
-              {...register('workTypeLabel')}
-              className="select-tight mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
-            >
-              {dateCategory === 'sunday_or_holiday' && !formValues.workTypeLabel && (
-                <option value="">— 근무유형을 선택해주세요 —</option>
-              )}
-              <option value="(평일) 기본 근무">(평일) 기본 근무</option>
-              <option value="(평일) 간주 근무">(평일) 간주 근무</option>
-              <option value="토요일 근무">토요일 근무</option>
-              <option value="일요일·공휴일 근무 (선택)">일요일·공휴일 근무 (선택)</option>
-              <option value="일요일·공휴일 근무 (필수)">일요일·공휴일 근무 (필수)</option>
-              {/* 레거시 라벨은 defaultValues에서 자동 매핑되므로 select에는 노출 X.
-                  혹시 매핑이 누락된 케이스에 대비한 안전장치로만 hidden 표시. */}
-              {(formValues.workTypeLabel === '기본근무 등록' ||
-                formValues.workTypeLabel === '간주근로 등록' ||
-                formValues.workTypeLabel === '공휴일근로 등록') && (
-                <option value={formValues.workTypeLabel}>
-                  {formValues.workTypeLabel}
-                </option>
-              )}
-            </select>
+            {/* 2026-05-19 v1.23: native select → CustomDropdown 통일 */}
+            <CustomDropdown
+              value={formValues.workTypeLabel ?? ''}
+              onChange={(v) => setValue('workTypeLabel', v as WorkTypeLabelValue, { shouldValidate: true, shouldDirty: true })}
+              placeholder="— 근무유형을 선택해주세요 —"
+              ariaLabel="근무유형"
+              className="mt-1"
+              options={[
+                { value: '(평일) 기본 근무', label: '(평일) 기본 근무' },
+                { value: '(평일) 간주 근무', label: '(평일) 간주 근무' },
+                { value: '토요일 근무', label: '토요일 근무' },
+                { value: '일요일·공휴일 근무 (선택)', label: '일요일·공휴일 근무 (선택)' },
+                { value: '일요일·공휴일 근무 (필수)', label: '일요일·공휴일 근무 (필수)' },
+                // 레거시 라벨 — defaultValues에서 자동 매핑되지만 누락 대비 안전장치
+                ...((formValues.workTypeLabel === '기본근무 등록' ||
+                     formValues.workTypeLabel === '간주근로 등록' ||
+                     formValues.workTypeLabel === '공휴일근로 등록')
+                  ? [{ value: formValues.workTypeLabel, label: formValues.workTypeLabel }]
+                  : []),
+              ]}
+            />
             {/* 일요일/공휴일 안내 — workType 미선택 시 잠금 알림 */}
             {dateCategory === 'sunday_or_holiday' && (
               <p className="mt-1 text-[12px] text-warning-text font-medium">
@@ -1144,12 +1144,13 @@ export default function WorkLogForm({
                 {breakUserChanged && <span className="ml-1 text-warning-text font-medium">— 수정됨</span>}
               </p>
             )}
-            <select
-              {...register('breakTime')}
-              className="select-tight mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
-            >
-              {/* 0:00 ~ 12:00 30분 단위 (총 25개) */}
-              {Array.from({ length: 25 }).map((_, i) => {
+            {/* 2026-05-19 v1.23: native select → CustomDropdown */}
+            <CustomDropdown
+              value={formValues.breakTime ?? '00:00'}
+              onChange={(v) => setValue('breakTime', v, { shouldValidate: true, shouldDirty: true })}
+              ariaLabel="휴게시간"
+              className="mt-1"
+              options={Array.from({ length: 25 }).map((_, i) => {
                 const totalMin = i * 30
                 const h = Math.floor(totalMin / 60)
                 const m = totalMin % 60
@@ -1159,9 +1160,9 @@ export default function WorkLogForm({
                 else if (h === 0) label = `${value} (${m}분)`
                 else if (m === 0) label = `${value} (${h}시간)`
                 else label = `${value} (${h}시간 ${m}분)`
-                return <option key={value} value={value}>{label}</option>
+                return { value, label }
               })}
-            </select>
+            />
             {errors.breakTime && <p className="mt-1 text-sm text-danger-text">{errors.breakTime.message as string}</p>}
           </div>
 
@@ -1218,13 +1219,17 @@ export default function WorkLogForm({
           <p className="mb-2 text-xs text-warning-text">
             ※ 당일 수정 기준은 <span className="font-medium">당일 07시 이후</span>이며, 조기출근으로 인한 수정은 제외
           </p>
-          <select
-            {...register('lateOrAttendanceStatus')}
-            className="select-tight block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
-          >
-            <option value="아니오">아니오</option>
-            <option value="예">예</option>
-          </select>
+          {/* 2026-05-19 v1.23: native select → CustomDropdown */}
+          <CustomDropdown
+            value={formValues.lateOrAttendanceStatus ?? '아니오'}
+            onChange={(v) => setValue('lateOrAttendanceStatus', v as '아니오' | '예', { shouldValidate: true, shouldDirty: true })}
+            ariaLabel="지각 or 출근 시간 입력 수정 여부"
+            className="sm:w-1/2"
+            options={[
+              { value: '아니오', label: '아니오' },
+              { value: '예', label: '예' },
+            ]}
+          />
 
           {formValues.lateOrAttendanceStatus === '예' && (
             <div className="mt-4 grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2">
@@ -1280,13 +1285,17 @@ export default function WorkLogForm({
           <p className="mb-2 text-xs text-warning-text">
             ※ 휴가자는 아래 출근보고에 <span className="font-medium">휴가 복귀날</span>을 선택 후 출근 보고 진행
           </p>
-          <select
-            {...register('attendanceRecordType')}
-            className="select-tight block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
-          >
-            <option value="출근보고 진행 (주말출근, 휴가 포함)">출근보고 진행 (주말출근, 휴가 포함)</option>
-            <option value="스킵(누락퇴근보고, 퇴근보고 수정)">스킵(누락퇴근보고, 퇴근보고 수정)</option>
-          </select>
+          {/* 2026-05-19 v1.23: native select → CustomDropdown */}
+          <CustomDropdown
+            value={formValues.attendanceRecordType ?? '출근보고 진행 (주말출근, 휴가 포함)'}
+            onChange={(v) => setValue('attendanceRecordType', v as '출근보고 진행 (주말출근, 휴가 포함)' | '스킵(누락퇴근보고, 퇴근보고 수정)', { shouldValidate: true, shouldDirty: true })}
+            ariaLabel="출근보고 진행 여부"
+            className="sm:w-1/2"
+            options={[
+              { value: '출근보고 진행 (주말출근, 휴가 포함)', label: '출근보고 진행 (주말출근, 휴가 포함)' },
+              { value: '스킵(누락퇴근보고, 퇴근보고 수정)', label: '스킵(누락퇴근보고, 퇴근보고 수정)' },
+            ]}
+          />
 
           {formValues.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)' && (
             <div className="mt-4 space-y-4">

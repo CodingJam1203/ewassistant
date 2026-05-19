@@ -25,6 +25,7 @@ import {
   type LeaveType,
 } from '@/types/leave-timeline'
 import { buildLeaveItem } from '@/lib/leave-timeline'
+import CustomDropdown from '@/components/ui/CustomDropdown'
 
 interface LeaveTimelineInputProps {
   value: LeaveTimeline
@@ -76,18 +77,18 @@ export default function LeaveTimelineInput({ value, onChange, disabled }: LeaveT
     <div className="flex items-center gap-2 flex-wrap">
       <Plane className="h-3.5 w-3.5 text-warning-text shrink-0" aria-hidden />
       <span className="text-[12px] text-text-muted">휴가 시간:</span>
-      <select
-        value={currentMinutes}
-        onChange={e => handleMinutesChange(parseInt(e.target.value, 10))}
+      {/* 2026-05-19 v1.23: native select → CustomDropdown */}
+      <CustomDropdown
+        value={String(currentMinutes)}
+        onChange={(v) => handleMinutesChange(parseInt(v, 10))}
         disabled={disabled}
-        className="select-tight rounded-[10px] border border-border-strong bg-surface h-9 px-3 text-sm tabular-nums focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50"
-      >
-        {TIME_OPTIONS.map(opt => (
-          <option key={opt.minutes} value={opt.minutes}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+        ariaLabel="휴가 시간"
+        className="w-32"
+        options={TIME_OPTIONS.map(opt => ({
+          value: String(opt.minutes),
+          label: opt.label,
+        }))}
+      />
     </div>
   )
 }

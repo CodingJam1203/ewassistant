@@ -14,6 +14,7 @@
 
 import { useMemo } from 'react'
 import { Plus, X, MapPin, LogOut } from 'lucide-react'
+import CustomDropdown from '@/components/ui/CustomDropdown'
 import {
   WORK_LOCATION_TYPE_LABELS,
   type WorkLocationItem,
@@ -217,18 +218,17 @@ export default function WorkLocationTimelineInput({
                   {endLabel}
                 </span>
               ) : (
-                <select
+                <CustomDropdown
                   value={(entry as WorkLocationItem).type}
-                  onChange={e => handleTypeChange(i, e.target.value as WorkLocationType)}
+                  onChange={(v) => handleTypeChange(i, v as WorkLocationType)}
                   disabled={disabled}
-                  className="select-tight rounded-[10px] border border-border-strong bg-surface h-9 px-3 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50"
-                >
-                  {TYPE_ORDER.map(t => (
-                    <option key={t} value={t}>
-                      {WORK_LOCATION_TYPE_LABELS[t]}
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="근무 위치 유형"
+                  className="w-28"
+                  options={TYPE_ORDER.map(t => ({
+                    value: t,
+                    label: WORK_LOCATION_TYPE_LABELS[t],
+                  }))}
+                />
               )}
 
               {/* 시간 select */}
@@ -238,19 +238,17 @@ export default function WorkLocationTimelineInput({
                   ? TIMELINE_TIME_OPTIONS_WITH_NEXT_DAY
                   : TIMELINE_TIME_OPTIONS
                 return (
-                  <select
+                  <CustomDropdown
                     value={entry.startTime}
-                    onChange={e => updateAt(i, { startTime: e.target.value })}
+                    onChange={(v) => updateAt(i, { startTime: v })}
                     disabled={disabled}
-                    className="select-tight rounded-[10px] border border-border-strong bg-surface h-9 px-3 text-sm tabular-nums focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50"
-                  >
-                    {opts.map(t => (
-                      <option key={t} value={t}>
-                        {timeLabel(t)}
-                        {isEnd ? '' : '~'}
-                      </option>
-                    ))}
-                  </select>
+                    ariaLabel="시작 시간"
+                    className="w-28"
+                    options={opts.map(t => ({
+                      value: t,
+                      label: `${timeLabel(t)}${isEnd ? '' : '~'}`,
+                    }))}
+                  />
                 )
               })()}
 
