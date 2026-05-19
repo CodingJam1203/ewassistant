@@ -6,7 +6,8 @@ import { notifyWorkLogSubmitted, notifyCheckoutResubmitted } from '@/lib/notific
 
 // 알림 발송(notifyWorkLogSubmitted)이 fire-and-forget 패턴 + sendToMake retry(최대 31.5s).
 // 응답 후 Vercel function grace period 안에 retry promise가 완주하도록 30s 확보.
-export const maxDuration = 30
+// 2026-05-19 v1.21: 30→60. notify await 대응 — sendToMake retry 최악 31.5s + DB 처리 여유.
+export const maxDuration = 60
 import { recordSubmission } from '@/lib/submission-log'
 import {
   validateTimeline,
@@ -587,7 +588,9 @@ export async function POST(request: Request) {
     //   D+1 work_logs row는 위에서 INSERT/UPDATE 되지만 별도 출근보고 채널 알림은
     //   호출하지 않는다 (명일 본인이 출근완료 시 그때 출근보고 채널로 알림 발송).
     // resubmitLogId 흐름은 deprecated — 항상 worklog_submitted로 발송 (재제출 알림 X)
-    notifyWorkLogSubmitted(notifyPayload)
+    // 2026-05-19 v1.21: await 처리. fire-and-forget 시 Vercel function 응답 후 종료되어
+    // sendToMake retry promise가 끊겨 알림 누락(최승현 5/19 18:23). maxDuration=60s로 retry 보장.
+    await notifyWorkLogSubmitted(notifyPayload)
 
     // ─── submissions 로그 ─────────────────────────────────────────
     const submittedNow = new Date().toISOString()

@@ -295,42 +295,57 @@ async function routeAndSend(
 
 // ─── 공개 wrapper 함수들 ──────────────────────────────────────────────────────
 
-export function notifyWorkLogSubmitted(payload: WorklogNotifyPayload): void {
-  routeAndSend(
-    'worklog_submitted',
-    payload.division,
-    payload.team,
-    '퇴근보고',
-    payload
-  ).catch(err => console.warn('[Teams] worklog_submitted failed:', err))
+// 2026-05-19 v1.21: 모든 notify 함수를 Promise<void> 반환으로 통일. 호출처에서 await
+// 처리해 Vercel function이 sendToMake retry 완주를 보장. v1.10에서 notifyLocationChanged만
+// 처리했었고 나머지 fire-and-forget 함수들은 그대로 두어 최승현 5/19 18:23 알림 누락 발생.
+export async function notifyWorkLogSubmitted(payload: WorklogNotifyPayload): Promise<void> {
+  try {
+    await routeAndSend(
+      'worklog_submitted',
+      payload.division,
+      payload.team,
+      '퇴근보고',
+      payload
+    )
+  } catch (err) {
+    console.warn('[Teams] worklog_submitted failed:', err)
+  }
 }
 
-export function notifyCheckoutResubmitted(payload: WorklogNotifyPayload): void {
-  routeAndSend(
-    'checkout_resubmitted',
-    payload.division,
-    payload.team,
-    '퇴근보고',
-    payload
-  ).catch(err => console.warn('[Teams] checkout_resubmitted failed:', err))
+export async function notifyCheckoutResubmitted(payload: WorklogNotifyPayload): Promise<void> {
+  try {
+    await routeAndSend(
+      'checkout_resubmitted',
+      payload.division,
+      payload.team,
+      '퇴근보고',
+      payload
+    )
+  } catch (err) {
+    console.warn('[Teams] checkout_resubmitted failed:', err)
+  }
 }
 
 /**
  * @deprecated 신규 코드는 notifyWorkLogUpdatedSplit 사용.
  * 호환용으로 유지. leave_date 기반 분기.
  */
-export function notifyWorkLogUpdated(payload: WorklogUpdateNotifyPayload): void {
+export async function notifyWorkLogUpdated(payload: WorklogUpdateNotifyPayload): Promise<void> {
   const reportType = resolveTeamsRouteReportType({
     action: 'update',
     leaveDate: payload.leaveDate,
   })
-  routeAndSend(
-    'worklog_updated',
-    payload.division,
-    payload.team,
-    reportType,
-    payload
-  ).catch(err => console.warn('[Teams] worklog_updated failed:', err))
+  try {
+    await routeAndSend(
+      'worklog_updated',
+      payload.division,
+      payload.team,
+      reportType,
+      payload
+    )
+  } catch (err) {
+    console.warn('[Teams] worklog_updated failed:', err)
+  }
 }
 
 /**
@@ -343,55 +358,73 @@ export function notifyWorkLogUpdated(payload: WorklogUpdateNotifyPayload): void 
  *
  * leave_date 기반 분기는 더 이상 사용하지 않음.
  */
-export function notifyWorkLogUpdatedSplit(payload: WorklogUpdateNotifyPayload): void {
+export async function notifyWorkLogUpdatedSplit(payload: WorklogUpdateNotifyPayload): Promise<void> {
   const checkInFields  = payload.changedFields.filter(f => f.kind === 'check_in')
   const checkOutFields = payload.changedFields.filter(f => f.kind === 'check_out')
 
+  const tasks: Promise<unknown>[] = []
+
   // 출근보고 영역 변경 → 출근보고 채널
   if (checkInFields.length > 0) {
-    routeAndSend(
-      'worklog_updated_checkin',
-      payload.division,
-      payload.team,
-      '출근보고',
-      { ...payload, changedFields: checkInFields }
-    ).catch(err => console.warn('[Teams] worklog_updated_checkin failed:', err))
+    tasks.push(
+      routeAndSend(
+        'worklog_updated_checkin',
+        payload.division,
+        payload.team,
+        '출근보고',
+        { ...payload, changedFields: checkInFields }
+      ).catch(err => console.warn('[Teams] worklog_updated_checkin failed:', err))
+    )
   }
 
   // 퇴근보고 영역 변경 → 퇴근보고 채널
   if (checkOutFields.length > 0) {
-    routeAndSend(
-      'worklog_updated_checkout',
+    tasks.push(
+      routeAndSend(
+        'worklog_updated_checkout',
+        payload.division,
+        payload.team,
+        '퇴근보고',
+        { ...payload, changedFields: checkOutFields }
+      ).catch(err => console.warn('[Teams] worklog_updated_checkout failed:', err))
+    )
+  }
+
+  if (tasks.length === 0) {
+    console.log('[Teams] worklog updated but no classifiable changes — skipping notification')
+    return
+  }
+
+  // 동시 변경 시 두 알림 병렬 발송. allSettled로 한 쪽 실패가 다른 쪽 막지 않게.
+  await Promise.allSettled(tasks)
+}
+
+export async function notifyWorkLogDeleted(payload: WorklogDeletedNotifyPayload): Promise<void> {
+  try {
+    await routeAndSend(
+      'worklog_deleted',
       payload.division,
       payload.team,
       '퇴근보고',
-      { ...payload, changedFields: checkOutFields }
-    ).catch(err => console.warn('[Teams] worklog_updated_checkout failed:', err))
-  }
-
-  if (checkInFields.length === 0 && checkOutFields.length === 0) {
-    console.log('[Teams] worklog updated but no classifiable changes — skipping notification')
+      payload
+    )
+  } catch (err) {
+    console.warn('[Teams] worklog_deleted failed:', err)
   }
 }
 
-export function notifyWorkLogDeleted(payload: WorklogDeletedNotifyPayload): void {
-  routeAndSend(
-    'worklog_deleted',
-    payload.division,
-    payload.team,
-    '퇴근보고',
-    payload
-  ).catch(err => console.warn('[Teams] worklog_deleted failed:', err))
-}
-
-export function notifyCheckinSubmitted(payload: CheckinNotifyPayload): void {
-  routeAndSend(
-    'checkin_submitted',
-    payload.division,
-    payload.team,
-    '출근보고',
-    payload
-  ).catch(err => console.warn('[Teams] checkin_submitted failed:', err))
+export async function notifyCheckinSubmitted(payload: CheckinNotifyPayload): Promise<void> {
+  try {
+    await routeAndSend(
+      'checkin_submitted',
+      payload.division,
+      payload.team,
+      '출근보고',
+      payload
+    )
+  } catch (err) {
+    console.warn('[Teams] checkin_submitted failed:', err)
+  }
 }
 
 export async function notifyLocationChanged(payload: LocationChangedNotifyPayload): Promise<void> {
@@ -411,24 +444,32 @@ export async function notifyLocationChanged(payload: LocationChangedNotifyPayloa
   }
 }
 
-export function notifyBreakStarted(payload: BreakNotifyPayload): void {
-  routeAndSend(
-    'break_started',
-    payload.division,
-    payload.team,
-    '출근보고',
-    payload
-  ).catch(err => console.warn('[Teams] break_started failed:', err))
+export async function notifyBreakStarted(payload: BreakNotifyPayload): Promise<void> {
+  try {
+    await routeAndSend(
+      'break_started',
+      payload.division,
+      payload.team,
+      '출근보고',
+      payload
+    )
+  } catch (err) {
+    console.warn('[Teams] break_started failed:', err)
+  }
 }
 
-export function notifyBreakEnded(payload: BreakNotifyPayload): void {
-  routeAndSend(
-    'break_ended',
-    payload.division,
-    payload.team,
-    '출근보고',
-    payload
-  ).catch(err => console.warn('[Teams] break_ended failed:', err))
+export async function notifyBreakEnded(payload: BreakNotifyPayload): Promise<void> {
+  try {
+    await routeAndSend(
+      'break_ended',
+      payload.division,
+      payload.team,
+      '출근보고',
+      payload
+    )
+  } catch (err) {
+    console.warn('[Teams] break_ended failed:', err)
+  }
 }
 
 export function notifyAccountPending(payload: AccountPendingNotifyPayload): void {

@@ -3,6 +3,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import { requireAdmin, requireActiveUser } from '@/lib/admin-check'
 import { calculateEw } from '@/lib/ew-calculator'
+
+// 2026-05-19 v1.21: notify await 대응 — sendToMake retry 최악 31.5s + DB 처리 여유.
+export const maxDuration = 60
 import { notifyWorkLogUpdatedSplit, notifyWorkLogDeleted } from '@/lib/notifications/teams'
 import { recordSubmission } from '@/lib/submission-log'
 import { recordAudit, extractRequestMeta } from '@/lib/audit-log'
@@ -708,7 +711,8 @@ export async function PATCH(
           updatedByName = isOwner ? (log.name ?? '본인') : '관리자'
         }
 
-        notifyWorkLogUpdatedSplit({
+        // 2026-05-19 v1.21: await — fire-and-forget 시 Vercel function 종료로 promise 끊김.
+        await notifyWorkLogUpdatedSplit({
           name: body.name ?? log.name ?? '',
           leaveDate: body.leaveDate ?? log.leave_date ?? '',
           division: log.division ?? null,
@@ -882,7 +886,8 @@ export async function DELETE(
       deletedByName = isOwner ? (log.name ?? '본인') : '관리자'
     }
 
-    notifyWorkLogDeleted({
+    // 2026-05-19 v1.21: await — fire-and-forget 시 Vercel function 종료로 promise 끊김.
+    await notifyWorkLogDeleted({
       name: log.name ?? '',
       leaveDate: log.leave_date ?? '',
       deletedByName,

@@ -4,6 +4,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import { notifyBreakStarted } from '@/lib/notifications/teams'
 
+// 2026-05-19 v1.21: notify await 대응 — sendToMake retry 최악 31.5s + DB 처리 여유.
+export const maxDuration = 60
+
 export async function POST(request: Request) {
   try {
     const supabase = await createClient()
@@ -62,8 +65,8 @@ export async function POST(request: Request) {
       created_by:      user.email!,
     })
 
-    // Teams 휴게 시작 알림
-    notifyBreakStarted({
+    // Teams 휴게 시작 알림 — 2026-05-19 v1.21: await + maxDuration=60
+    await notifyBreakStarted({
       name: profile?.display_name || user.email!,
       date,
       breakAt: now,

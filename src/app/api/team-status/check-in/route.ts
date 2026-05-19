@@ -7,7 +7,8 @@ import { notifyCheckinSubmitted } from '@/lib/notifications/teams'
 
 // 알림 발송(notifyCheckinSubmitted)이 fire-and-forget + sendToMake retry(최대 31.5s).
 // 응답 후 Vercel function grace period 안에 retry promise 완주하도록 30s 확보.
-export const maxDuration = 30
+// 2026-05-19 v1.21: 30→60. notify await 대응 — sendToMake retry 최악 31.5s + DB 처리 여유.
+export const maxDuration = 60
 import {
   validateTimeline,
   firstWorkLocation,
@@ -481,8 +482,9 @@ export async function POST(request: Request) {
     })
 
     // Teams 알림은 실제 출근(check_in_complete) 시에만 — 단순 보고만 작성한 경우 알림 X
+    // 2026-05-19 v1.21: await — fire-and-forget 시 Vercel function 종료로 promise 끊김.
     if (checkedInAtIso) {
-      notifyCheckinSubmitted({
+      await notifyCheckinSubmitted({
         name: profile?.display_name || body.name || user.email!,
         date,
         checkedInAt: checkedInAtIso,
