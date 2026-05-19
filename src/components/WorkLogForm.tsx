@@ -1160,54 +1160,60 @@ export default function WorkLogForm({
             />
             {errors.workContent && <p className="mt-1 text-sm text-danger-text">{errors.workContent.message as string}</p>}
           </div>
+        </div>
+      </div>
+      )}
 
-          {/* 지각/당일수정 — 근무내용 다음. 본문(퇴근보고) 영역 분류이므로 showCheckOutSections gate 그대로.
-              check_in 수정 모드에선 본문 섹션이 통째로 hide되어 함께 hide됨. */}
-          <div className="sm:col-span-2 p-4 bg-surface rounded-lg border border-border">
-            <label className="block text-sm font-medium text-text-primary mb-1">지각 or 출근 시간 입력 수정 여부</label>
-            <p className="mb-2 text-xs text-warning-text">
-              ※ 당일 수정 기준은 <span className="font-medium">당일 07시 이후</span>이며, 조기출근으로 인한 수정은 제외
-            </p>
-            <select
-              {...register('lateOrAttendanceStatus')}
-              className="select-tight block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
-            >
-              <option value="아니오">아니오</option>
-              <option value="예">예</option>
-            </select>
+      {/* 4. 기타 — 지각/당일수정. 본문(퇴근보고) 영역 분류이므로 showCheckOutSections gate.
+          check_in 수정 모드에선 hide. */}
+      {showCheckOutSections && (
+      <div>
+        <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">기타</h3>
 
-            {formValues.lateOrAttendanceStatus === '예' && (
-              <div className="mt-4 grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2">
-                <div>
-                  <label className="block text-xs font-medium text-text-secondary">전일 출근보고 시간 *</label>
-                  <TimeSelect
-                    className="mt-1"
-                    value={formValues.previousReportTime ?? ''}
-                    onChange={(v) => setValue('previousReportTime', v, { shouldValidate: true, shouldDirty: true })}
-                    ariaLabelHour="전일 출근보고 시"
-                    ariaLabelMinute="전일 출근보고 분"
-                  />
-                  {errors.previousReportTime && <p className="mt-1 text-xs text-danger-text">{errors.previousReportTime.message as string}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-text-secondary">당일 실제 출퇴근 시간 *</label>
-                  <TimeSelect
-                    className="mt-1"
-                    value={formValues.currentReportTime ?? ''}
-                    onChange={(v) => setValue('currentReportTime', v, { shouldValidate: true, shouldDirty: true })}
-                    ariaLabelHour="당일 실제 출퇴근 시"
-                    ariaLabelMinute="당일 실제 출퇴근 분"
-                  />
-                  {errors.currentReportTime && <p className="mt-1 text-xs text-danger-text">{errors.currentReportTime.message as string}</p>}
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-text-secondary">지각/출근수정 사유 *</label>
-                  <input type="text" {...register('lateReason')} className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border" />
-                  {errors.lateReason && <p className="mt-1 text-xs text-danger-text">{errors.lateReason.message as string}</p>}
-                </div>
+        <div>
+          <label className="block text-sm font-medium text-text-primary mb-1">지각 or 출근 시간 입력 수정 여부</label>
+          <p className="mb-2 text-xs text-warning-text">
+            ※ 당일 수정 기준은 <span className="font-medium">당일 07시 이후</span>이며, 조기출근으로 인한 수정은 제외
+          </p>
+          <select
+            {...register('lateOrAttendanceStatus')}
+            className="select-tight block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
+          >
+            <option value="아니오">아니오</option>
+            <option value="예">예</option>
+          </select>
+
+          {formValues.lateOrAttendanceStatus === '예' && (
+            <div className="mt-4 grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-medium text-text-secondary">전일 출근보고 시간 *</label>
+                <TimeSelect
+                  className="mt-1"
+                  value={formValues.previousReportTime ?? ''}
+                  onChange={(v) => setValue('previousReportTime', v, { shouldValidate: true, shouldDirty: true })}
+                  ariaLabelHour="전일 출근보고 시"
+                  ariaLabelMinute="전일 출근보고 분"
+                />
+                {errors.previousReportTime && <p className="mt-1 text-xs text-danger-text">{errors.previousReportTime.message as string}</p>}
               </div>
-            )}
-          </div>
+              <div>
+                <label className="block text-xs font-medium text-text-secondary">당일 실제 출퇴근 시간 *</label>
+                <TimeSelect
+                  className="mt-1"
+                  value={formValues.currentReportTime ?? ''}
+                  onChange={(v) => setValue('currentReportTime', v, { shouldValidate: true, shouldDirty: true })}
+                  ariaLabelHour="당일 실제 출퇴근 시"
+                  ariaLabelMinute="당일 실제 출퇴근 분"
+                />
+                {errors.currentReportTime && <p className="mt-1 text-xs text-danger-text">{errors.currentReportTime.message as string}</p>}
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-text-secondary">지각/출근수정 사유 *</label>
+                <input type="text" {...register('lateReason')} className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border" />
+                {errors.lateReason && <p className="mt-1 text-xs text-danger-text">{errors.lateReason.message as string}</p>}
+              </div>
+            </div>
+          )}
         </div>
       </div>
       )}
