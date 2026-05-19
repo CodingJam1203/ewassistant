@@ -64,6 +64,19 @@ export interface EwCalculationResult {
    * true면 미리보기 박스를 빨간색으로 강조하고, copyText 끝에 " / 휴게시간 주의하여 상신" 추가.
    */
   showLunchAdvisory: boolean;
+  // ─── 계산식 breakdown 노출용 (CalculationPreview 표 렌더링) ─────────────
+  /** 실제 출근시간 'HH:mm' (입력 원본) */
+  startTimeText: string;
+  /** 실제 퇴근시간 'HH:mm' — 자정 넘김 케이스는 27:00 형식 (>24h) */
+  endTimeText: string;
+  /** 총 근무 (퇴근 - 출근) 분. 자정 넘김 자동 가산. */
+  totalSpanMinutes: number;
+  /** 사용자 입력 휴게 분 (= 점심 외 추가 휴게) */
+  breakMinutes: number;
+  /** 휴가 차감 분 (오전반차 240·오후반차 240·종일 480, 사용자 조정 가능) */
+  leaveMinutes: number;
+  /** 종일 휴가 여부 — true면 실근무 강제 0, breakdown은 별도 표시 */
+  isFullDayLeave: boolean;
 }
 
 const weekdayKo = ["일", "월", "화", "수", "목", "금", "토"];
@@ -378,6 +391,9 @@ export function calculateEw(input: EwInput): EwCalculationResult {
   const lunchAdvisorySuffix = showLunchAdvisory ? ' / 휴게시간 주의하여 상신' : '';
   const copyText = baseCopyText + getCopyTextSuffix(workSubType) + lunchAdvisorySuffix;
 
+  // 총 근무 (퇴 - 출, 자정 넘김 자동 가산)
+  const totalSpanMinutes = diffMinutes(startMinutes, endMinutes);
+
   return {
     workTypeCode,
     workSubType,
@@ -390,5 +406,11 @@ export function calculateEw(input: EwInput): EwCalculationResult {
     ewValue,
     copyText,
     showLunchAdvisory,
+    startTimeText: input.startTime,
+    endTimeText: displayEndTimeText,
+    totalSpanMinutes,
+    breakMinutes,
+    leaveMinutes,
+    isFullDayLeave: !!input.isFullDayLeave,
   };
 }

@@ -7,6 +7,14 @@ interface CalculationPreviewProps {
   error: string | null
 }
 
+/** 분 → 'H:MM' 표기. 음수는 0으로 clamp. (예: 90 → '1:30', 0 → '0:00') */
+function fmtMin(totalMinutes: number): string {
+  const m = Math.max(0, Math.round(totalMinutes))
+  const h = Math.floor(m / 60)
+  const mm = m % 60
+  return `${h}:${String(mm).padStart(2, '0')}`
+}
+
 export default function CalculationPreview({ result, error }: CalculationPreviewProps) {
   if (error) {
     return (
@@ -54,19 +62,58 @@ export default function CalculationPreview({ result, error }: CalculationPreview
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-[12px] font-semibold text-text-secondary">실근무시간</p>
-            <p className="mt-1 text-lg font-bold tabular-nums text-text-primary">{result.actualWorkText}</p>
+        {/* 계산 흐름 — 실제 출/퇴근 → 항목별 차감 → 실근무
+            종일 휴가일 땐 수식이 의미 없어 별도 표시 */}
+        {result.isFullDayLeave ? (
+          <div className="rounded-[10px] border border-border bg-surface-muted px-3 py-3 text-center">
+            <p className="text-[12px] font-semibold text-text-secondary">종일 휴가</p>
+            <p className="mt-1 text-lg font-bold text-text-primary">실근무 0:00</p>
           </div>
-          <div>
-            <p className="text-[12px] font-semibold text-text-secondary">차감시간</p>
-            <p className="mt-1 text-lg font-bold tabular-nums text-text-primary">{result.deductionMinutes / 60}시간</p>
+        ) : (
+          <div className="rounded-[10px] border border-border bg-surface-muted px-3 py-3">
+            {/* 출/퇴근 시각 강조 */}
+            <div className="flex items-end justify-center gap-3">
+              <div className="text-center">
+                <p className="text-2xl font-bold tabular-nums text-text-primary leading-none">{result.startTimeText}</p>
+                <p className="mt-1 text-[11px] text-text-secondary">실제 출근</p>
+              </div>
+              <span className="pb-4 text-text-secondary">~</span>
+              <div className="text-center">
+                <p className="text-2xl font-bold tabular-nums text-text-primary leading-none">{result.endTimeText}</p>
+                <p className="mt-1 text-[11px] text-text-secondary">실제 퇴근</p>
+              </div>
+            </div>
+
+            {/* 항목별 차감 표 */}
+            <dl className="mt-3 space-y-1 text-[13px] tabular-nums">
+              <div className="flex justify-between text-text-secondary">
+                <dt>총 근무 (퇴근 − 출근)</dt>
+                <dd className="font-semibold text-text-primary">{fmtMin(result.totalSpanMinutes)}</dd>
+              </div>
+              <div className="flex justify-between text-text-secondary">
+                <dt>− 점심 자동 차감</dt>
+                <dd>{fmtMin(result.deductionMinutes)}</dd>
+              </div>
+              <div className="flex justify-between text-text-secondary">
+                <dt>− 휴게</dt>
+                <dd>{fmtMin(result.breakMinutes)}</dd>
+              </div>
+              <div className="flex justify-between text-text-secondary">
+                <dt>− 휴가</dt>
+                <dd>{fmtMin(result.leaveMinutes)}</dd>
+              </div>
+              <div className="mt-1 pt-2 border-t border-border flex justify-between">
+                <dt className="font-semibold text-text-primary">실근무</dt>
+                <dd className="font-bold text-primary-600 text-base">{result.actualWorkText}</dd>
+              </div>
+            </dl>
           </div>
-          <div className="col-span-2">
-            <p className="text-[12px] font-semibold text-text-secondary">EW 시간/코드</p>
-            <p className="mt-1 text-lg font-bold tabular-nums text-primary-600">{result.ewValue}</p>
-          </div>
+        )}
+
+        {/* EW 시간/코드 — 강조 카드 */}
+        <div>
+          <p className="text-[12px] font-semibold text-text-secondary">EW 시간/코드</p>
+          <p className="mt-1 text-lg font-bold tabular-nums text-primary-600">{result.ewValue}</p>
         </div>
 
         {showLunchAdvisory && (
