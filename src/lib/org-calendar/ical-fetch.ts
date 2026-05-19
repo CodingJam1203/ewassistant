@@ -26,9 +26,24 @@ export interface ParsedEvent {
   rawUid: string
 }
 
-/** 공개 캘린더 iCal URL */
+/**
+ * 캘린더 fetch URL 결정.
+ *   - `https://...`로 시작하면 그대로 사용 (비공개 iCal URL — token 포함)
+ *   - 그 외엔 calendar ID로 간주해서 public iCal URL 생성 (공개 캘린더 전용)
+ *
+ * 사용자가 admin UI에서 둘 중 어느 형태로 등록해도 동작하도록 통일.
+ */
+export function calendarFetchUrl(idOrUrl: string): string {
+  const trimmed = idOrUrl.trim()
+  if (trimmed.startsWith('https://') || trimmed.startsWith('http://')) {
+    return trimmed
+  }
+  return `https://calendar.google.com/calendar/ical/${encodeURIComponent(trimmed)}/public/basic.ics`
+}
+
+/** @deprecated v1 호환 — calendarFetchUrl 사용 */
 export function publicICalUrl(googleCalendarId: string): string {
-  return `https://calendar.google.com/calendar/ical/${encodeURIComponent(googleCalendarId)}/public/basic.ics`
+  return calendarFetchUrl(googleCalendarId)
 }
 
 /**
@@ -41,7 +56,7 @@ export async function fetchCalendarEvents(
   googleCalendarId: string,
   opts?: { timeoutMs?: number },
 ): Promise<ParsedEvent[]> {
-  const url = publicICalUrl(googleCalendarId)
+  const url = calendarFetchUrl(googleCalendarId)
   const timeoutMs = opts?.timeoutMs ?? 15_000
 
   const controller = new AbortController()
