@@ -661,9 +661,12 @@ export default function WorkLogForm({
       })
       .finally(() => {
         clearTimeout(safetyTimer)
-        // abort된 경우엔 새 effect가 다시 setIsPrefillLoading(true) 했을 수 있으므로
-        // 동일 effect 인스턴스만 false 처리. AbortError 후엔 ac.signal.aborted=true.
-        if (!ac.signal.aborted) setIsPrefillLoading(false)
+        // 2026-05-19 v1.19: ac.signal.aborted 가드 제거 — race condition으로 loading
+        // 영원히 true 유지되던 윤정인 5/19 케이스 fix. 새 effect가 시작 시 다시
+        // setIsPrefillLoading(true) 호출하므로 옛 effect의 false가 잘못 적용되어도
+        // 즉시 true로 복구. 반대로 가드 유지 시 옛 effect의 응답이 cleanup 후 도착하면
+        // false 호출 skip되어 loading 영원히 풀리지 않음.
+        setIsPrefillLoading(false)
       })
     return () => {
       ac.abort()
