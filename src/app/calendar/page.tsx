@@ -1,48 +1,33 @@
 'use client'
 
 /**
- * /calendar — 본부 통합 캘린더 뷰 (Phase 1.3, ABC-217)
+ * /calendar — 매트릭스 캘린더 뷰 (Phase 1.3, ABC-217)
  *
- * - react-big-calendar 기반 일/주/월/agenda 뷰
- * - 본부 필터 (multi-select, 사용자 권한 내)
- * - 이벤트 색상 — 회의(파랑) / 휴가(보라) / 생일(분홍) / 기타(회색)
- * - 본인 매칭 이벤트 강조 (border + bold)
+ * 행 = 사용자 (division → team → display_order 정렬)
+ * 열 = 날짜 (오늘부터 시작, 범위 토글 가능)
+ * 셀 = 그 사용자의 그 날 매칭 이벤트들 (시간 + 제목)
  *
- * 데이터 source: GET /api/calendar/events?from=&to=&divisionIds=
- * — DB cache(org_calendar_events) read만. Google API 직접 호출 X.
+ * Apps Script로 채워지던 Google Sheet 매트릭스를 N-Click DB cache로 그대로 reproduce.
+ * 데이터 source: org_calendar_events (matched_user_emails로 사용자 매핑).
+ *
+ * 본부 단위 일정(team_id null인 캘린더 — 회의/생일)은 별도 본부 헤더 행에 표시.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Calendar as BigCalendar, dateFnsLocalizer, Views, type View } from 'react-big-calendar'
-import { format, parse, startOfWeek, getDay, addMonths, subMonths } from 'date-fns'
-import { ko } from 'date-fns/locale'
-import { ArrowLeft, Calendar as CalendarIcon, Loader2 } from 'lucide-react'
-import 'react-big-calendar/lib/css/react-big-calendar.css'
-
-const locales = { ko }
-const localizer = dateFnsLocalizer({
-  format,
-  parse,
-  startOfWeek: (date: Date) => startOfWeek(date, { weekStartsOn: 0 }),
-  getDay,
-  locales,
-})
+import { ArrowLeft, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight, Home } from 'lucide-react'
 
 type CalendarType = 'meeting' | 'vacation' | 'birthday' | 'other'
+type RangeView = '1week' | '2weeks' | 'month'
 
 interface ApiEvent {
   id: string
   title: string
-  description: string | null
-  location: string | null
   startAt: string
   endAt: string
   isAllDay: boolean
   matchedUserEmails: string[]
   inferredType: CalendarType
-  calendarId: string
-  calendarLabel: string
   calendarType: CalendarType
   divisionId: string
   divisionName: string
@@ -50,65 +35,132 @@ interface ApiEvent {
   teamName: string | null
 }
 
-interface BigCalEvent {
-  id: string
-  title: string
-  start: Date
-  end: Date
-  allDay: boolean
-  resource: ApiEvent
+interface ApiUser {
+  email: string
+  displayName: string
+  divisionId: string
+  divisionName: string
+  teamId: string | null
+  teamName: string | null
+  role: string
 }
 
-const TYPE_COLOR: Record<CalendarType, { bg: string; border: string; text: string }> = {
-  meeting:  { bg: '#DBEAFE', border: '#2563EB', text: '#1E40AF' },  // primary
-  vacation: { bg: '#E0E7FF', border: '#7C3AED', text: '#5B21B6' },  // 보라
-  birthday: { bg: '#FCE7F3', border: '#DB2777', text: '#9D174D' },  // 분홍
-  other:    { bg: '#F1F5F9', border: '#64748B', text: '#334155' },  // 회색
+const TYPE_BG: Record<CalendarType, string> = {
+  meeting:  'bg-primary-50 text-primary-700 border-l-2 border-primary-500',
+  vacation: 'bg-indigo-50 text-indigo-700 border-l-2 border-indigo-500',
+  birthday: 'bg-pink-50 text-pink-700 border-l-2 border-pink-500',
+  other:    'bg-surface-muted text-text-secondary border-l-2 border-text-muted',
 }
 
-const TYPE_LABEL: Record<CalendarType, string> = {
-  meeting: '회의', vacation: '휴가', birthday: '생일·기념일', other: '기타',
-}
+const DIVISION_BG: Record<string, string> = {}  // (생성 시 dynamic)
 
-function toIsoDate(d: Date): string {
-  // KST 기준 yyyy-MM-dd
+const RANGE_DAYS: Record<RangeView, number> = { '1week': 7, '2weeks': 14, 'month': 30 }
+const RANGE_LABEL: Record<RangeView, string> = { '1week': '1주', '2weeks': '2주', 'month': '한 달' }
+
+function toKstIsoDate(d: Date): string {
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
   })
   return fmt.format(d)
 }
 
-export default function CalendarPage() {
-  const [view, setView] = useState<View>(Views.MONTH)
-  const [date, setDate] = useState<Date>(new Date())
+function kstDateAt(year: number, month: number, day: number): Date {
+  // KST 자정을 UTC로 변환
+  return new Date(Date.UTC(year, month - 1, day, -9, 0, 0))  // -9시 보정
+}
+
+function todayKst(): Date {
+  // KST 기준 오늘 자정 (Date 객체로 — 이후 +day 연산 일관성 위해)
+  const isoDate = toKstIsoDate(new Date())  // 'YYYY-MM-DD'
+  const [y, m, d] = isoDate.split('-').map(Number)
+  return kstDateAt(y, m, d)
+}
+
+function addDays(d: Date, n: number): Date {
+  return new Date(d.getTime() + n * 86400000)
+}
+
+function fmtDayHeader(d: Date): { date: string; dow: string; isToday: boolean; isWeekend: boolean; isSunday: boolean } {
+  const dayOfWeek = new Date(d.getTime() + 9 * 3600 * 1000).getUTCDay()  // KST 기준 요일
+  const dows = ['일', '월', '화', '수', '목', '금', '토']
+  const today = toKstIsoDate(new Date()) === toKstIsoDate(d)
+  const md = toKstIsoDate(d).slice(5)  // 'MM-DD'
+  return {
+    date: md.replace('-', '/'),
+    dow: dows[dayOfWeek],
+    isToday: today,
+    isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
+    isSunday: dayOfWeek === 0,
+  }
+}
+
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('ko-KR', {
+    timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false,
+  })
+}
+
+interface EventCellEntry {
+  ev: ApiEvent
+  displayText: string  // "<종일> 제목" or "<HH:mm~HH:mm> 제목"
+}
+
+/** 이벤트가 특정 KST 날짜에 걸치는지 확인 + 표시 텍스트 생성 */
+function eventOnDate(ev: ApiEvent, dateIso: string): EventCellEntry | null {
+  const dayStartIso = `${dateIso}T00:00:00+09:00`
+  const dayEndIso   = `${dateIso}T23:59:59+09:00`
+  const dayStart = new Date(dayStartIso).getTime()
+  const dayEnd   = new Date(dayEndIso).getTime()
+  const evStart = new Date(ev.startAt).getTime()
+  const evEnd   = new Date(ev.endAt).getTime()
+  // 종일이면 end는 다음 날 자정인 경우 많음 — start ≤ dayEnd && end > dayStart 비교
+  if (evStart > dayEnd || evEnd <= dayStart) return null
+  const timeLabel = ev.isAllDay
+    ? '<종일>'
+    : `<${fmtTime(ev.startAt)}~${fmtTime(ev.endAt)}>`
+  return {
+    ev,
+    displayText: `${timeLabel} ${ev.title}`.trim(),
+  }
+}
+
+export default function CalendarMatrixPage() {
+  const [users, setUsers] = useState<ApiUser[]>([])
   const [events, setEvents] = useState<ApiEvent[]>([])
+  const [userEmail, setUserEmail] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [userEmail, setUserEmail] = useState<string | null>(null)
-  // 본부 필터 — 빈 Set이면 전체. 사용자가 토글하면 Set 안에 division id 들어감
-  const [divisionFilter, setDivisionFilter] = useState<Set<string>>(new Set())
 
-  // 뷰별 범위 — 월 뷰는 ±1개월 (월 경계 셀의 이전/다음 달 일정 표시)
-  const range = useMemo(() => {
-    const from = subMonths(date, 1)
-    const to   = addMonths(date, 1)
-    return { from: toIsoDate(from), to: toIsoDate(to) }
-  }, [date])
+  // 좌측 시작일 (KST 자정). default = 오늘
+  const [startDate, setStartDate] = useState<Date>(() => todayKst())
+  const [rangeView, setRangeView] = useState<RangeView>('2weeks')
+
+  const days = useMemo(() => {
+    const n = RANGE_DAYS[rangeView]
+    return Array.from({ length: n }, (_, i) => addDays(startDate, i))
+  }, [startDate, rangeView])
+
+  // 이벤트 범위 — 시작일 ~ 종료일
+  const range = useMemo(() => ({
+    from: toKstIsoDate(days[0]),
+    to:   toKstIsoDate(days[days.length - 1]),
+  }), [days])
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ from: range.from, to: range.to })
-      const res = await fetch(`/api/calendar/events?${params}`, { cache: 'no-store' })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        setError(body.error || `HTTP ${res.status}`)
-        return
-      }
-      const data = await res.json()
-      setEvents(data.events ?? [])
-      setUserEmail(data.userEmail ?? null)
+      const [usersRes, eventsRes] = await Promise.all([
+        fetch('/api/calendar/users', { cache: 'no-store' }),
+        fetch(`/api/calendar/events?from=${range.from}&to=${range.to}`, { cache: 'no-store' }),
+      ])
+      if (!usersRes.ok)  throw new Error(`users: HTTP ${usersRes.status}`)
+      if (!eventsRes.ok) throw new Error(`events: HTTP ${eventsRes.status}`)
+      const usersData  = await usersRes.json()
+      const eventsData = await eventsRes.json()
+      setUsers(usersData.users ?? [])
+      setEvents(eventsData.events ?? [])
+      setUserEmail(usersData.userEmail ?? eventsData.userEmail ?? null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -118,58 +170,71 @@ export default function CalendarPage() {
 
   useEffect(() => { load() }, [load])
 
-  // 본부 목록 (events에서 distinct)
-  const divisions = useMemo(() => {
-    const map = new Map<string, string>()
+  // events를 (user_email + date)로 그룹화 + division 단위 이벤트는 division별 그룹
+  const userMatrix = useMemo(() => {
+    // map[email][dateIso] = events
+    const m = new Map<string, Map<string, EventCellEntry[]>>()
+    for (const u of users) {
+      m.set(u.email.toLowerCase(), new Map())
+    }
     for (const ev of events) {
-      if (ev.divisionId) map.set(ev.divisionId, ev.divisionName)
+      for (const day of days) {
+        const dateIso = toKstIsoDate(day)
+        const entry = eventOnDate(ev, dateIso)
+        if (!entry) continue
+        for (const em of ev.matchedUserEmails) {
+          const userMap = m.get(em.toLowerCase())
+          if (!userMap) continue
+          const cell = userMap.get(dateIso) ?? []
+          cell.push(entry)
+          userMap.set(dateIso, cell)
+        }
+      }
     }
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }))
-  }, [events])
+    return m
+  }, [users, events, days])
 
-  const filtered = useMemo(() => {
-    if (divisionFilter.size === 0) return events
-    return events.filter(ev => divisionFilter.has(ev.divisionId))
-  }, [events, divisionFilter])
-
-  const bigCalEvents: BigCalEvent[] = useMemo(() => filtered.map(ev => ({
-    id: ev.id,
-    title: ev.title || '(제목 없음)',
-    start: new Date(ev.startAt),
-    end:   new Date(ev.endAt),
-    allDay: ev.isAllDay,
-    resource: ev,
-  })), [filtered])
-
-  const eventPropGetter = useCallback((event: BigCalEvent) => {
-    const t = event.resource.inferredType
-    const c = TYPE_COLOR[t]
-    const isMine = !!userEmail && event.resource.matchedUserEmails.includes(userEmail.toLowerCase())
-    return {
-      style: {
-        backgroundColor: c.bg,
-        borderLeft: `3px solid ${c.border}`,
-        color: c.text,
-        fontWeight: isMine ? 700 : 500,
-        fontSize: '11px',
-        padding: '1px 4px',
-        borderRadius: 4,
-        outline: isMine ? `2px solid ${c.border}` : 'none',
-      },
+  // 본부 단위 이벤트 (teamId == null인 캘린더의 이벤트) — division별 그룹
+  const divisionMatrix = useMemo(() => {
+    const m = new Map<string, Map<string, EventCellEntry[]>>()
+    for (const ev of events) {
+      if (ev.teamId !== null) continue  // 본부 단위만
+      for (const day of days) {
+        const dateIso = toKstIsoDate(day)
+        const entry = eventOnDate(ev, dateIso)
+        if (!entry) continue
+        const divMap = m.get(ev.divisionId) ?? new Map()
+        const cell = divMap.get(dateIso) ?? []
+        cell.push(entry)
+        divMap.set(dateIso, cell)
+        m.set(ev.divisionId, divMap)
+      }
     }
-  }, [userEmail])
+    return m
+  }, [events, days])
 
-  const toggleDivision = (id: string) => {
-    setDivisionFilter(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+  // 본부별 그룹화 (헤더 + 사용자들)
+  const divisionGroups = useMemo(() => {
+    const groups = new Map<string, { divisionName: string; users: ApiUser[] }>()
+    for (const u of users) {
+      const key = u.divisionId || '__none__'
+      const g = groups.get(key) ?? { divisionName: u.divisionName, users: [] }
+      g.users.push(u)
+      groups.set(key, g)
+    }
+    return Array.from(groups.entries()).map(([id, g]) => ({
+      id,
+      divisionName: g.divisionName,
+      users: g.users,
+    }))
+  }, [users])
+
+  const handlePrev = () => setStartDate(d => addDays(d, -RANGE_DAYS[rangeView]))
+  const handleNext = () => setStartDate(d => addDays(d, +RANGE_DAYS[rangeView]))
+  const handleToday = () => setStartDate(todayKst())
 
   return (
-    <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-4">
+    <div className="max-w-[120rem] mx-auto p-3 sm:p-4 space-y-3">
       <div className="flex items-center gap-3">
         <Link href="/home" className="inline-flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary">
           <ArrowLeft className="h-4 w-4" />
@@ -177,127 +242,175 @@ export default function CalendarPage() {
         </Link>
       </div>
 
-      <header>
-        <h1 className="text-2xl font-semibold text-text-primary flex items-center gap-2">
-          <CalendarIcon className="h-6 w-6" /> 캘린더
+      {/* 헤더 + 범위 컨트롤 */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold text-text-primary flex items-center gap-2">
+          <CalendarIcon className="h-5 w-5" /> 본부 캘린더
         </h1>
-        <p className="mt-1 text-sm text-text-secondary">
-          본부별 회의·휴가·생일 일정 (read-only) · 본인 매칭 일정은 굵게 강조됩니다
-        </p>
-      </header>
-
-      {/* 필터 + 범례 */}
-      <div className="bg-surface border border-border rounded-[10px] p-3 space-y-2">
-        {divisions.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-text-secondary">본부 필터:</span>
-            <button
-              type="button"
-              onClick={() => setDivisionFilter(new Set())}
-              className={`h-7 px-2.5 rounded-full text-[11px] font-medium border transition-colors ${
-                divisionFilter.size === 0
-                  ? 'bg-primary-600 text-white border-primary-600'
-                  : 'bg-surface text-text-secondary border-border-strong hover:bg-surface-muted'
-              }`}
-            >
-              전체
-            </button>
-            {divisions.map(d => {
-              const on = divisionFilter.has(d.id)
-              return (
-                <button
-                  key={d.id}
-                  type="button"
-                  onClick={() => toggleDivision(d.id)}
-                  className={`h-7 px-2.5 rounded-full text-[11px] font-medium border transition-colors ${
-                    on
-                      ? 'bg-primary-600 text-white border-primary-600'
-                      : 'bg-surface text-text-secondary border-border-strong hover:bg-surface-muted'
-                  }`}
-                >
-                  {d.name}
-                </button>
-              )
-            })}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* 범위 토글 */}
+          <div className="inline-flex items-center rounded-[10px] border border-border-strong bg-surface overflow-hidden">
+            {(['1week', '2weeks', 'month'] as RangeView[]).map(r => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRangeView(r)}
+                className={`h-8 px-3 text-xs font-medium transition-colors ${
+                  rangeView === r
+                    ? 'bg-primary-600 text-white'
+                    : 'text-text-secondary hover:bg-surface-muted'
+                }`}
+              >
+                {RANGE_LABEL[r]}
+              </button>
+            ))}
           </div>
-        )}
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-text-secondary">
-          <span className="font-semibold">범례:</span>
-          {(Object.keys(TYPE_LABEL) as CalendarType[]).map(t => (
-            <span key={t} className="inline-flex items-center gap-1.5">
-              <span
-                className="inline-block w-3 h-3 rounded-sm border-l-[3px]"
-                style={{ backgroundColor: TYPE_COLOR[t].bg, borderColor: TYPE_COLOR[t].border }}
-              />
-              {TYPE_LABEL[t]}
-            </span>
-          ))}
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded-sm bg-surface-muted outline outline-2 outline-primary-600" />
-            <span className="font-semibold">본인 매칭</span>
-          </span>
+          {/* 날짜 nav */}
+          <div className="inline-flex items-center gap-1">
+            <button type="button" onClick={handlePrev} className="h-8 w-8 inline-flex items-center justify-center rounded-[10px] border border-border-strong bg-surface hover:bg-surface-muted">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button type="button" onClick={handleToday} className="h-8 px-3 text-xs font-medium inline-flex items-center gap-1 rounded-[10px] border border-border-strong bg-surface hover:bg-surface-muted">
+              <Home className="h-3.5 w-3.5" />
+              오늘
+            </button>
+            <button type="button" onClick={handleNext} className="h-8 w-8 inline-flex items-center justify-center rounded-[10px] border border-border-strong bg-surface hover:bg-surface-muted">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* 에러 */}
       {error && (
         <div className="rounded-[10px] border border-danger-border bg-danger-bg p-4 text-sm text-danger-text">
           {error}
         </div>
       )}
 
-      {/* 로딩 */}
-      {loading && (
+      {loading ? (
         <div className="rounded-[10px] border border-border bg-surface p-8 text-center text-sm text-text-muted">
           <Loader2 className="h-5 w-5 animate-spin inline mr-2" />
           불러오는 중…
         </div>
-      )}
-
-      {/* 캘린더 본체 */}
-      {!loading && (
-        <div className="bg-surface border border-border rounded-[12px] p-3" style={{ height: '70vh' }}>
-          <BigCalendar
-            localizer={localizer}
-            culture="ko"
-            events={bigCalEvents}
-            view={view}
-            onView={(v) => setView(v)}
-            date={date}
-            onNavigate={(d) => setDate(d)}
-            views={[Views.MONTH, Views.WEEK, Views.DAY, Views.AGENDA]}
-            eventPropGetter={eventPropGetter}
-            popup
-            style={{ height: '100%' }}
-            messages={{
-              today:     '오늘',
-              previous:  '이전',
-              next:      '다음',
-              month:     '월',
-              week:      '주',
-              day:       '일',
-              agenda:    '목록',
-              date:      '날짜',
-              time:      '시간',
-              event:     '일정',
-              noEventsInRange: '이 기간에 일정이 없습니다.',
-              showMore: (count) => `+${count}개 더보기`,
-            }}
-            formats={{
-              monthHeaderFormat: (d) => format(d, 'yyyy년 M월', { locale: ko }),
-              dayHeaderFormat: (d) => format(d, 'M월 d일 (E)', { locale: ko }),
-              dayRangeHeaderFormat: ({ start, end }) =>
-                `${format(start, 'M월 d일', { locale: ko })} - ${format(end, 'M월 d일', { locale: ko })}`,
-            }}
-          />
+      ) : (
+        <div className="bg-surface border border-border rounded-[10px] overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[11px]">
+              <thead>
+                <tr className="bg-surface-muted">
+                  <th className="sticky left-0 z-10 bg-surface-muted px-2 py-2 text-left font-semibold text-text-secondary border-r border-border min-w-[70px]">구분</th>
+                  <th className="sticky left-[70px] z-10 bg-surface-muted px-2 py-2 text-left font-semibold text-text-secondary border-r border-border min-w-[80px]">인원</th>
+                  <th className="sticky left-[150px] z-10 bg-surface-muted px-2 py-2 text-left font-semibold text-text-secondary border-r border-border min-w-[80px]">직급/직책</th>
+                  {days.map(d => {
+                    const h = fmtDayHeader(d)
+                    return (
+                      <th
+                        key={d.toISOString()}
+                        className={`px-2 py-2 text-center font-semibold border-r border-border min-w-[130px] ${
+                          h.isToday ? 'bg-primary-50 text-primary-700' :
+                          h.isSunday ? 'text-danger-text' :
+                          h.isWeekend ? 'text-text-secondary' :
+                          'text-text-primary'
+                        }`}
+                      >
+                        {h.date} ({h.dow})
+                      </th>
+                    )
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {divisionGroups.map((grp, gi) => (
+                  <>
+                    {/* 본부 단위 이벤트 행 (있을 때만) */}
+                    {divisionMatrix.get(grp.id) && (
+                      <tr key={`${grp.id}-div`} className="bg-purple-50/40 border-t-2 border-purple-300">
+                        <td className="sticky left-0 z-[5] bg-purple-50/80 px-2 py-1.5 font-semibold text-purple-900 border-r border-border align-top">{grp.divisionName}</td>
+                        <td className="sticky left-[70px] z-[5] bg-purple-50/80 px-2 py-1.5 text-purple-900 font-semibold border-r border-border align-top">본부</td>
+                        <td className="sticky left-[150px] z-[5] bg-purple-50/80 px-2 py-1.5 text-purple-900 border-r border-border align-top">본부 일정</td>
+                        {days.map(d => {
+                          const dateIso = toKstIsoDate(d)
+                          const cell = divisionMatrix.get(grp.id)?.get(dateIso) ?? []
+                          return (
+                            <td key={dateIso} className="px-1 py-1 border-r border-border align-top">
+                              <div className="space-y-0.5">
+                                {cell.map((e, i) => (
+                                  <div
+                                    key={i}
+                                    title={e.displayText}
+                                    className={`px-1 py-0.5 rounded text-[10px] truncate cursor-default ${TYPE_BG[e.ev.inferredType]}`}
+                                  >
+                                    {e.displayText}
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )}
+                    {/* 사용자 행 */}
+                    {grp.users.map((u, ui) => {
+                      const isFirstOfTeam = ui === 0 || grp.users[ui - 1].teamId !== u.teamId
+                      const isMe = userEmail && u.email.toLowerCase() === userEmail.toLowerCase()
+                      return (
+                        <tr
+                          key={u.email}
+                          className={`${gi % 2 === 0 ? 'bg-surface' : 'bg-surface-muted/30'} ${isFirstOfTeam ? 'border-t border-border' : ''}`}
+                        >
+                          <td className="sticky left-0 z-[5] bg-inherit px-2 py-1 text-text-secondary border-r border-border align-top">
+                            {u.teamName ?? grp.divisionName}
+                          </td>
+                          <td className={`sticky left-[70px] z-[5] bg-inherit px-2 py-1 border-r border-border align-top ${isMe ? 'font-bold text-primary-700' : 'font-medium text-text-primary'}`}>
+                            {u.displayName}
+                            {isMe && <span className="ml-1 text-[9px] text-primary-600">(나)</span>}
+                          </td>
+                          <td className="sticky left-[150px] z-[5] bg-inherit px-2 py-1 text-text-secondary border-r border-border align-top text-[10px]">
+                            {u.role === 'admin' ? '관리자' : u.role === 'leader' ? '리더' : ''}
+                          </td>
+                          {days.map(d => {
+                            const dateIso = toKstIsoDate(d)
+                            const cell = userMatrix.get(u.email.toLowerCase())?.get(dateIso) ?? []
+                            return (
+                              <td key={dateIso} className="px-1 py-1 border-r border-border align-top">
+                                <div className="space-y-0.5">
+                                  {cell.map((e, i) => (
+                                    <div
+                                      key={i}
+                                      title={e.displayText}
+                                      className={`px-1 py-0.5 rounded text-[10px] truncate cursor-default ${TYPE_BG[e.ev.inferredType]}`}
+                                    >
+                                      {e.displayText}
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      )
+                    })}
+                  </>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* 통계 */}
+      {/* 범례 */}
+      <div className="flex flex-wrap items-center gap-3 text-[11px] text-text-secondary px-1">
+        <span className="font-semibold">범례:</span>
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-primary-50 border-l-2 border-primary-500" />회의</span>
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-indigo-50 border-l-2 border-indigo-500" />휴가</span>
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-pink-50 border-l-2 border-pink-500" />생일·기념일</span>
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-surface-muted border-l-2 border-text-muted" />기타</span>
+        <span className="ml-2 text-text-muted">· 오늘 컬럼은 파란 헤더 · 본부 일정은 별도 보라 행 · 셀 호버 시 전체 텍스트</span>
+      </div>
+
       {!loading && !error && (
-        <div className="text-xs text-text-muted">
-          현재 범위 {range.from} ~ {range.to} · 총 {filtered.length}건 표시
-          {divisionFilter.size > 0 && <span> (필터링됨, 전체 {events.length}건)</span>}
+        <div className="text-xs text-text-muted px-1">
+          범위 {range.from} ~ {range.to} · 사용자 {users.length}명 · 이벤트 {events.length}건
         </div>
       )}
     </div>
