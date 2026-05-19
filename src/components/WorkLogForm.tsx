@@ -350,8 +350,11 @@ export default function WorkLogForm({
   const [lastSubmitResult, setLastSubmitResult] = useState<EwCalculationResult | null>(null)
   // 2026-05-19 v1.15: prefill fetch 중 시간 dropdown loading 표시.
   // 모달 mount 시 default(09:00/18:00)가 잠깐 보였다가 prefill 응답으로 갱신되는 flicker 방지.
-  // 수정 모드(editingLog 있음)는 props로 즉시 값이 있어 loading 불필요.
-  const [isPrefillLoading, setIsPrefillLoading] = useState(() => !editingLog)
+  // 2026-05-19 v1.20: 수정 모드(editingLog) 또는 부모가 initialStartTime props로 즉시
+  // prefill을 넘긴 경우(home에서 "퇴근하기" 버튼 클릭 시 checked_in_at 전달)에도 loading 불필요.
+  // 종전엔 initialStartTime 케이스에서 useEffect가 early return하면서 setIsPrefillLoading(false)
+  // 호출이 한 번도 안 되어 영원히 true 유지 — 윤정인·최승현 5/19 무한 hang 진짜 원인.
+  const [isPrefillLoading, setIsPrefillLoading] = useState(() => !editingLog && !initialStartTime)
 
   useEffect(() => {
     onSubmitStateChange?.({ isSubmitting, submitError })
@@ -614,10 +617,13 @@ export default function WorkLogForm({
   //     daily.checked_in_at(실제 출근)을 우선해서 prefill
   //   - row 없으면 (미보고 상태): form default '09:00'/'18:00' 유지
   useEffect(() => {
-    if (isEditing) return
-    if (initialStartTime) return  // 부모가 이미 명시 prefill — 덮어쓰지 않음
+    // 2026-05-19 v1.20: 어떤 경로로든 effect가 early return되면 loading=false 보장.
+    // useState 초기값이 false인 경우 영향 없음(idempotent). 부모가 leaveDate를 도중
+    // 빈 값으로 set하는 극한 케이스도 hang 방지.
+    if (isEditing) { setIsPrefillLoading(false); return }
+    if (initialStartTime) { setIsPrefillLoading(false); return }  // 부모가 이미 명시 prefill — 덮어쓰지 않음
     const date = formValues.leaveDate
-    if (!date) return
+    if (!date) { setIsPrefillLoading(false); return }
 
     // React 19 StrictMode 호환 — closure cancelled 패턴 대신 AbortController.
     // StrictMode가 mount→cleanup→remount 시뮬 시 1차 fetch는 abort되고
