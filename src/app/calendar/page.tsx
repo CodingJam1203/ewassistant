@@ -127,11 +127,14 @@ function eventOnDate(ev: ApiEvent, dateIso: string): EventCellEntry | null {
 
 interface ApiDivision { id: string; name: string; sortOrder: number }
 
+const ALL_TEAMS = '__ALL__'
+
 export default function CalendarMatrixPage() {
   const [users, setUsers] = useState<ApiUser[]>([])
   const [divisions, setDivisions] = useState<ApiDivision[]>([])
   const [events, setEvents] = useState<ApiEvent[]>([])
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [myTeamName, setMyTeamName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -141,6 +144,8 @@ export default function CalendarMatrixPage() {
 
   // 본부 dropdown — 단일 선택. default = 사용자 본부 (load 응답에서 set)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string>('')
+  // 팀 dropdown — 단일 선택. ALL_TEAMS 또는 teamId.
+  const [selectedTeamId, setSelectedTeamId] = useState<string>(ALL_TEAMS)
 
   const days = useMemo(() => {
     const n = RANGE_DAYS[rangeView]
@@ -169,6 +174,7 @@ export default function CalendarMatrixPage() {
       setDivisions(usersData.divisions ?? [])
       setEvents(eventsData.events ?? [])
       setUserEmail(usersData.userEmail ?? eventsData.userEmail ?? null)
+      setMyTeamName(usersData.myTeamName ?? null)
       // 첫 load 시에만 사용자 본부를 default로 설정. 이후 사용자가 dropdown으로 바꿔도 유지.
       setSelectedDivisionId(prev => {
         if (prev) return prev
@@ -186,16 +192,61 @@ export default function CalendarMatrixPage() {
 
   useEffect(() => { load() }, [load])
 
-  // 선택된 본부의 users / events만 필터링
-  const filteredUsers = useMemo(() => {
+  // 선택된 본부의 users / events 1차 필터
+  const divUsers = useMemo(() => {
     if (!selectedDivisionId) return users
     return users.filter(u => u.divisionId === selectedDivisionId)
   }, [users, selectedDivisionId])
 
-  const filteredEvents = useMemo(() => {
+  const divEvents = useMemo(() => {
     if (!selectedDivisionId) return events
     return events.filter(ev => ev.divisionId === selectedDivisionId)
   }, [events, selectedDivisionId])
+
+  // 팀 dropdown 옵션 — 선택된 본부 안의 teams. users + events 둘 다에서 distinct
+  // (사용자 0명일 수도 있어 events도 봐서 팀 추출).
+  const teamOptions = useMemo(() => {
+    const map = new Map<string, string>()  // teamId → teamName
+    for (const u of divUsers) {
+      if (u.teamId && u.teamName) map.set(u.teamId, u.teamName)
+    }
+    for (const ev of divEvents) {
+      if (ev.teamId && ev.teamName) map.set(ev.teamId, ev.teamName)
+    }
+    return Array.from(map.entries()).map(([id, name]) => ({ value: id, label: name }))
+  }, [divUsers, divEvents])
+
+  // 본부 dropdown 변경 시 — 그 본부에 내 팀이 속해있으면 그걸로, 아니면 '전체' 자동
+  // (default 정책: 첫 load 시 사용자 본인 본부 + 본인 팀)
+  useEffect(() => {
+    if (teamOptions.length === 0) {
+      setSelectedTeamId(ALL_TEAMS)
+      return
+    }
+    // 현재 selectedTeamId가 유효(이 본부 안에 있음)이면 유지
+    if (selectedTeamId !== ALL_TEAMS && teamOptions.some(t => t.value === selectedTeamId)) return
+    // 내 팀이 이 본부 안에 있으면 자동 선택
+    if (myTeamName) {
+      const mine = teamOptions.find(t => t.label === myTeamName)
+      if (mine) {
+        setSelectedTeamId(mine.value)
+        return
+      }
+    }
+    // 그 외엔 전체
+    setSelectedTeamId(ALL_TEAMS)
+  }, [teamOptions, myTeamName, selectedTeamId])
+
+  // 2차 필터 — selectedTeamId 적용. 본부 단위(team_id null) 이벤트는 항상 포함.
+  const filteredUsers = useMemo(() => {
+    if (selectedTeamId === ALL_TEAMS) return divUsers
+    return divUsers.filter(u => u.teamId === selectedTeamId)
+  }, [divUsers, selectedTeamId])
+
+  const filteredEvents = useMemo(() => {
+    if (selectedTeamId === ALL_TEAMS) return divEvents
+    return divEvents.filter(ev => ev.teamId === selectedTeamId || ev.teamId === null)
+  }, [divEvents, selectedTeamId])
 
   // events를 (user_email + date)로 그룹화 + division 단위 이벤트는 division별 그룹
   const userMatrix = useMemo(() => {
@@ -240,7 +291,8 @@ export default function CalendarMatrixPage() {
     return m
   }, [filteredEvents, days])
 
-  // 본부별 그룹화 (헤더 + 사용자들). 단일 본부만 선택되어 있어도 같은 구조 유지.
+  // 본부별 그룹화 (헤더 + 사용자들). 사용자가 0명이어도 selectedDivisionId 그룹은
+  // 강제 생성 — 본부 단위 일정 + "기타" 행을 표시하기 위해.
   const divisionGroups = useMemo(() => {
     const groups = new Map<string, { divisionName: string; users: ApiUser[] }>()
     for (const u of filteredUsers) {
@@ -249,12 +301,44 @@ export default function CalendarMatrixPage() {
       g.users.push(u)
       groups.set(key, g)
     }
+    // selectedDivisionId가 있는데 그룹에 없으면(사용자 0명) 강제 추가
+    if (selectedDivisionId && !groups.has(selectedDivisionId)) {
+      const d = divisions.find(dd => dd.id === selectedDivisionId)
+      if (d) groups.set(selectedDivisionId, { divisionName: d.name, users: [] })
+    }
     return Array.from(groups.entries()).map(([id, g]) => ({
       id,
       divisionName: g.divisionName,
       users: g.users,
     }))
-  }, [filteredUsers])
+  }, [filteredUsers, selectedDivisionId, divisions])
+
+  // "기타" 행 — 사용자에 매칭 안 된 team_id 이벤트들. 본부 단위(team_id null) 일정은
+  // 별도 본부 헤더 행에서 처리되므로 여기서는 제외. team_id가 있는데 그 팀의 어느
+  // 사용자에도 매칭 안 된 이벤트만 모음.
+  // 결과: Map<teamId|divisionId, Map<dateIso, EventCellEntry[]>>
+  const otherTeamMatrix = useMemo(() => {
+    const m = new Map<string, { teamName: string | null; divisionId: string; cells: Map<string, EventCellEntry[]> }>()
+    // 현재 필터링된 events 중 사용자 매칭 0건인 것만
+    const filteredUserEmails = new Set(filteredUsers.map(u => u.email.toLowerCase()))
+    for (const ev of filteredEvents) {
+      if (ev.teamId === null) continue  // 본부 단위는 divisionMatrix에서
+      const matchedHere = ev.matchedUserEmails.some(em => filteredUserEmails.has(em.toLowerCase()))
+      if (matchedHere) continue  // 사용자 row에서 표시됨
+      for (const day of days) {
+        const dateIso = toKstIsoDate(day)
+        const entry = eventOnDate(ev, dateIso)
+        if (!entry) continue
+        const key = ev.teamId
+        const g = m.get(key) ?? { teamName: ev.teamName, divisionId: ev.divisionId, cells: new Map() }
+        const cell = g.cells.get(dateIso) ?? []
+        cell.push(entry)
+        g.cells.set(dateIso, cell)
+        m.set(key, g)
+      }
+    }
+    return m
+  }, [filteredEvents, filteredUsers, days])
 
   const handlePrev = () => setStartDate(d => addDays(d, -RANGE_DAYS[rangeView]))
   const handleNext = () => setStartDate(d => addDays(d, +RANGE_DAYS[rangeView]))
@@ -277,13 +361,28 @@ export default function CalendarMatrixPage() {
           </h1>
           {/* 본부 dropdown — 1본부만 선택. default = 사용자 본부 */}
           {divisions.length > 0 && (
-            <div className="w-48">
+            <div className="w-44">
               <CustomDropdown
                 value={selectedDivisionId}
                 onChange={setSelectedDivisionId}
                 ariaLabel="본부 선택"
                 placeholder="본부 선택"
                 options={divisions.map(d => ({ value: d.id, label: d.name }))}
+              />
+            </div>
+          )}
+          {/* 팀 dropdown — 선택된 본부 안의 팀들 + '전체'. default = 사용자 본인 팀 */}
+          {teamOptions.length > 0 && (
+            <div className="w-44">
+              <CustomDropdown
+                value={selectedTeamId}
+                onChange={setSelectedTeamId}
+                ariaLabel="팀 선택"
+                placeholder="팀 선택"
+                options={[
+                  { value: ALL_TEAMS, label: '전체 팀' },
+                  ...teamOptions,
+                ]}
               />
             </div>
           )}
@@ -431,6 +530,36 @@ export default function CalendarMatrixPage() {
                         </tr>
                       )
                     })}
+                    {/* "기타" rows — 사용자에 매칭 안 된 events (team별로 모음) */}
+                    {Array.from(otherTeamMatrix.entries())
+                      .filter(([, g]) => g.divisionId === grp.id)
+                      .map(([teamId, g]) => (
+                        <tr key={`${grp.id}-other-${teamId}`} className="bg-amber-50/40 border-t border-border">
+                          <td className="sticky left-0 z-[5] bg-amber-50/80 px-2 py-1 text-text-secondary border-r border-border align-top">{g.teamName ?? '—'}</td>
+                          <td className="sticky left-[70px] z-[5] bg-amber-50/80 px-2 py-1 italic text-text-secondary border-r border-border align-top">기타</td>
+                          <td className="sticky left-[150px] z-[5] bg-amber-50/80 px-2 py-1 text-text-muted border-r border-border align-top text-[10px]">미매칭</td>
+                          {days.map(d => {
+                            const dateIso = toKstIsoDate(d)
+                            const cell = g.cells.get(dateIso) ?? []
+                            return (
+                              <td key={dateIso} className="px-1 py-1 border-r border-border align-top">
+                                <div className="space-y-0.5">
+                                  {cell.map((e, i) => (
+                                    <div
+                                      key={i}
+                                      title={e.displayText}
+                                      className={`px-1 py-0.5 rounded text-[10px] truncate cursor-default ${TYPE_BG[e.ev.inferredType]}`}
+                                    >
+                                      {e.displayText}
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      ))
+                    }
                   </>
                 ))}
               </tbody>
