@@ -98,10 +98,13 @@ export default function CalculationPreview({ result, error }: CalculationPreview
                 <dt>− 휴게</dt>
                 <dd>{fmtMin(result.breakMinutes)}</dd>
               </div>
-              <div className="flex justify-between text-text-secondary">
-                <dt>− 휴가</dt>
-                <dd>{fmtMin(result.leaveMinutes)}</dd>
-              </div>
+              {/* 토요일·일요일·공휴일 근무에선 휴가 개념이 일반적으로 안 쓰이므로 hide */}
+              {result.workSubType === null && (
+                <div className="flex justify-between text-text-secondary">
+                  <dt>− 휴가</dt>
+                  <dd>{fmtMin(result.leaveMinutes)}</dd>
+                </div>
+              )}
               <div className="mt-1 pt-2 border-t border-border flex justify-between">
                 <dt className="font-semibold text-text-primary">실근무</dt>
                 <dd className="font-bold text-primary-600 text-base">{result.actualWorkText}</dd>

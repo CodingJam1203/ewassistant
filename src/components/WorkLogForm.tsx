@@ -1135,7 +1135,10 @@ export default function WorkLogForm({
             </div>
           )}
 
-          {/* 휴가/반차 — 위계 정리: 기존 별도 섹션에서 휴게/근무내용 섹션 안으로 이동 */}
+          {/* 휴가/반차 — 위계 정리: 기존 별도 섹션에서 휴게/근무내용 섹션 안으로 이동.
+              2026-05-19: 토요일·일요일·공휴일 근무(workSubType !== null)에선 hide
+              (휴가 개념이 일반적으로 안 쓰이는 케이스라 입력 영역 자체 제거) */}
+          {workSubType === null && (
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-text-primary">휴가/반차</label>
             <p className="mt-1 mb-2 text-xs text-text-secondary">
@@ -1146,6 +1149,7 @@ export default function WorkLogForm({
               onChange={next => setValue('leaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
             />
           </div>
+          )}
 
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-text-primary">근무내용 *</label>
