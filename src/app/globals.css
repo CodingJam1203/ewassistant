@@ -162,3 +162,104 @@ label[for] {
   outline-offset: 2px;
   border-radius: var(--radius-md);
 }
+
+/* ---------------------------------------------------------------------------
+ * react-day-picker v10 테마 — .rdp-themed wrapper 안에서만 적용.
+ * default CSS가 import되어 있고, 그 위에 우리 디자인 토큰으로 override.
+ * - 색상: primary-600 강조 / text-secondary 보조
+ * - 폰트: 통일된 size + weight
+ * - 헤더 정렬: caption 라벨 중앙, 좌우 nav 양쪽 가장자리
+ * 2026-05-19 v1.16
+ * --------------------------------------------------------------------------- */
+.rdp-themed {
+  --rdp-accent-color: var(--color-primary-600);
+  --rdp-accent-background-color: var(--color-primary-50);
+  --rdp-day_button-border-radius: 8px;
+  --rdp-day_button-height: 36px;
+  --rdp-day_button-width: 36px;
+  --rdp-nav_button-height: 28px;
+  --rdp-nav_button-width: 28px;
+  --rdp-nav-button-color: var(--color-text-secondary);
+  --rdp-weekday-text-color: var(--color-text-secondary);
+  --rdp-weekday-font-size: 12px;
+  --rdp-weekday-font-weight: 500;
+  --rdp-day-font-size: 13px;
+  --rdp-day-font-weight: 400;
+  --rdp-month-caption-font: 600 14px / 1.4 inherit;
+  font-family: inherit;
+}
+
+/* 헤더 — "2026년 5월" 중앙 + 좌우 nav 양쪽 배치 */
+.rdp-themed .rdp-month_caption {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  height: 32px;
+  margin-bottom: 4px;
+}
+.rdp-themed .rdp-caption_label {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text-primary);
+}
+.rdp-themed .rdp-nav {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  pointer-events: none;
+}
+.rdp-themed .rdp-button_previous,
+.rdp-themed .rdp-button_next {
+  pointer-events: auto;
+  color: var(--color-text-secondary);
+}
+.rdp-themed .rdp-button_previous:hover,
+.rdp-themed .rdp-button_next:hover {
+  background: var(--color-surface-muted, #F1F5F9);
+  border-radius: 6px;
+}
+
+/* 요일 헤더 — 작고 보조 컬러 */
+.rdp-themed .rdp-weekday {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-transform: none;
+}
+
+/* 날짜 cell — 통일된 폰트 */
+.rdp-themed .rdp-day_button {
+  font-size: 13px;
+  font-weight: 400;
+  border-radius: 8px;
+}
+.rdp-themed .rdp-day_button:hover:not(:disabled) {
+  background: var(--color-primary-50);
+  color: var(--color-primary-700);
+}
+/* 오늘 — primary 컬러 텍스트 강조, 동그라미 X (선택 강조와 구분) */
+.rdp-themed .rdp-today:not(.rdp-selected) .rdp-day_button {
+  color: var(--color-primary-600);
+  font-weight: 600;
+  background: transparent;
+}
+/* 선택 — primary 배경 채움 */
+.rdp-themed .rdp-selected .rdp-day_button,
+.rdp-themed .rdp-selected .rdp-day_button:hover {
+  background: var(--color-primary-600);
+  color: white;
+  font-weight: 600;
+  border: none;
+}
+/* 다른 달 날짜 — 흐릿하게 */
+.rdp-themed .rdp-outside .rdp-day_button {
+  color: var(--color-text-muted);
+}
+/* 비활성 날짜 */
+.rdp-themed .rdp-disabled .rdp-day_button {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}

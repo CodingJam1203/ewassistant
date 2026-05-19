@@ -160,7 +160,7 @@ const DateInputWithDow = forwardRef<HTMLInputElement, DateInputWithDowProps>(
         {open && (
           <div
             role="dialog"
-            className="absolute z-[100] mt-1 left-0 rounded-[10px] border border-border-strong bg-surface shadow-lg p-2"
+            className="rdp-themed absolute z-[100] mt-1 left-0 rounded-[10px] border border-border-strong bg-surface shadow-lg p-3"
           >
             <DayPicker
               mode="single"
