@@ -626,6 +626,12 @@ export default function WorkLogForm({
     // 단 수정 모드(editingLog)에선 props로 즉시 값이 있어 loading 표시 X.
     if (!editingLog) setIsPrefillLoading(true)
     const ac = new AbortController()
+    // 2026-05-19 v1.18: fetch 응답 지연/실패 시 무한 loading safety net.
+    // 4초 후 강제 해제 — default 09:00/18:00 노출 + 사용자가 직접 수정 가능.
+    // 정상 fetch 응답 도착 시 .finally가 먼저 호출되어 clearTimeout으로 무효화.
+    const safetyTimer = setTimeout(() => {
+      setIsPrefillLoading(false)
+    }, 4000)
     fetch(`/api/team-status/expected-timeline?date=${encodeURIComponent(date)}`,
           { signal: ac.signal })
       .then(r => (r.ok ? r.json() : null))
@@ -654,11 +660,15 @@ export default function WorkLogForm({
         // 그 외는 무시 (네트워크 일시 오류 등)
       })
       .finally(() => {
+        clearTimeout(safetyTimer)
         // abort된 경우엔 새 effect가 다시 setIsPrefillLoading(true) 했을 수 있으므로
         // 동일 effect 인스턴스만 false 처리. AbortError 후엔 ac.signal.aborted=true.
         if (!ac.signal.aborted) setIsPrefillLoading(false)
       })
-    return () => ac.abort()
+    return () => {
+      ac.abort()
+      clearTimeout(safetyTimer)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formValues.leaveDate])
 
