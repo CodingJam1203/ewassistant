@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { notifyLocationChanged } from '@/lib/notifications/teams'
+// notifyLocationChanged는 별도 notify 라우트로 이관 (C2 정책, 2026-05-19 v1.9)
 import { getKstTodayDateString } from '@/lib/utils/date'
 import {
   appendWorkLocationToTimeline,
@@ -263,21 +263,9 @@ export async function POST(request: Request) {
       created_by:      user.email!,
     })
 
-    // Teams 알림 — actual chips + 현재 위치(★)를 함께 전달
-    notifyLocationChanged({
-      name: profile?.display_name || user.email!,
-      date,
-      previousLocation,
-      newLocation: effectiveCurrentLocation,
-      changedAt: now,
-      timeline: updatedTimeline ?? undefined,
-      actualWorkLocations: updatedActualLocs
-        ?? (target === 'actual_replace' ? normalizeWorkLocations(body.locations) ?? undefined : undefined),
-      currentLabel: effectiveCurrentLocation,
-      currentIndex: effectiveCurrentIndex,
-      division: profile?.division ?? null,
-      team: profile?.team ?? null,
-    })
+    // Teams 알림 — 2026-05-19 v1.9: 자동 저장 시점이 아닌 "완료" 클릭 시점(C2 정책)에
+    // 별도 발송. 본 라우트(즉시 저장 경로)는 알림 호출 안 함.
+    // 호출처: POST /api/team-status/location/notify (편집 시작~종료 변화 비교 후 1건)
 
     return NextResponse.json({
       ...daily,

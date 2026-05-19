@@ -77,6 +77,10 @@ function EditableLocationChipsImpl({
     if (onChangeTimerRef.current) clearTimeout(onChangeTimerRef.current)
   }, [])
 
+  // C2 정책 (2026-05-19 v1.9): 편집 진입 시점의 스냅샷 — "완료" 클릭 시 변화 비교
+  // 후 변화 있을 때만 location notify 발송 (자동 저장 시점엔 알림 안 보냄)
+  const startSnapshotRef = useRef<{ chipsJson: string; label: string } | null>(null)
+
   const scheduleParentRefresh = () => {
     if (onChangeTimerRef.current) clearTimeout(onChangeTimerRef.current)
     onChangeTimerRef.current = setTimeout(() => {
@@ -179,10 +183,51 @@ function EditableLocationChipsImpl({
 
   const effectiveIndex = localIndex ?? currentIndex
 
+  const handleEditStart = () => {
+    // C2 정책: 편집 진입 시점 스냅샷 기록
+    startSnapshotRef.current = {
+      chipsJson: JSON.stringify(chips ?? []),
+      label: (currentLabel ?? '').trim(),
+    }
+    setEditing(true)
+  }
+
+  const handleEditDone = () => {
+    // C2 정책: 변화 있을 때만 Teams 알림 발송 (자동 저장 경로는 알림 X)
+    const snap = startSnapshotRef.current
+    const currLabel = (currentLabel ?? '').trim()
+    // 별표가 옮겨졌으면 localIndex가 우선 — 그 값으로 라벨 재계산
+    const effLabel = (() => {
+      const idx = localIndex ?? currentIndex
+      if (idx === null || idx === undefined || idx < 0 || idx >= chips.length) return currLabel
+      // chipLabel 계산은 부모가 표시한 currentLabel과 정확히 동기 어려움 — currLabel 우선 사용
+      return currLabel
+    })()
+    const currChipsJson = JSON.stringify(chips ?? [])
+    const changed = snap
+      ? (snap.chipsJson !== currChipsJson || snap.label !== effLabel)
+      : false  // snapshot 없으면 변화 판단 불가 → skip
+
+    if (changed && snap) {
+      // fire-and-forget — 실패해도 UX 영향 없음
+      fetch('/api/team-status/location/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, previousLocation: snap.label }),
+      }).catch(err => {
+        // 알림 실패는 silent (로그만)
+        console.warn('[location/notify] failed:', err)
+      })
+    }
+
+    startSnapshotRef.current = null
+    setEditing(false)
+  }
+
   const editButton = (
     <button
       type="button"
-      onClick={() => setEditing(true)}
+      onClick={handleEditStart}
       className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-dashed border-border-strong text-[11px] text-text-secondary hover:text-primary-700 hover:border-primary-500 hover:bg-primary-50 transition-colors"
     >
       <Pencil className="h-3 w-3" aria-hidden />
@@ -193,7 +238,7 @@ function EditableLocationChipsImpl({
   const doneButton = (
     <button
       type="button"
-      onClick={() => setEditing(false)}
+      onClick={handleEditDone}
       className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-primary-600 text-white text-[11px] font-semibold hover:bg-primary-700 transition-colors"
     >
       <Check className="h-3 w-3" aria-hidden />
