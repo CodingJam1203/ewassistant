@@ -124,7 +124,6 @@ const formSchema = z.object({
   plannedWorkLocations: z.array(chipZ).optional(),
   expectedLeaveTimeline: z.array(leaveItemZ).optional(),
 
-  thanksMacaron: z.string().optional(),
   sendTeams: z.boolean().optional(),
 
   /** 메타 — 편집 모드 + scope. UI는 showCheckIn/Out으로 분기되는데, schema도
@@ -471,7 +470,6 @@ export default function WorkLogForm({
           expectedEndTime: defaultExpectedEndTime,
           plannedWorkLocations: defaultPlannedLocations,
           expectedLeaveTimeline: (editingLog.expected_leave_timeline ?? []) as LeaveTimeline,
-          thanksMacaron: (editingLog.thanks_macaron as string | null) ?? '',
           sendTeams: true,
           _editScope: editScope,
         }
@@ -1162,21 +1160,69 @@ export default function WorkLogForm({
             />
             {errors.workContent && <p className="mt-1 text-sm text-danger-text">{errors.workContent.message as string}</p>}
           </div>
+
+          {/* 지각/당일수정 — 근무내용 다음. 본문(퇴근보고) 영역 분류이므로 showCheckOutSections gate 그대로.
+              check_in 수정 모드에선 본문 섹션이 통째로 hide되어 함께 hide됨. */}
+          <div className="sm:col-span-2 p-4 bg-surface rounded-lg border border-border">
+            <label className="block text-sm font-medium text-text-primary mb-1">지각 or 출근 시간 입력 수정 여부</label>
+            <p className="mb-2 text-xs text-warning-text">
+              ※ 당일 수정 기준은 <span className="font-medium">당일 07시 이후</span>이며, 조기출근으로 인한 수정은 제외
+            </p>
+            <select
+              {...register('lateOrAttendanceStatus')}
+              className="select-tight block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
+            >
+              <option value="아니오">아니오</option>
+              <option value="예">예</option>
+            </select>
+
+            {formValues.lateOrAttendanceStatus === '예' && (
+              <div className="mt-4 grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary">전일 출근보고 시간 *</label>
+                  <TimeSelect
+                    className="mt-1"
+                    value={formValues.previousReportTime ?? ''}
+                    onChange={(v) => setValue('previousReportTime', v, { shouldValidate: true, shouldDirty: true })}
+                    ariaLabelHour="전일 출근보고 시"
+                    ariaLabelMinute="전일 출근보고 분"
+                  />
+                  {errors.previousReportTime && <p className="mt-1 text-xs text-danger-text">{errors.previousReportTime.message as string}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary">당일 실제 출퇴근 시간 *</label>
+                  <TimeSelect
+                    className="mt-1"
+                    value={formValues.currentReportTime ?? ''}
+                    onChange={(v) => setValue('currentReportTime', v, { shouldValidate: true, shouldDirty: true })}
+                    ariaLabelHour="당일 실제 출퇴근 시"
+                    ariaLabelMinute="당일 실제 출퇴근 분"
+                  />
+                  {errors.currentReportTime && <p className="mt-1 text-xs text-danger-text">{errors.currentReportTime.message as string}</p>}
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-text-secondary">지각/출근수정 사유 *</label>
+                  <input type="text" {...register('lateReason')} className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border" />
+                  {errors.lateReason && <p className="mt-1 text-xs text-danger-text">{errors.lateReason.message as string}</p>}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
       )}
 
-      {/* ─── 부가 영역 wrapper — 4(출근보고)/5(기타)를 묶어서 본문(1~3)과 시각 분리 ─── */}
-      {/* 지각/마카롱은 항상 노출이라 wrapper도 항상 노출 */}
+      {/* ─── 부가 영역 wrapper — 4(D+1 출근보고)만 묶어서 본문(1~3)과 시각 분리.
+              4번 hide 시 wrapper 자체도 hide. (지각/당일수정은 본문 3번 안으로 이동 · 마카롱 삭제됨) ─── */}
+      {showCheckInSections && !hideD1Section && (
       <div className="mt-10 rounded-xl bg-surface-muted border-t-4 border-primary-500 border-x border-b border-border-strong p-4 sm:p-5 space-y-8 relative">
         <span className="absolute -top-3 left-4 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-primary-600 text-white rounded-full shadow-sm">
           추가 입력 영역
         </span>
 
-      {/* 4. 출근보고(D+1 사전등록) — Stage 1 hide 조건 추가:
+      {/* 4. 출근보고(D+1 사전등록) — Stage 1 hide 조건:
             - 퇴근보고 수정(check_out): showCheckInSections=false → hidden
             - 신규 + 지나간 일자: hideD1Section=true → hidden */}
-      {showCheckInSections && !hideD1Section && (
       <div>
         <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">출근보고</h3>
 
@@ -1262,76 +1308,9 @@ export default function WorkLogForm({
           )}
         </div>
       </div>
+
+      </div>
       )}
-
-      {/* 5. 기타 — 지각/당일수정 + 감사 마카롱 */}
-      <div>
-        <h3 className="text-lg leading-6 font-medium text-text-primary mb-4 border-b pb-2">기타</h3>
-
-        <div className="space-y-6">
-          {/* 지각/당일수정 — 출근보고 수정 모드(check_in)가 아니면 항상 노출 */}
-          {showCheckOutSections && (
-          <div className="p-4 bg-surface rounded-lg border border-border">
-            <label className="block text-sm font-medium text-text-primary mb-1">지각 or 출근 시간 입력 수정 여부</label>
-            <p className="mb-2 text-xs text-warning-text">
-              ※ 당일 수정 기준은 <span className="font-medium">당일 07시 이후</span>이며, 조기출근으로 인한 수정은 제외
-            </p>
-            <select
-              {...register('lateOrAttendanceStatus')}
-              className="select-tight block w-full sm:w-1/2 rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border bg-surface"
-            >
-              <option value="아니오">아니오</option>
-              <option value="예">예</option>
-            </select>
-
-            {formValues.lateOrAttendanceStatus === '예' && (
-              <div className="mt-4 grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2">
-                <div>
-                  <label className="block text-xs font-medium text-text-secondary">전일 출근보고 시간 *</label>
-                  <TimeSelect
-                    className="mt-1"
-                    value={formValues.previousReportTime ?? ''}
-                    onChange={(v) => setValue('previousReportTime', v, { shouldValidate: true, shouldDirty: true })}
-                    ariaLabelHour="전일 출근보고 시"
-                    ariaLabelMinute="전일 출근보고 분"
-                  />
-                  {errors.previousReportTime && <p className="mt-1 text-xs text-danger-text">{errors.previousReportTime.message as string}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-text-secondary">당일 실제 출퇴근 시간 *</label>
-                  <TimeSelect
-                    className="mt-1"
-                    value={formValues.currentReportTime ?? ''}
-                    onChange={(v) => setValue('currentReportTime', v, { shouldValidate: true, shouldDirty: true })}
-                    ariaLabelHour="당일 실제 출퇴근 시"
-                    ariaLabelMinute="당일 실제 출퇴근 분"
-                  />
-                  {errors.currentReportTime && <p className="mt-1 text-xs text-danger-text">{errors.currentReportTime.message as string}</p>}
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-text-secondary">지각/출근수정 사유 *</label>
-                  <input type="text" {...register('lateReason')} className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border" />
-                  {errors.lateReason && <p className="mt-1 text-xs text-danger-text">{errors.lateReason.message as string}</p>}
-                </div>
-              </div>
-            )}
-          </div>
-          )}
-
-          {/* 감사 마카롱 — 항상 노출 */}
-          <div>
-            <label className="block text-sm font-medium text-text-primary">감사 마카롱 메시지 (선택)</label>
-            <textarea
-              rows={2}
-              placeholder="동료에게 전하고 싶은 감사 메시지를 적어주세요!"
-              {...register('thanksMacaron')}
-              className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border"
-            />
-          </div>
-        </div>
-      </div>
-
-      </div>
       {/* ─── 부가 영역 wrapper 끝 ─── */}
 
       {submitError && (
