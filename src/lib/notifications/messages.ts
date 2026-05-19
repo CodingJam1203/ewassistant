@@ -612,8 +612,6 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       lines.push('')
       lines.push(action)
       lines.push('')
-      lines.push(`— ${p.senderName} 드림`)
-      lines.push('')
       lines.push(cta())
       return lines.join('\n')
     }
