@@ -9,9 +9,10 @@
  *
  * 429 방지 — 호출처(cron)에서 캘린더당 적정 빈도(30분~1시간)로만 호출.
  * 사용자 요청은 DB cache(org_calendar_events) read만 — Google에 직접 호출 X.
+ *
+ * node-ical은 Node.js 전용 (BigInt 등 native 의존). Edge runtime + Turbopack
+ * build time 분석에서 깨질 수 있어 dynamic import로 lazy load.
  */
-
-import ical from 'node-ical'
 
 export interface ParsedEvent {
   googleEventId: string
@@ -56,6 +57,8 @@ export async function fetchCalendarEvents(
       throw new Error(`iCal HTTP ${res.status}: ${await res.text().catch(() => '')}`)
     }
     const text = await res.text()
+    // dynamic import — build time bundle 분석에서 node-ical(BigInt) 제외
+    const ical = await import('node-ical')
     const parsed = ical.sync.parseICS(text)
 
     const events: ParsedEvent[] = []

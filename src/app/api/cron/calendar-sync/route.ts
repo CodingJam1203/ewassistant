@@ -13,6 +13,10 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncAllCalendars } from '@/lib/org-calendar/sync'
 
+// node-ical은 Node.js 전용 (BigInt 등 native 의존). Edge runtime에서 build 실패.
+// 명시적으로 nodejs 지정.
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 // iCal fetch + upsert + delete. 캘린더 N개 × 평균 fetch 1-3초 → 여유.
 export const maxDuration = 60
 
