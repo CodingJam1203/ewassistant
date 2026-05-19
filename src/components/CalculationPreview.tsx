@@ -113,11 +113,15 @@ export default function CalculationPreview({ result, error }: CalculationPreview
           </div>
         )}
 
-        {/* EW 시간/코드 — 강조 카드 */}
-        <div>
-          <p className="text-[12px] font-semibold text-text-secondary">EW 시간/코드</p>
-          <p className="mt-1 text-lg font-bold tabular-nums text-primary-600">{result.ewValue}</p>
-        </div>
+        {/* EW 시간/코드 — 강조 카드.
+            간주근로 8h 미만이면 EW 코드 자체가 유효하지 않은 상태(예: 17:30~17:30)이므로 hide.
+            대신 아래 노란 advisory 박스를 강조해서 사용자에게 근무유형 변경 유도. */}
+        {!showDeemedWorkAdvisory && (
+          <div>
+            <p className="text-[12px] font-semibold text-text-secondary">EW 시간/코드</p>
+            <p className="mt-1 text-lg font-bold tabular-nums text-primary-600">{result.ewValue}</p>
+          </div>
+        )}
 
         {showLunchAdvisory && (
           <div className="rounded-[10px] border-2 border-danger-text bg-danger-bg px-3 py-2.5 text-[13px] font-semibold text-danger-text">
@@ -126,8 +130,8 @@ export default function CalculationPreview({ result, error }: CalculationPreview
         )}
 
         {showDeemedWorkAdvisory && (
-          <div className="rounded-[10px] border border-warning-border bg-warning-bg px-3 py-2 text-[12px] text-warning-text">
-            * 간주근로는 보통 8시간 이상 근무 시 L1~L9 코드로 인정됩니다. 실근무 8시간 미만이면 <span className="font-semibold">근무유형을 &lsquo;기본근무 등록&rsquo;</span>으로 변경해주세요.
+          <div className="rounded-[10px] border-2 border-warning-border bg-warning-bg px-3 py-3 text-[13px] font-semibold text-warning-text">
+            ⚠ 간주근로는 8시간 이상의 외근시 L1~L9으로 인정됩니다. 실근무 8시간 미만이면 근무유형을 &lsquo;기본근무 등록&rsquo;으로 변경해주세요.
           </div>
         )}
 

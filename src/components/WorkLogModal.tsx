@@ -70,16 +70,27 @@ export default function WorkLogModal({
     []
   )
 
+  // 간주근로(workTypeCode=2) + 실근무 8h 미만 — EW 코드 자체가 유효하지 않은 상태라 제출 차단.
+  // 사용자는 advisory 안내에 따라 근무유형을 '기본근무 등록'으로 바꿔야 함.
+  const submitBlocked = !!calculationResult
+    && calculationResult.workTypeCode === 2
+    && calculationResult.actualWorkMinutes < 8 * 60
+
   const submitButtonLabel = isEditing
     ? (formSubmitting ? '수정 중...' : '수정하기')
     : (formSubmitting ? '제출 중...' : '제출하고 복사하기')
+
+  // 제출 차단 시 회색 + cursor-not-allowed. 평소엔 primary 파란색.
+  const submitBtnClass = submitBlocked
+    ? 'w-full inline-flex justify-center items-center gap-2 h-12 px-5 rounded-[10px] text-base font-semibold text-text-muted bg-surface-muted border border-border cursor-not-allowed transition-colors'
+    : 'w-full inline-flex justify-center items-center gap-2 h-12 px-5 rounded-[10px] text-base font-semibold text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-500 disabled:opacity-50 transition-colors'
 
   const DesktopSubmitButton = (
     <button
       type="submit"
       form="work-log-form"
-      disabled={formSubmitting}
-      className="w-full inline-flex justify-center items-center gap-2 h-12 px-5 rounded-[10px] text-base font-semibold text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-500 disabled:opacity-50 transition-colors"
+      disabled={formSubmitting || submitBlocked}
+      className={submitBtnClass}
     >
       {formSubmitting ? <Loader2 className="animate-spin h-5 w-5" aria-hidden /> : <Copy className="h-5 w-5" aria-hidden />}
       {submitButtonLabel}
@@ -118,8 +129,8 @@ export default function WorkLogModal({
     <button
       type="submit"
       form="work-log-form"
-      disabled={formSubmitting}
-      className="w-full inline-flex justify-center items-center gap-2 h-12 px-5 rounded-[10px] text-base font-semibold text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-500 disabled:opacity-50 transition-colors"
+      disabled={formSubmitting || submitBlocked}
+      className={submitBtnClass}
     >
       {formSubmitting ? <Loader2 className="animate-spin h-5 w-5" aria-hidden /> : <Copy className="h-5 w-5" aria-hidden />}
       {submitButtonLabel}

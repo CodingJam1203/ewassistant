@@ -805,6 +805,15 @@ export default function WorkLogForm({
         leaveMinutes: submittedLeaveMinutes,
         isFullDayLeave: submittedIsAllDay,
       })
+
+      // 2026-05-19 v1.13: 간주근로 + 실근무 8h 미만 — 외부 버튼 disabled 만으로는 Enter key
+      // submit 등 우회 가능성. 서버 도달 전 가드.
+      if (result.workTypeCode === 2 && result.actualWorkMinutes < 8 * 60) {
+        setSubmitError('간주근로는 8시간 이상의 외근시에만 인정됩니다. 근무유형을 \'기본근무 등록\'으로 변경해주세요.')
+        setIsSubmitting(false)
+        return
+      }
+
       try {
         await navigator.clipboard.writeText(result.copyText)
       } catch (err) {
