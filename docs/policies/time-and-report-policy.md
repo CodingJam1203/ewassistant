@@ -448,7 +448,9 @@ leave_calendar_cache  -- Google Sheets 휴가 캐시 (007, TTL 6h)
 
 ## 13. 구현 점검 체크리스트 (회귀 테스트용)
 
-- [ ] 퇴근보고 수정 모드 진입 시 다음날 영역·감사 마카롱 영역 렌더링 X
+- [ ] 퇴근보고 수정 모드 진입 시 다음날 영역(D+1) 렌더링 X
+- [ ] 퇴근보고 폼 — 감사 마카롱 영역 UI 자체 없음 (2026-05-19 v1.10 제거, DB 컬럼은 유지)
+- [ ] 퇴근보고 폼 — 지각/당일수정 영역은 별도 "기타" h3 섹션, `showCheckOutSections` gate (check_in 수정 모드에서 hide)
 - [ ] 미보고 + 출근보고 모달 — 출근예정 잠금 + 토글, 토글 안 풀고 제출 시 NULL 저장
 - [ ] 미보고 + 퇴근보고 모달 — 실제출근 09:00 / 실제퇴근 18:00 default
 - [ ] 퇴근 + 명일 출근 동시 제출 — 명일 출근 채널 알림 X, 퇴근 채널만 1건
@@ -538,3 +540,4 @@ leave_calendar_cache  -- Google Sheets 휴가 캐시 (007, TTL 6h)
 | 2026-05-19 | v1.7 | **Google 캘린더 휴가 자동 매핑 정책 명시 + N-Click 입력 우선** — 윤정인 5/19 work_log에 5/18 휴가 "단이 건강검진"이 잘못 매핑된 케이스 보고. 원인: (1) 매핑 날짜 기준 혼재 (보고 작성일 today vs 보고 대상일 leave_date), (2) Google 자동 매핑이 사용자 시간 입력보다 우선 적용. 조치 — ① 매핑 기준 명확화: **항상 leave_date 기준**으로만 Google Sheets 휴가 캐시 조회. 전일·명일 사전등록 시에도 동일 적용. ② N-Click 입력 우선: 사용자가 출근/퇴근보고 submit 시 source='calendar' leave_timeline 항목은 자동 제거 (CheckInModal + WorkLogForm). 사용자가 LeaveTimelineInput에서 직접 추가한 항목은 유지. ③ 정책서 §3.4 신설. PROD 데이터 정정 완료(윤정인 5/19 planned=10:00~17:30, leave_timeline=NULL). | Claude |
 | 2026-05-19 | v1.8 | **모달 날짜 변경 시 form prefill 재적용 정책** — 사용자 보고: 출근보고 수정 모달에서 "날짜" input 변경해도 아래 form 값(시간·근무장소·메모)이 이전 일자 값으로 유지됨. 의도: 응답에 그 일자 work_log 있으면 그 값으로 재 prefill, 없으면 default reset. 조치 — ① CheckInModal `fetchPrefill`: 모든 setX 항상 호출, 응답 없으면 default(09:00~18:00, 사무실, 빈 메모, leaveTimeline=[]). `isFirstFetchRef` useRef로 첫 진입 시 `initialStartTime` prop 보호. ② WorkLogForm 신규 작성 흐름의 leaveDate prefill effect — `!hasExisting` 시 09:00/18:00 명시 reset. ③ Google 휴가 자동 매핑은 calendar-events effect가 date dependency라 자동 재호출 — 새 일자의 휴가가 leaveTimeline에 매핑됨 (위 reset 후). ④ 정책서 §3.5 신설. | Claude |
 | 2026-05-19 | v1.9 | **근무장소 변경 Teams 알림 — "완료" 클릭 시점 일괄 발송 (C2)** — 사용자 보고: 칩 추가/제거/별표 변경 시점마다 즉시 알림 → 한 편집 세션에서 알림 2-3건 회사 채널 도배. 조치 — ① `/api/team-status/location` POST 라우트의 `notifyLocationChanged()` 호출 제거 (DB 저장·event 기록은 그대로). ② `/api/team-status/location/notify` 신규 POST 라우트 — 본인 work_log + daily 상태 read 후 알림 발송. ③ `EditableLocationChips.tsx` — 편집 시작 시 `startSnapshotRef`(chips JSON + currentLabel) 기록, "완료" 클릭 시 변화 비교 → 변화 있을 때만 notify 라우트 호출 (fire-and-forget). 변화 없으면 skip. 자동 저장 UX는 무변경. | Claude |
+| 2026-05-19 | v1.10 | **퇴근보고 폼 — 감사 마카롱 영역 제거 + 지각/당일수정 별도 "기타" 섹션으로 분리** — 사용자 즉석 지시. ① 감사 마카롱: UI + zod schema + editingLog prefill + submit body 모두 제거. DB column `thanks_macaron`은 유지 — 기존 데이터 보존, PATCH는 undefined면 기존값 유지(`?? log.thanks_macaron`), POST는 null insert. ② 지각/당일수정: 종전 "기타" 5번 섹션 안의 카드 박스 형태에서, 다른 본문 섹션과 동일하게 h3 헤더 + 가로 줄 패턴의 별도 4번 "기타" 섹션으로 분리. hide gate(`showCheckOutSections`)는 그대로 — check_in 수정 모드에서 hide 정책 동일성 유지. ③ "추가 입력 영역" wrapper는 D+1 출근보고 hide gate(`showCheckInSections && !hideD1Section`)에 묶임. §13 체크리스트 갱신. 정책 자체 변경 없음 — UI 레이아웃 정리. §E 단축 예외(STG_QA 생략) 사용자 트리거. | Claude |
