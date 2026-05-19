@@ -313,13 +313,11 @@ export default function CalendarMatrixPage() {
     }))
   }, [filteredUsers, selectedDivisionId, divisions])
 
-  // "기타" 행 — 사용자에 매칭 안 된 team_id 이벤트들. 본부 단위(team_id null) 일정은
-  // 별도 본부 헤더 행에서 처리되므로 여기서는 제외. team_id가 있는데 그 팀의 어느
-  // 사용자에도 매칭 안 된 이벤트만 모음.
-  // 결과: Map<teamId|divisionId, Map<dateIso, EventCellEntry[]>>
-  const otherTeamMatrix = useMemo(() => {
-    const m = new Map<string, { teamName: string | null; divisionId: string; cells: Map<string, EventCellEntry[]> }>()
-    // 현재 필터링된 events 중 사용자 매칭 0건인 것만
+  // "기타" 행 — 사용자에 매칭 안 된 events. 본부 단위로 1행씩 통합 (캡처 패턴).
+  // 본부 단위(team_id null) 일정은 별도 본부 헤더 행에서 처리되므로 여기서는 제외.
+  // 결과: Map<divisionId, Map<dateIso, EventCellEntry[]>>
+  const otherDivisionMatrix = useMemo(() => {
+    const m = new Map<string, Map<string, EventCellEntry[]>>()
     const filteredUserEmails = new Set(filteredUsers.map(u => u.email.toLowerCase()))
     for (const ev of filteredEvents) {
       if (ev.teamId === null) continue  // 본부 단위는 divisionMatrix에서
@@ -329,12 +327,11 @@ export default function CalendarMatrixPage() {
         const dateIso = toKstIsoDate(day)
         const entry = eventOnDate(ev, dateIso)
         if (!entry) continue
-        const key = ev.teamId
-        const g = m.get(key) ?? { teamName: ev.teamName, divisionId: ev.divisionId, cells: new Map() }
-        const cell = g.cells.get(dateIso) ?? []
+        const divMap = m.get(ev.divisionId) ?? new Map<string, EventCellEntry[]>()
+        const cell = divMap.get(dateIso) ?? []
         cell.push(entry)
-        g.cells.set(dateIso, cell)
-        m.set(key, g)
+        divMap.set(dateIso, cell)
+        m.set(ev.divisionId, divMap)
       }
     }
     return m
@@ -435,12 +432,12 @@ export default function CalendarMatrixPage() {
       ) : (
         <div className="bg-surface border border-border rounded-[10px] overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-[11px]">
+            <table className="w-full border-collapse text-[13px]">
               <thead>
                 <tr className="bg-surface-muted">
-                  <th className="sticky left-0 z-10 bg-surface-muted px-2 py-2 text-left font-semibold text-text-secondary border-r border-border min-w-[70px]">구분</th>
-                  <th className="sticky left-[70px] z-10 bg-surface-muted px-2 py-2 text-left font-semibold text-text-secondary border-r border-border min-w-[80px]">인원</th>
-                  <th className="sticky left-[150px] z-10 bg-surface-muted px-2 py-2 text-left font-semibold text-text-secondary border-r border-border min-w-[80px]">직급/직책</th>
+                  <th className="sticky left-0 z-10 bg-surface-muted px-3 py-2.5 text-left font-semibold text-text-secondary border-r border-border min-w-[90px]">구분</th>
+                  <th className="sticky left-[90px] z-10 bg-surface-muted px-3 py-2.5 text-left font-semibold text-text-secondary border-r border-border min-w-[100px]">인원</th>
+                  <th className="sticky left-[190px] z-10 bg-surface-muted px-3 py-2.5 text-left font-semibold text-text-secondary border-r border-border min-w-[100px]">직급/직책</th>
                   {days.map(d => {
                     const h = fmtDayHeader(d)
                     return (
@@ -465,9 +462,9 @@ export default function CalendarMatrixPage() {
                     {/* 본부 단위 이벤트 행 (있을 때만) */}
                     {divisionMatrix.get(grp.id) && (
                       <tr key={`${grp.id}-div`} className="bg-purple-50/40 border-t-2 border-purple-300">
-                        <td className="sticky left-0 z-[5] bg-purple-50/80 px-2 py-1.5 font-semibold text-purple-900 border-r border-border align-top">{grp.divisionName}</td>
-                        <td className="sticky left-[70px] z-[5] bg-purple-50/80 px-2 py-1.5 text-purple-900 font-semibold border-r border-border align-top">본부</td>
-                        <td className="sticky left-[150px] z-[5] bg-purple-50/80 px-2 py-1.5 text-purple-900 border-r border-border align-top">본부 일정</td>
+                        <td className="sticky left-0 z-[5] bg-purple-50/80 px-3 py-2 font-semibold text-purple-900 border-r border-border align-top">{grp.divisionName}</td>
+                        <td className="sticky left-[90px] z-[5] bg-purple-50/80 px-3 py-2 text-purple-900 font-semibold border-r border-border align-top">본부</td>
+                        <td className="sticky left-[190px] z-[5] bg-purple-50/80 px-3 py-2 text-purple-900 border-r border-border align-top">본부 일정</td>
                         {days.map(d => {
                           const dateIso = toKstIsoDate(d)
                           const cell = divisionMatrix.get(grp.id)?.get(dateIso) ?? []
@@ -478,7 +475,7 @@ export default function CalendarMatrixPage() {
                                   <div
                                     key={i}
                                     title={e.displayText}
-                                    className={`px-1 py-0.5 rounded text-[10px] truncate cursor-default ${TYPE_BG[e.ev.inferredType]}`}
+                                    className={`px-1.5 py-0.5 rounded text-xs leading-tight truncate cursor-default ${TYPE_BG[e.ev.inferredType]}`}
                                   >
                                     {e.displayText}
                                   </div>
@@ -498,14 +495,14 @@ export default function CalendarMatrixPage() {
                           key={u.email}
                           className={`${gi % 2 === 0 ? 'bg-surface' : 'bg-surface-muted/30'} ${isFirstOfTeam ? 'border-t border-border' : ''}`}
                         >
-                          <td className="sticky left-0 z-[5] bg-inherit px-2 py-1 text-text-secondary border-r border-border align-top">
+                          <td className="sticky left-0 z-[5] bg-inherit px-3 py-2 text-text-secondary border-r border-border align-top">
                             {u.teamName ?? grp.divisionName}
                           </td>
-                          <td className={`sticky left-[70px] z-[5] bg-inherit px-2 py-1 border-r border-border align-top ${isMe ? 'font-bold text-primary-700' : 'font-medium text-text-primary'}`}>
+                          <td className={`sticky left-[90px] z-[5] bg-inherit px-3 py-2border-r border-border align-top ${isMe ? 'font-bold text-primary-700' : 'font-medium text-text-primary'}`}>
                             {u.displayName}
                             {isMe && <span className="ml-1 text-[9px] text-primary-600">(나)</span>}
                           </td>
-                          <td className="sticky left-[150px] z-[5] bg-inherit px-2 py-1 text-text-secondary border-r border-border align-top text-[10px]">
+                          <td className="sticky left-[190px] z-[5] bg-inherit px-3 py-2 text-text-secondary border-r border-border align-top text-xs">
                             {u.role === 'admin' ? '관리자' : u.role === 'leader' ? '리더' : ''}
                           </td>
                           {days.map(d => {
@@ -518,7 +515,7 @@ export default function CalendarMatrixPage() {
                                     <div
                                       key={i}
                                       title={e.displayText}
-                                      className={`px-1 py-0.5 rounded text-[10px] truncate cursor-default ${TYPE_BG[e.ev.inferredType]}`}
+                                      className={`px-1.5 py-0.5 rounded text-xs leading-tight truncate cursor-default ${TYPE_BG[e.ev.inferredType]}`}
                                     >
                                       {e.displayText}
                                     </div>
@@ -530,36 +527,33 @@ export default function CalendarMatrixPage() {
                         </tr>
                       )
                     })}
-                    {/* "기타" rows — 사용자에 매칭 안 된 events (team별로 모음) */}
-                    {Array.from(otherTeamMatrix.entries())
-                      .filter(([, g]) => g.divisionId === grp.id)
-                      .map(([teamId, g]) => (
-                        <tr key={`${grp.id}-other-${teamId}`} className="bg-amber-50/40 border-t border-border">
-                          <td className="sticky left-0 z-[5] bg-amber-50/80 px-2 py-1 text-text-secondary border-r border-border align-top">{g.teamName ?? '—'}</td>
-                          <td className="sticky left-[70px] z-[5] bg-amber-50/80 px-2 py-1 italic text-text-secondary border-r border-border align-top">기타</td>
-                          <td className="sticky left-[150px] z-[5] bg-amber-50/80 px-2 py-1 text-text-muted border-r border-border align-top text-[10px]">미매칭</td>
-                          {days.map(d => {
-                            const dateIso = toKstIsoDate(d)
-                            const cell = g.cells.get(dateIso) ?? []
-                            return (
-                              <td key={dateIso} className="px-1 py-1 border-r border-border align-top">
-                                <div className="space-y-0.5">
-                                  {cell.map((e, i) => (
-                                    <div
-                                      key={i}
-                                      title={e.displayText}
-                                      className={`px-1 py-0.5 rounded text-[10px] truncate cursor-default ${TYPE_BG[e.ev.inferredType]}`}
-                                    >
-                                      {e.displayText}
-                                    </div>
-                                  ))}
-                                </div>
-                              </td>
-                            )
-                          })}
-                        </tr>
-                      ))
-                    }
+                    {/* "기타" 행 — 본부 단위 통합 1행 (캡처 패턴). 매칭 안 된 events 모음 */}
+                    {otherDivisionMatrix.get(grp.id) && (
+                      <tr key={`${grp.id}-other`} className="bg-amber-50/40 border-t border-border">
+                        <td className="sticky left-0 z-[5] bg-amber-50/80 px-3 py-2 text-text-secondary border-r border-border align-top">{grp.divisionName}</td>
+                        <td className="sticky left-[90px] z-[5] bg-amber-50/80 px-3 py-2 italic font-medium text-text-secondary border-r border-border align-top">기타</td>
+                        <td className="sticky left-[190px] z-[5] bg-amber-50/80 px-3 py-2 text-text-muted border-r border-border align-top">공통</td>
+                        {days.map(d => {
+                          const dateIso = toKstIsoDate(d)
+                          const cell = otherDivisionMatrix.get(grp.id)?.get(dateIso) ?? []
+                          return (
+                            <td key={dateIso} className="px-1 py-1 border-r border-border align-top">
+                              <div className="space-y-0.5">
+                                {cell.map((e, i) => (
+                                  <div
+                                    key={i}
+                                    title={e.displayText}
+                                    className={`px-1.5 py-0.5 rounded text-xs leading-tight truncate cursor-default ${TYPE_BG[e.ev.inferredType]}`}
+                                  >
+                                    {e.displayText}
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )}
                   </>
                 ))}
               </tbody>
