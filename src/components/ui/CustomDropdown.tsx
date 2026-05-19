@@ -38,6 +38,11 @@ interface CustomDropdownProps {
   /** 외곽 wrapper(div)에 적용. 예: 'flex-1 min-w-0' */
   className?: string
   ariaLabel?: string
+  /**
+   * loading=true 시 disabled + 선택값 숨김 + placeholder "불러오는 중…".
+   * prefill API 응답 전에 default 값(09:00 등)이 잠깐 보였다가 갱신되는 flicker 방지용.
+   */
+  loading?: boolean
 }
 
 const ITEM_HEIGHT = 36
@@ -52,6 +57,7 @@ export default function CustomDropdown({
   disabled,
   className,
   ariaLabel,
+  loading = false,
 }: CustomDropdownProps) {
   const [open, setOpen] = useState(false)
   const [highlighted, setHighlighted] = useState<number>(-1)
@@ -59,7 +65,10 @@ export default function CustomDropdown({
   const listRef = useRef<HTMLUListElement>(null)
 
   const selectedIdx = options.findIndex(o => o.value === value)
-  const selectedLabel = selectedIdx >= 0 ? options[selectedIdx].label : ''
+  // loading 중에는 선택값(예: default 09:00) 숨기고 placeholder만 노출.
+  const selectedLabel = loading ? '' : (selectedIdx >= 0 ? options[selectedIdx].label : '')
+  const effectiveDisabled = disabled || loading
+  const effectivePlaceholder = loading ? '불러오는 중…' : placeholder
 
   // open 시 선택값을 위에서 3번째 위치로 스크롤 (사용자 결정 옵션 A)
   useLayoutEffect(() => {
@@ -146,15 +155,16 @@ export default function CustomDropdown({
     <div ref={wrapperRef} className={`relative ${className ?? ''}`}>
       <button
         type="button"
-        onClick={() => { if (!disabled) setOpen(o => !o) }}
-        disabled={disabled}
+        onClick={() => { if (!effectiveDisabled) setOpen(o => !o) }}
+        disabled={effectiveDisabled}
         aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-busy={loading || undefined}
         className={triggerCls}
       >
         <span className={selectedLabel ? 'text-text-primary truncate' : 'text-text-muted truncate'}>
-          {selectedLabel || placeholder}
+          {selectedLabel || effectivePlaceholder}
         </span>
         <ChevronDown className="h-4 w-4 text-text-muted shrink-0" aria-hidden />
       </button>

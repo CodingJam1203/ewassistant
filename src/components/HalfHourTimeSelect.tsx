@@ -24,6 +24,8 @@ interface Props {
   ariaLabel?: string
   /** placeholder 텍스트 (기본: '시간 선택') */
   placeholder?: string
+  /** prefill fetch 중 — disabled + 선택값 숨김 + "불러오는 중…" 표시 */
+  loading?: boolean
 }
 
 function pad2(n: number): string {
@@ -38,6 +40,7 @@ export default function HalfHourTimeSelect({
   className,
   ariaLabel,
   placeholder = '시간 선택',
+  loading = false,
 }: Props) {
   const maxHour = allowNextDay ? 36 : 23
 
@@ -74,6 +77,7 @@ export default function HalfHourTimeSelect({
       ariaLabel={ariaLabel}
       placeholder={placeholder}
       className={className}
+      loading={loading}
     />
   )
 }

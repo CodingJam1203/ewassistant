@@ -348,6 +348,10 @@ export default function WorkLogForm({
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [showEwPopup, setShowEwPopup] = useState(false)
   const [lastSubmitResult, setLastSubmitResult] = useState<EwCalculationResult | null>(null)
+  // 2026-05-19 v1.15: prefill fetch 중 시간 dropdown loading 표시.
+  // 모달 mount 시 default(09:00/18:00)가 잠깐 보였다가 prefill 응답으로 갱신되는 flicker 방지.
+  // 수정 모드(editingLog 있음)는 props로 즉시 값이 있어 loading 불필요.
+  const [isPrefillLoading, setIsPrefillLoading] = useState(() => !editingLog)
 
   useEffect(() => {
     onSubmitStateChange?.({ isSubmitting, submitError })
@@ -618,6 +622,9 @@ export default function WorkLogForm({
     // React 19 StrictMode 호환 — closure cancelled 패턴 대신 AbortController.
     // StrictMode가 mount→cleanup→remount 시뮬 시 1차 fetch는 abort되고
     // 2차 fetch가 정상 resolve.
+    // 2026-05-19 v1.15: leaveDate 변경 시 prefill 다시 받아오므로 loading 다시 true.
+    // 단 수정 모드(editingLog)에선 props로 즉시 값이 있어 loading 표시 X.
+    if (!editingLog) setIsPrefillLoading(true)
     const ac = new AbortController()
     fetch(`/api/team-status/expected-timeline?date=${encodeURIComponent(date)}`,
           { signal: ac.signal })
@@ -645,6 +652,11 @@ export default function WorkLogForm({
       .catch(err => {
         if (err?.name === 'AbortError') return  // StrictMode 시뮬 cleanup으로 abort된 경우
         // 그 외는 무시 (네트워크 일시 오류 등)
+      })
+      .finally(() => {
+        // abort된 경우엔 새 effect가 다시 setIsPrefillLoading(true) 했을 수 있으므로
+        // 동일 effect 인스턴스만 false 처리. AbortError 후엔 ac.signal.aborted=true.
+        if (!ac.signal.aborted) setIsPrefillLoading(false)
       })
     return () => ac.abort()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1043,6 +1055,7 @@ export default function WorkLogForm({
                 value={formValues.startTime ?? ''}
                 onChange={(v) => setValue('startTime', v, { shouldValidate: true, shouldDirty: true })}
                 ariaLabel="출근시간"
+                loading={isPrefillLoading}
               />
               {(errors as { startTime?: { message?: string } }).startTime?.message && (
                 <p className="mt-1 text-xs text-danger-text">
@@ -1057,6 +1070,7 @@ export default function WorkLogForm({
                 onChange={(v) => setValue('endTime', v, { shouldValidate: true, shouldDirty: true })}
                 allowNextDay
                 ariaLabel="실제 퇴근시간"
+                loading={isPrefillLoading}
               />
               {(errors as { endTime?: { message?: string } }).endTime?.message && (
                 <p className="mt-1 text-xs text-danger-text">
