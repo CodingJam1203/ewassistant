@@ -16,6 +16,7 @@ import { Pencil, Check } from 'lucide-react'
 import WorkLocationChipsView from '@/components/WorkLocationChipsView'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
 import type { WorkLocations } from '@/types/work-locations-v2'
+import { chipLabel } from '@/lib/work-locations-v2'
 
 interface EditableLocationChipsProps {
   value: WorkLocations
@@ -185,24 +186,27 @@ function EditableLocationChipsImpl({
 
   const handleEditStart = () => {
     // C2 정책: 편집 진입 시점 스냅샷 기록
+    // 라벨은 chips + currentIndex로 직접 계산 (currentLabel prop 의존 X — handleEditDone과 일관)
+    const startIdx = localIndex ?? currentIndex
+    const startLabel = (startIdx !== null && startIdx !== undefined && startIdx >= 0 && startIdx < chips.length)
+      ? chipLabel(chips[startIdx]).trim()
+      : (currentLabel ?? '').trim()
     startSnapshotRef.current = {
       chipsJson: JSON.stringify(chips ?? []),
-      label: (currentLabel ?? '').trim(),
+      label: startLabel,
     }
     setEditing(true)
   }
 
   const handleEditDone = () => {
     // C2 정책: 변화 있을 때만 Teams 알림 발송 (자동 저장 경로는 알림 X)
+    // 라벨 계산 — currentLabel prop은 부모 refetch 후 갱신이라 stale 가능성 큼.
+    // chips + localIndex/currentIndex로 정확히 직접 계산 (chipLabel 사용).
     const snap = startSnapshotRef.current
-    const currLabel = (currentLabel ?? '').trim()
-    // 별표가 옮겨졌으면 localIndex가 우선 — 그 값으로 라벨 재계산
-    const effLabel = (() => {
-      const idx = localIndex ?? currentIndex
-      if (idx === null || idx === undefined || idx < 0 || idx >= chips.length) return currLabel
-      // chipLabel 계산은 부모가 표시한 currentLabel과 정확히 동기 어려움 — currLabel 우선 사용
-      return currLabel
-    })()
+    const idx = localIndex ?? currentIndex
+    const effLabel = (idx !== null && idx !== undefined && idx >= 0 && idx < chips.length)
+      ? chipLabel(chips[idx]).trim()
+      : ''
     const currChipsJson = JSON.stringify(chips ?? [])
     const changed = snap
       ? (snap.chipsJson !== currChipsJson || snap.label !== effLabel)
