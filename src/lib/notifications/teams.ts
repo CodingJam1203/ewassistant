@@ -141,19 +141,24 @@ async function sendToMake(
     return
   }
 
-  // In-process retry — 일시적 외부 실패(5xx / Timeout / network)에 대해 exponential backoff.
-  //   - 최대 3회 시도 (1 + 재시도 2)
-  //   - backoff: 500ms → 1000ms
-  //   - 4xx는 영구 실패로 즉시 중단 (재시도 낭비 방지)
-  //   - 각 시도 fetch timeout 10s (Make.com 시나리오 응답 여유)
-  // 최악 케이스 wall-time: 10×3 + 0.5 + 1 = 31.5s → 호출처 maxDuration 30s+ 권장.
+  // 2026-05-19 v1.22: timeout 시 retry 비활성화 — 최수빈 5/19 18:29/18:40 중복 알림 fix.
+  // 종전 정책(timeout도 retry)은 Make webhook이 메시지 받고 처리 중인데 응답이 늦으면
+  // 우리는 fail로 인지하고 retry → Make는 또 받음 → Teams 중복 발송.
+  // 변경:
+  //   - timeout: at-least-once → at-most-once. 우리는 1회만 호출, log는 FAILURE로 남지만
+  //     Make는 받았을 가능성 높음 (실제 알림은 정상 도착). 중복 발송 0건 보장.
+  //   - 5xx만 retry 대상 (네트워크 일시 장애 회복용)
+  //   - 4xx 영구 실패 즉시 중단 (기존과 동일)
+  //   - 각 시도 fetch timeout 15s로 확장 (10s→15s, Make 시나리오 응답 시간 여유 확보)
+  // 최악 wall-time: 15×3 + 0.5 + 1 = 46.5s → 호출처 maxDuration 60s.
   const MAX_ATTEMPTS = 3
   const RETRY_DELAYS_MS = [500, 1000]
+  const FETCH_TIMEOUT_MS = 15000
   let lastError: string | null = null
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 10000)
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
     try {
       const res = await fetch(webhookUrl, {
@@ -195,6 +200,17 @@ async function sendToMake(
       const isAbort = err instanceof Error && err.name === 'AbortError'
       lastError = isAbort ? 'Timeout' : (err instanceof Error ? err.message : String(err))
       console.warn(`[Teams] Make ${isAbort ? 'timeout' : 'error'} ${eventType} attempt ${attempt}/${MAX_ATTEMPTS}: ${lastError}`)
+
+      // 2026-05-19 v1.22: timeout 시 retry 중단 — Make는 메시지를 이미 받았을 가능성이
+      // 높아 retry하면 중복 발송 위험. 로그는 FAILURE로 남지만 실제 알림은 정상 도착.
+      if (isAbort) {
+        await logNotification(
+          eventType, 'FAILURE', department, teamName, payload.channelId, payload,
+          `${lastError} (timeout — retry 없음, 중복 발송 방지)`,
+        )
+        return
+      }
+      // 네트워크 에러는 retry (Make에 도달 안 했을 가능성)
     } finally {
       clearTimeout(timer)
     }
