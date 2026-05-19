@@ -91,7 +91,7 @@ async function syncOne(
 
   // 2) 매핑 + upsert payload 만들기
   const now = new Date().toISOString()
-  const payloads = events.map((ev: ParsedEvent) => ({
+  const rawPayloads = events.map((ev: ParsedEvent) => ({
     org_calendar_id: cal.id,
     google_event_id: ev.googleEventId,
     title: ev.title || null,
@@ -106,6 +106,15 @@ async function syncOne(
     raw_uid: ev.rawUid,
     synced_at: now,
   }))
+
+  // payload dedup 안전망 — Postgres upsert는 같은 conflict key를 한 번에 두 번
+  // affect 못 함("cannot affect row a second time"). 같은 google_event_id가
+  // 들어오면 마지막 것 유지 (Map은 같은 key set 시 덮어씀).
+  const dedupMap = new Map<string, typeof rawPayloads[number]>()
+  for (const p of rawPayloads) {
+    dedupMap.set(p.google_event_id, p)
+  }
+  const payloads = Array.from(dedupMap.values())
 
   // 3) upsert (UNIQUE: org_calendar_id, google_event_id)
   if (payloads.length > 0) {

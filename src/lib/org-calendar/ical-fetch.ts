@@ -77,8 +77,10 @@ export async function fetchCalendarEvents(
     const text = await res.text()
     const parsed = parseICal(text)
 
+    // 반복 이벤트(recurring)는 같은 UID로 여러 VEVENT가 expand되어 들어옴.
+    // upsert가 같은 row를 두 번 affect 못 하므로 (uid + 시작시각)으로 unique key 생성.
     return parsed.map((ev): ParsedEvent => ({
-      googleEventId: ev.uid,
+      googleEventId: `${ev.uid}::${ev.start.getTime()}`,
       title: ev.summary,
       description: ev.description,
       location: ev.location,
