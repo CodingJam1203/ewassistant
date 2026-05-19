@@ -81,8 +81,9 @@ export async function POST(request: Request) {
       ? daily.current_location_index
       : null
 
-    // Teams 알림 발송 (fire-and-forget; sendToMake 내부 retry로 일시 실패 회복)
-    notifyLocationChanged({
+    // Teams 알림 발송 — await로 처리. Vercel function이 sendToMake retry 완주까지 대기 후 응답.
+    // (fire-and-forget로 두면 응답 후 함수 종료되면서 retry promise가 끊겨 알림 지연·누락 발생.)
+    await notifyLocationChanged({
       name: profile?.display_name || user.email,
       date,
       previousLocation,

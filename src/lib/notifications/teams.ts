@@ -394,14 +394,21 @@ export function notifyCheckinSubmitted(payload: CheckinNotifyPayload): void {
   ).catch(err => console.warn('[Teams] checkin_submitted failed:', err))
 }
 
-export function notifyLocationChanged(payload: LocationChangedNotifyPayload): void {
-  routeAndSend(
-    'location_changed',
-    payload.division,
-    payload.team,
-    '출근보고',
-    payload
-  ).catch(err => console.warn('[Teams] location_changed failed:', err))
+export async function notifyLocationChanged(payload: LocationChangedNotifyPayload): Promise<void> {
+  // 2026-05-19 v1.10: void → Promise<void>로 변경. 호출처(/api/team-status/location/notify)가
+  // await로 처리해서 Vercel function이 sendToMake retry 완주 보장 (fire-and-forget grace
+  // period 의존으로 인한 알림 지연 buge 회피).
+  try {
+    await routeAndSend(
+      'location_changed',
+      payload.division,
+      payload.team,
+      '출근보고',
+      payload,
+    )
+  } catch (err) {
+    console.warn('[Teams] location_changed failed:', err)
+  }
 }
 
 export function notifyBreakStarted(payload: BreakNotifyPayload): void {
