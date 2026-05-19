@@ -552,10 +552,9 @@ export default function WorkLogForm({
   const leaveTl = (formValues.leaveTimeline ?? []) as LeaveTimeline
   const leaveMinutesTotal = totalLeaveRoundedMinutes(leaveTl)
   const isAllDay = isFullDayLeave(leaveTl)
-  const hasReducedLeave = leaveTl.some(it =>
-    it.leaveType === 'morning_half' || it.leaveType === 'afternoon_half'
-  )
-  const forceStandardSpan = isAllDay || hasReducedLeave
+  // 2026-05-19 v1.11: 종일 휴가만 09-18 강제. 반차(오전/오후)는 사용자 입력 그대로 반영.
+  // 종전엔 반차도 09-18 강제였으나 사용자 보고로 breakdown 표시와 폼 입력값 불일치 발생.
+  const forceStandardSpan = isAllDay
 
   const showBreakReason = formValues.breakTime && formValues.breakTime !== '00:00'
   const breakUserChanged = (formValues.breakTime ?? '00:00') !== breakAutoHHmm && breakAutoRoundedMinutes > 0
@@ -772,10 +771,8 @@ export default function WorkLogForm({
       ).filter(it => it?.source !== 'calendar')
 
       const submittedIsAllDay = isFullDayLeave(submittedLeave)
-      const submittedHasReducedLeave = submittedLeave.some(it =>
-        it.leaveType === 'morning_half' || it.leaveType === 'afternoon_half'
-      )
-      const submittedForceStandardSpan = submittedIsAllDay || submittedHasReducedLeave
+      // 2026-05-19 v1.11: 종일 휴가만 09-18 강제. 반차는 사용자 입력 시간 그대로 사용.
+      const submittedForceStandardSpan = submittedIsAllDay
       const submittedLeaveMinutes = totalLeaveRoundedMinutes(submittedLeave)
 
       const submittedStartTime = submittedForceStandardSpan ? '09:00' : (data.startTime || '09:00')
