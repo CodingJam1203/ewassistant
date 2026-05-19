@@ -1090,11 +1090,17 @@ export default function WorkLogForm({
           <div>
             <label className="block text-sm font-medium text-text-primary">
               휴게시간 *
-              <span className="ml-1 text-xs font-normal text-text-secondary">(점심 외 추가 휴게)</span>
+              {/* 평일·기본근무·간주근로 (workSubType === null)에만 "점심 외 추가" 보조 텍스트 + 안내 박스 노출.
+                  토요일·일요일·공휴일 (선택/필수)은 점심 자동 처리 X — 입력 휴게가 전체 휴게라 보조 표시 hide. */}
+              {workSubType === null && (
+                <span className="ml-1 text-xs font-normal text-text-secondary">(점심 외 추가 휴게)</span>
+              )}
             </label>
-            <p className="mt-1 text-xs text-warning-text bg-warning-bg border border-warning-border rounded px-2 py-1.5">
-              ☕ 점심 1시간은 근무유형에 따라 <strong>자동 처리</strong>됩니다 (기본/간주근로 = 1h, 공휴일근로 = 0). 여기에는 <strong>점심 외에 추가로 쉰 시간만</strong> 입력하세요. 없으면 0:00.
-            </p>
+            {workSubType === null && (
+              <p className="mt-1 text-xs text-warning-text bg-warning-bg border border-warning-border rounded px-2 py-1.5">
+                ☕ 점심 1시간은 근무유형에 따라 <strong>자동 처리</strong>됩니다 (기본/간주근로 = 1h, 공휴일근로 = 0). 여기에는 <strong>점심 외에 추가로 쉰 시간만</strong> 입력하세요. 없으면 0:00.
+              </p>
+            )}
             {breakAutoRoundedMinutes > 0 && (
               <p className="mt-1 mb-1 text-xs text-text-secondary">
                 자동 계산 (휴게 시작/종료 로그): 실제 {breakAutoActualMinutes}분 / 30분 올림 {minutesToDisplay(breakAutoRoundedMinutes)}
