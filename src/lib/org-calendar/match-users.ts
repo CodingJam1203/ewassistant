@@ -25,6 +25,7 @@ interface UserLookupRow {
 export async function loadUserLookup(adminClient: SupabaseClient): Promise<{
   byEmail: Map<string, UserLookupRow>
   byName:  Map<string, UserLookupRow[]>
+  byNameSuffix: Map<string, UserLookupRow[]>  // 풀네임 마지막 2글자 (Apps Script 호환)
 }> {
   const { data, error } = await adminClient
     .from('user_profiles')
@@ -33,7 +34,8 @@ export async function loadUserLookup(adminClient: SupabaseClient): Promise<{
 
   const byEmail = new Map<string, UserLookupRow>()
   const byName  = new Map<string, UserLookupRow[]>()
-  if (error || !data) return { byEmail, byName }
+  const byNameSuffix = new Map<string, UserLookupRow[]>()
+  if (error || !data) return { byEmail, byName, byNameSuffix }
 
   for (const row of data) {
     const email = (row.email ?? '').toLowerCase().trim()
@@ -45,9 +47,16 @@ export async function loadUserLookup(adminClient: SupabaseClient): Promise<{
       const list = byName.get(name) ?? []
       list.push(obj)
       byName.set(name, list)
+      // 마지막 2글자 — 풀네임 "박솔내"의 "솔내", "최현덕"의 "현덕"
+      if (name.length >= 2) {
+        const suffix = name.slice(-2)
+        const sList = byNameSuffix.get(suffix) ?? []
+        sList.push(obj)
+        byNameSuffix.set(suffix, sList)
+      }
     }
   }
-  return { byEmail, byName }
+  return { byEmail, byName, byNameSuffix }
 }
 
 /** title에서 대괄호 안 이름 토큰 추출. "[김재민, 박솔내]" → ['김재민', '박솔내'] */
@@ -68,7 +77,11 @@ interface MatchInput {
 /** 이벤트 1건 → matched user emails */
 export function matchUsers(
   ev: MatchInput,
-  lookup: { byEmail: Map<string, UserLookupRow>; byName: Map<string, UserLookupRow[]> },
+  lookup: {
+    byEmail: Map<string, UserLookupRow>
+    byName: Map<string, UserLookupRow[]>
+    byNameSuffix: Map<string, UserLookupRow[]>
+  },
 ): string[] {
   const matched = new Set<string>()
 
@@ -78,12 +91,22 @@ export function matchUsers(
     if (u) matched.add(u.email)
   }
 
-  // 2) title 대괄호 안 이름 매칭
+  // 2) title 대괄호 안 이름 매칭 — 풀네임 우선, 그 다음 마지막 2글자
   const names = extractBracketNames(ev.title ?? '')
   for (const n of names) {
-    const list = lookup.byName.get(n)
-    if (list && list.length > 0) {
-      for (const u of list) matched.add(u.email)
+    // 풀네임 정확 매칭 (예: "박솔내" → "박솔내" user)
+    const fullList = lookup.byName.get(n)
+    if (fullList && fullList.length > 0) {
+      for (const u of fullList) matched.add(u.email)
+      continue
+    }
+    // 단축명 매칭 — "솔내" → 마지막 2글자가 "솔내"인 user들 (Apps Script 패턴)
+    if (n.length >= 2) {
+      const suffix = n.slice(-2)
+      const sList = lookup.byNameSuffix.get(suffix)
+      if (sList && sList.length > 0) {
+        for (const u of sList) matched.add(u.email)
+      }
     }
   }
 
