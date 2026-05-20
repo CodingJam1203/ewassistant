@@ -39,3 +39,18 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Claude Code local settings (may contain secrets)
+.claude/
+
+# Supabase CLI temp
+/supabase/.temp/
+
+# Local-only artifacts (Office temp / 검색 캐시 / 한글 디렉토리 잔재)
+*.pptx
+~$*
+[31s]
+Vercel
+검색
+인덱스
+today면

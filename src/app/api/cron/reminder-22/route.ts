@@ -78,6 +78,7 @@ export async function GET(request: Request) {
   interface CheckinAdapter {
     expected_work_location: string | null
     expected_work_time: string | null
+    expected_end_time: string | null
     attendance_record_type: string | null
     expected_start_date: string | null
   }
@@ -87,6 +88,7 @@ export async function GET(request: Request) {
       checkinMap.set(c.user_email, {
         expected_work_location: fmtPlannedLocations(c.planned_work_locations as WorkLocations | null),
         expected_work_time:     c.planned_start_time,
+        expected_end_time:      c.planned_end_time,
         attendance_record_type: c.attendance_record_type ?? '출근보고 진행 (주말출근, 휴가 포함)',
         expected_start_date:    c.leave_date,
       })
@@ -136,6 +138,7 @@ export async function GET(request: Request) {
         team: u.team || '미입력',
         scheduledWorkDate: c?.expected_start_date || targetDate,
         scheduledWorkTime: c?.expected_work_time || '',
+        scheduledWorkEndTime: c?.expected_end_time ?? null,
         scheduledWorkLocation: c?.expected_work_location || '미입력',
         attendanceRecordType: c?.attendance_record_type || '미입력',
         status: formatNightlyCheckinStatus(c), // fallback

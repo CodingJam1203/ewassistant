@@ -492,6 +492,9 @@ export async function POST(request: Request) {
         timeline: timeline ?? undefined,
         plannedWorkLocations: plannedLocations ?? undefined,
         leaveTimeline: leaveTimeline ?? undefined,
+        // v1.27: 알림 헤드라인 'start~end' 표시용. 미보고 토글 ON이면 NULL.
+        expectedStartTime: plannedStartUnreported ? null : startTime,
+        expectedEndTime:   plannedStartUnreported ? null : endTime,
         division: profile?.division ?? null,
         team: profile?.team ?? null,
       })

@@ -138,11 +138,11 @@ const MemberCard = memo(function MemberCard({
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] text-text-secondary tabular-nums">
         <div className="flex items-center gap-1">
           <Clock className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
-          <span>출근예정 {card.start_time ?? '-'}</span>
+          <span>출근예정 {card.start_time?.slice(0, 5) ?? '-'}</span>
         </div>
         <div className="flex items-center gap-1">
           <Clock className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
-          <span>퇴근예정 {card.end_time ?? '-'}</span>
+          <span>퇴근예정 {card.end_time?.slice(0, 5) ?? '-'}</span>
         </div>
         <div className="flex items-center gap-1">
           <LogIn className="h-3 w-3 text-text-muted shrink-0" aria-hidden />
@@ -433,8 +433,8 @@ const MemberListRow = memo(function MemberListRow({
       </Td>
 
       {/* 출근/퇴근 예정 */}
-      <Td className="tabular-nums">{card.start_time ?? '-'}</Td>
-      <Td className="tabular-nums">{card.end_time ?? '-'}</Td>
+      <Td className="tabular-nums">{card.start_time?.slice(0, 5) ?? '-'}</Td>
+      <Td className="tabular-nums">{card.end_time?.slice(0, 5) ?? '-'}</Td>
 
       {/* 실제 출근/퇴근 */}
       <Td className="tabular-nums">{fmtTime(card.checked_in_at)}</Td>

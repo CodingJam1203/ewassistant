@@ -505,16 +505,21 @@ export default function CalendarMatrixPage() {
           불러오는 중…
         </div>
       ) : (
-        <div className="bg-surface border border-border rounded-[10px] overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-[13px]">
+        // sticky thead가 동작하려면 외곽 컨테이너가 양방향 overflow-auto + 고정 max-height여야 함.
+        // 기존 outer(overflow-hidden) + inner(overflow-x-auto) 구조는 sticky containing block이
+        // inner div가 되어, body 스크롤 시 inner 전체가 viewport 밖으로 빠지면 sticky도 같이 사라짐.
+        // 단일 wrapper의 viewport 내에서 양방향 스크롤하도록 통합.
+        <div
+          className="bg-surface border border-border rounded-[10px] overflow-auto"
+          style={{ maxHeight: 'calc(100vh - 200px)', minHeight: '400px' }}
+        >
+          <table className="w-full border-collapse text-[13px]">
               <thead>
                 {/* 날짜 헤더 — 페이지 세로 스크롤 시 상단 고정. 좌측 sticky 컬럼과 교차하는
                     셀은 z를 더 높여 본문 sticky 셀(z-[5]) 위에 떠 있도록. */}
                 <tr className="bg-surface-muted">
                   <th className="sticky left-0 top-0 z-30 bg-surface-muted px-3 py-2.5 text-left font-semibold text-text-secondary border-r border-b border-border min-w-[90px]">구분</th>
                   <th className="sticky left-[90px] top-0 z-30 bg-surface-muted px-3 py-2.5 text-left font-semibold text-text-secondary border-r border-b border-border min-w-[100px]">인원</th>
-                  <th className="sticky left-[190px] top-0 z-30 bg-surface-muted px-3 py-2.5 text-left font-semibold text-text-secondary border-r border-b border-border min-w-[100px]">직급/직책</th>
                   {days.map(d => {
                     const h = fmtDayHeader(d)
                     return (
@@ -540,8 +545,7 @@ export default function CalendarMatrixPage() {
                     {divisionMatrix.get(grp.id) && (
                       <tr key={`${grp.id}-div`} className="bg-purple-50/40 border-t-4 border-purple-400">
                         <td className="sticky left-0 z-[5] bg-purple-50/80 px-3 py-2 font-semibold text-purple-900 border-r border-border align-top">{grp.divisionName}</td>
-                        <td className="sticky left-[90px] z-[5] bg-purple-50/80 px-3 py-2 text-purple-900 font-semibold border-r border-border align-top">본부</td>
-                        <td className="sticky left-[190px] z-[5] bg-purple-50/80 px-3 py-2 text-purple-900 border-r border-border align-top">본부 일정</td>
+                        <td className="sticky left-[90px] z-[5] bg-purple-50/80 px-3 py-2 text-purple-900 font-semibold border-r border-border align-top">본부 일정</td>
                         {days.map(d => {
                           const dateIso = toKstIsoDate(d)
                           const cell = divisionMatrix.get(grp.id)?.get(dateIso) ?? []
@@ -585,9 +589,6 @@ export default function CalendarMatrixPage() {
                                   {u.displayName}
                                   {isMe && <span className="ml-1 text-[10px] text-primary-600">(나)</span>}
                                 </td>
-                                <td className="sticky left-[190px] z-[5] bg-surface px-3 py-2 text-text-secondary border-r border-border align-top text-xs">
-                                  {u.role === 'admin' ? '관리자' : u.role === 'leader' ? '리더' : ''}
-                                </td>
                                 {days.map(d => {
                                   const dateIso = toKstIsoDate(d)
                                   const cell = userMatrix.get(u.email.toLowerCase())?.get(dateIso) ?? []
@@ -616,7 +617,6 @@ export default function CalendarMatrixPage() {
                             <tr key={`${grp.id}-${team.teamId}-other`} className={`bg-amber-50/50 ${team.users.length === 0 ? teamBorder : 'border-t border-amber-200'}`}>
                               <td className="sticky left-0 z-[5] bg-amber-50/90 px-3 py-2 text-text-secondary border-r border-border align-top">{team.teamName ?? grp.divisionName}</td>
                               <td className="sticky left-[90px] z-[5] bg-amber-50/90 px-3 py-2 italic font-medium text-text-secondary border-r border-border align-top">기타</td>
-                              <td className="sticky left-[190px] z-[5] bg-amber-50/90 px-3 py-2 text-text-muted border-r border-border align-top text-xs">공통</td>
                               {days.map(d => {
                                 const dateIso = toKstIsoDate(d)
                                 const cell = otherInfo.cells.get(dateIso) ?? []
@@ -646,7 +646,6 @@ export default function CalendarMatrixPage() {
                 ))}
               </tbody>
             </table>
-          </div>
         </div>
       )}
 

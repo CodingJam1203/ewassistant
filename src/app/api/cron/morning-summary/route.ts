@@ -17,7 +17,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyMorningSummary } from '@/lib/notifications/teams'
-import { formatMorningWorklogStatus } from '@/lib/notifications/messages'
+import { formatMorningWorklogStatus, formatMorningCheckinStatus } from '@/lib/notifications/messages'
 import { forceRefreshCalendar, getDepartmentDailyParsed } from '@/lib/leave-calendar'
 import { parseLeaveLabel } from '@/lib/leave-timeline'
 import type { LeaveType, LeaveTimeline } from '@/types/leave-timeline'
@@ -93,7 +93,7 @@ export async function GET(request: Request) {
   // todayDate의 work_log row를 leave_date 기준으로 찾고, planned_*를 expected_* 자리에 매핑.
   const { data: checkinsRaw } = await adminClient
     .from('work_logs')
-    .select('user_email, planned_start_time, planned_work_locations, leave_timeline, expected_leave_timeline, created_at')
+    .select('user_email, planned_start_time, planned_end_time, planned_work_locations, leave_timeline, expected_leave_timeline, created_at')
     .eq('leave_date', todayDate)
     .eq('is_deleted', false)
     .not('planned_start_time', 'is', null)
@@ -104,6 +104,7 @@ export async function GET(request: Request) {
     user_email: c.user_email,
     expected_work_location: fmtPlannedLocations(c.planned_work_locations as WorkLocations | null),
     expected_work_time:     c.planned_start_time,
+    expected_end_time:      c.planned_end_time,
     leave_timeline:         c.leave_timeline,
     expected_leave_timeline: c.expected_leave_timeline,
     created_at:             c.created_at,
@@ -120,6 +121,7 @@ export async function GET(request: Request) {
   interface CheckinInfo {
     expected_work_location: string | null
     expected_work_time: string | null
+    expected_end_time: string | null
     expected_leave_timeline: LeaveTimeline | null
   }
   const checkinMap = new Map<string, CheckinInfo>()
@@ -128,6 +130,7 @@ export async function GET(request: Request) {
       checkinMap.set(c.user_email, {
         expected_work_location: c.expected_work_location,
         expected_work_time:     c.expected_work_time,
+        expected_end_time:      c.expected_end_time,
         expected_leave_timeline: (c.expected_leave_timeline as LeaveTimeline | null) ?? null,
       })
     }
@@ -286,8 +289,9 @@ export async function GET(request: Request) {
       }
 
       if (hasCheckin) {
-        const status = checkinInfo?.expected_work_location && checkinInfo?.expected_work_time
-          ? `${checkinInfo.expected_work_location} ${checkinInfo.expected_work_time}~`
+        // 정책 v1.25: formatMorningCheckinStatus helper로 통일 — fmtTime이 초 절삭 + 앞 0 유지
+        const status = (checkinInfo?.expected_work_location || checkinInfo?.expected_work_time)
+          ? formatMorningCheckinStatus(checkinInfo ?? undefined)
           : '작성됨'
         completedSection.push({ name, status })
       } else if (leaveType === 'morning_half') {

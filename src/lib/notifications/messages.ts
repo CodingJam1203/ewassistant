@@ -54,19 +54,19 @@ function shortKoreanDate(dateStr: string): string {
   return `${mo}/${day}(${w})`
 }
 
-/** ISO string -> KST HH:mm, leading zero stripped: "09:30" -> "9:30" */
+/** ISO string -> KST HH:mm, 앞 0 유지 (MY PAGE trimToHHmm 정책 일치): "09:30" -> "09:30" */
 function kstHHmm(iso: string): string {
   const d = new Date(iso)
   const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
-  const h = kst.getUTCHours()
+  const h = String(kst.getUTCHours()).padStart(2, '0')
   const m = String(kst.getUTCMinutes()).padStart(2, '0')
   return `${h}:${m}`
 }
 
 /**
- * "09:30" -> "9:30"
- * "24:30" -> "(명일) 0:30" (새벽까지 근무 케이스)
- * "30:00" -> "(명일) 6:00"
+ * "09:30:00" / "09:30" -> "09:30" (앞 0 유지 — MY PAGE trimToHHmm 정책과 일치)
+ * "24:30" -> "(명일) 00:30" (새벽까지 근무 케이스)
+ * "30:00" -> "(명일) 06:00"
  */
 export function fmtTime(timeStr: string): string {
   if (!timeStr) return ''
@@ -74,9 +74,9 @@ export function fmtTime(timeStr: string): string {
   const rawH = parseInt(parts[0], 10)
   const m = (parts[1] ?? '00').padStart(2, '0')
   if (Number.isFinite(rawH) && rawH >= 24) {
-    return `(명일) ${rawH - 24}:${m}`
+    return `(명일) ${String(rawH - 24).padStart(2, '0')}:${m}`
   }
-  return `${rawH}:${m}`
+  return `${String(rawH).padStart(2, '0')}:${m}`
 }
 
 /** "01:30:00" or "01:30" -> "01:30" (keep leading zero for break display) */
@@ -243,22 +243,26 @@ function buildNextCheckinLines(p: WorklogNotifyPayload): string[] {
 
 /** Nightly reminder (20h/22h) checkin status */
 export function formatNightlyCheckinStatus(
-  checkin: { expected_work_location: string | null; expected_work_time: string | null } | undefined
+  checkin: { expected_work_location: string | null; expected_work_time: string | null; expected_end_time?: string | null } | undefined
 ): string {
   if (!checkin) return '❌'
   const loc = checkin.expected_work_location || '미입력'
   const st  = checkin.expected_work_time ? fmtTime(checkin.expected_work_time) : '???'
-  return `${loc} ${st}~???`
+  const et  = checkin.expected_end_time ? fmtTime(checkin.expected_end_time) : '???'
+  return `${loc} ${st}~${et}`
 }
 
-/** Morning summary checkin status */
+/** Morning summary checkin status — 'HH:mm~HH:mm' 형태. end가 NULL이면 'HH:mm~'로 fallback */
 export function formatMorningCheckinStatus(
-  checkin: { expected_work_location: string | null; expected_work_time: string | null } | undefined
+  checkin: { expected_work_location: string | null; expected_work_time: string | null; expected_end_time?: string | null } | undefined
 ): string {
   if (!checkin) return '❌'
   const loc = checkin.expected_work_location || '미입력'
   const st  = checkin.expected_work_time ? fmtTime(checkin.expected_work_time) : ''
-  return `${loc} ${st}~`
+  const et  = checkin.expected_end_time   ? fmtTime(checkin.expected_end_time)   : ''
+  if (st && et) return `${loc} ${st}~${et}`
+  if (st)       return `${loc} ${st}~`
+  return loc
 }
 
 /** Morning summary worklog status — 정책서 §2 SoT(actual_*) 우선, NULL이면 ❌ */
@@ -365,7 +369,11 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       // v2 chips 우선
       const chips = normalizeWorkLocations(p.plannedWorkLocations)
       const lines: string[] = []
-      lines.push(`${p.name} : ${shortKoreanDate(p.date)} ${kstHHmm(p.checkedInAt)} 출근`)
+      // start = expectedStartTime > checkedInAt fallback. end = expectedEndTime (있을 때만 ~end 추가)
+      const startStr = p.expectedStartTime ? fmtTime(p.expectedStartTime) : kstHHmm(p.checkedInAt)
+      const endStr   = p.expectedEndTime   ? fmtTime(p.expectedEndTime)   : ''
+      const timeStr  = endStr ? `${startStr}~${endStr}` : `${startStr} 출근`
+      lines.push(`${p.name} : ${shortKoreanDate(p.date)} ${timeStr}`)
       if (leaveLines.length > 0) {
         lines.push(...(leaveLines.length === 1
             ? [`🔹휴가/반차 : ${leaveLines[0]}`]
@@ -391,7 +399,11 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
         lines.push(cta())
         return lines.join('\n')
       }
-      return `${p.name} : ${shortKoreanDate(p.date)} ${kstHHmm(p.checkedInAt)} ${p.workLocation || '미입력'} 출근`
+      // legacy 단일 라벨 fallback — 같은 start~end 정책 유지
+      const startStrFb = p.expectedStartTime ? fmtTime(p.expectedStartTime) : kstHHmm(p.checkedInAt)
+      const endStrFb   = p.expectedEndTime   ? fmtTime(p.expectedEndTime)   : ''
+      const timeStrFb  = endStrFb ? `${startStrFb}~${endStrFb}` : `${startStrFb} 출근`
+      return `${p.name} : ${shortKoreanDate(p.date)} ${timeStrFb} ${p.workLocation || '미입력'}`
     }
 
     case 'location_changed': {
@@ -486,12 +498,14 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       const headerEmoji = isLate ? '🌙' : '🕘'
       const header = `${headerEmoji} ${koreanDate(p.targetDate)} 출근보고 — ${teamLabel}`
 
-      // 1줄 per member: ✅ 이름  장소 시각~  /  ⚠️ 이름  미보고
+      // 1줄 per member: ✅ 이름  장소 start~end  /  ⚠️ 이름  미보고
       const memberLines = p.members.map(m => {
         if (m.hasReport) {
           const loc = m.scheduledWorkLocation || '미입력'
-          const t   = m.scheduledWorkTime ? fmtTime(m.scheduledWorkTime) : ''
-          return `✅ ${m.name}  ${loc} ${t}~`.trimEnd()
+          const st  = m.scheduledWorkTime    ? fmtTime(m.scheduledWorkTime)    : ''
+          const et  = m.scheduledWorkEndTime ? fmtTime(m.scheduledWorkEndTime) : ''
+          const range = st && et ? `${st}~${et}` : st ? `${st}~` : ''
+          return `✅ ${m.name}  ${loc} ${range}`.trimEnd()
         }
         return `⚠️ ${m.name}  미보고`
       })

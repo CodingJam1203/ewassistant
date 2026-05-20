@@ -124,6 +124,10 @@ export interface CheckinNotifyPayload {
   plannedWorkLocations?: WorkLocations | null
   /** 출근 시점의 leave_timeline (휴가/반차) */
   leaveTimeline?: LeaveTimeline | null
+  /** 출근예정시간 'HH:mm' / 'HH:mm:ss' — 메시지 헤드라인 'start~end' 표시용 (없으면 checkedInAt fallback) */
+  expectedStartTime?: string | null
+  /** 퇴근예정시간 'HH:mm' / 'HH:mm:ss' — 메시지 헤드라인 'start~end' 표시용 (없으면 표시 생략) */
+  expectedEndTime?: string | null
   division?: string | null
   team?: string | null
 }
@@ -172,6 +176,8 @@ export interface DailyCheckinReminderData {
     team: string
     scheduledWorkDate: string
     scheduledWorkTime: string
+    /** 퇴근예정시간 'HH:mm' — 멤버 라인 'start~end' 표시용. null이면 end 생략. */
+    scheduledWorkEndTime?: string | null
     scheduledWorkLocation: string
     attendanceRecordType: string
     status: string // fallback display string
