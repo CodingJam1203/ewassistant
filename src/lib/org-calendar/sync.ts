@@ -178,10 +178,14 @@ async function syncOne(
     const fetchedSet = new Set(finalPayloads.map(p => p.google_event_id))
     const graceMs = 60 * 1000
     const graceCutoff = new Date(Date.now() - graceMs).toISOString()
+    // PostgREST default range 1000 한계 우회 — 한 캘린더에 1000건 이상이면 default가 잘려
+    // cleanup 대상에서 누락됨 (PROD 마이스팀 회의 등 대형 캘린더에서 옛 형식 row 1341건 잔존
+    // 사고 발생). 10000건 안전 marg.
     const { data: existing, error: listErr } = await adminClient
       .from('org_calendar_events')
       .select('id, google_event_id, source, nclick_pushed_at')
       .eq('org_calendar_id', cal.id)
+      .range(0, 9999)
       .returns<Array<{ id: string; google_event_id: string; source: string | null; nclick_pushed_at: string | null }>>()
     if (listErr) throw new Error(`existing list failed: ${listErr.message}`)
     const toDelete: string[] = []
