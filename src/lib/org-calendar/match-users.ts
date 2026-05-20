@@ -20,8 +20,18 @@ interface UserLookupRow {
 
 interface OrgTagRow {
   division_id: string
+  team_id: string | null
   alias_patterns: string[] | null
   member_emails: string[] | null
+}
+
+/**
+ * scopeKey 만들기 — `${divisionId}::${teamId ?? ''}`.
+ * 같은 alias label이 본부 안에서도 팀마다 다른 멤버를 가리키는 케이스("[A파트]" 등) 대응.
+ * team_id 없는 tag는 본부 공용으로 fallback 검색 대상.
+ */
+export function makeTagScopeKey(divisionId: string, teamId: string | null): string {
+  return `${divisionId}::${teamId ?? ''}`
 }
 
 export interface UserLookup {
@@ -29,9 +39,8 @@ export interface UserLookup {
   byName:  Map<string, UserLookupRow[]>
   byNameSuffix: Map<string, UserLookupRow[]>  // 풀네임 마지막 2글자 (Apps Script 호환)
   /**
-   * 본부별 alias → expand 대상 email[]. Phase 3.
-   * key: divisionId, value: Map<alias 문자열, lowercase email 배열>.
-   * 한 alias가 여러 tag에 등장하면 email들이 union(dedup).
+   * scopeKey → (alias → lowercase email[]). 매칭 시 team scope 우선 → division 공용 fallback.
+   * 한 alias가 같은 scope 안 여러 tag에 등장하면 email들이 union(dedup).
    */
   byTagAlias: Map<string, Map<string, string[]>>
 }
@@ -44,7 +53,7 @@ export async function loadUserLookup(adminClient: SupabaseClient): Promise<UserL
   // 사용자 + tag 병렬 fetch
   const [usersRes, tagsRes] = await Promise.all([
     adminClient.from('user_profiles').select('email, display_name').eq('is_active', true),
-    adminClient.from('org_tags').select('division_id, alias_patterns, member_emails').eq('is_active', true),
+    adminClient.from('org_tags').select('division_id, team_id, alias_patterns, member_emails').eq('is_active', true),
   ])
 
   const byEmail = new Map<string, UserLookupRow>()
@@ -76,21 +85,23 @@ export async function loadUserLookup(adminClient: SupabaseClient): Promise<UserL
   if (!tagsRes.error && tagsRes.data) {
     for (const row of tagsRes.data as OrgTagRow[]) {
       const divId   = row.division_id
+      const teamId  = row.team_id  // null이면 본부 공용
       const aliases = row.alias_patterns ?? []
       const emails  = (row.member_emails ?? []).map(e => e.toLowerCase().trim()).filter(Boolean)
       if (!divId || aliases.length === 0 || emails.length === 0) continue
-      let divMap = byTagAlias.get(divId)
-      if (!divMap) {
-        divMap = new Map<string, string[]>()
-        byTagAlias.set(divId, divMap)
+      const scopeKey = makeTagScopeKey(divId, teamId)
+      let scopeMap = byTagAlias.get(scopeKey)
+      if (!scopeMap) {
+        scopeMap = new Map<string, string[]>()
+        byTagAlias.set(scopeKey, scopeMap)
       }
       for (const a of aliases) {
         const key = (a ?? '').trim()
         if (!key) continue
-        const existing = divMap.get(key) ?? []
+        const existing = scopeMap.get(key) ?? []
         // dedup union
         const merged = Array.from(new Set([...existing, ...emails]))
-        divMap.set(key, merged)
+        scopeMap.set(key, merged)
       }
     }
   }
@@ -111,8 +122,10 @@ function extractBracketNames(title: string): string[] {
 interface MatchInput {
   title: string
   attendeeEmails: string[]
-  /** Phase 3: alias 매칭은 본부 단위 scope. 이벤트가 속한 캘린더의 division. */
+  /** Phase 3: alias 매칭 scope. 이벤트가 속한 캘린더의 division. */
   divisionId: string
+  /** Phase 3 후속: team_id가 있으면 그 팀의 alias 우선, fallback으로 division 공용 검색 */
+  teamId?: string | null
 }
 
 /** 이벤트 1건 → matched user emails */
@@ -125,10 +138,18 @@ export function matchUsers(ev: MatchInput, lookup: UserLookup): string[] {
     if (u) matched.add(u.email)
   }
 
-  // 2) title 대괄호 안 토큰 매칭 — 풀네임 → suffix → alias 순서로 시도.
-  //    하나의 단계라도 잡히면 그 토큰은 거기서 처리 종료 (다른 단계로 안 넘어감).
+  // 2) title 대괄호 안 토큰 매칭 — 풀네임 → suffix → alias 순서.
+  //    같은 토큰은 첫 매칭 단계에서 종료 (다른 단계로 안 넘어감).
   const names = extractBracketNames(ev.title ?? '')
-  const tagMap = lookup.byTagAlias.get(ev.divisionId) ?? null
+
+  // alias scope 우선순위: team(있을 때) → division 공용
+  const aliasScopes: Map<string, string[]>[] = []
+  if (ev.teamId) {
+    const teamMap = lookup.byTagAlias.get(makeTagScopeKey(ev.divisionId, ev.teamId))
+    if (teamMap) aliasScopes.push(teamMap)
+  }
+  const divMap = lookup.byTagAlias.get(makeTagScopeKey(ev.divisionId, null))
+  if (divMap) aliasScopes.push(divMap)
 
   for (const n of names) {
     // 2-1) 풀네임 (예: "박솔내" → "박솔내" user)
@@ -146,12 +167,12 @@ export function matchUsers(ev: MatchInput, lookup: UserLookup): string[] {
         continue
       }
     }
-    // 2-3) org_tags alias — 본부별. "[A파트]" 같은 그룹/파트 매칭
-    if (tagMap) {
-      const emails = tagMap.get(n)
+    // 2-3) org_tags alias — team scope 우선, division 공용 fallback. 첫 매칭 win.
+    for (const scopeMap of aliasScopes) {
+      const emails = scopeMap.get(n)
       if (emails && emails.length > 0) {
         for (const em of emails) matched.add(em)
-        // continue 생략 — 다음 토큰으로
+        break
       }
     }
   }
