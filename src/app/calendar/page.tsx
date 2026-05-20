@@ -518,14 +518,14 @@ export default function CalendarMatrixPage() {
                 {/* 날짜 헤더 — 페이지 세로 스크롤 시 상단 고정. 좌측 sticky 컬럼과 교차하는
                     셀은 z를 더 높여 본문 sticky 셀(z-[5]) 위에 떠 있도록. */}
                 <tr className="bg-surface-muted">
-                  <th className="sticky left-0 top-0 z-30 bg-surface-muted px-3 py-2.5 text-left font-semibold text-text-secondary border-r border-b border-border min-w-[90px]">구분</th>
-                  <th className="sticky left-[90px] top-0 z-30 bg-surface-muted px-3 py-2.5 text-left font-semibold text-text-secondary border-r border-b border-border min-w-[100px]">인원</th>
+                  <th className="sticky left-0 top-0 z-30 bg-surface-muted px-2 sm:px-3 py-2.5 text-left text-xs sm:text-[13px] font-semibold text-text-secondary border-r border-b border-border min-w-[60px] sm:min-w-[90px]">구분</th>
+                  <th className="sticky left-[60px] sm:left-[90px] top-0 z-30 bg-surface-muted px-2 sm:px-3 py-2.5 text-left text-xs sm:text-[13px] font-semibold text-text-secondary border-r border-b border-border min-w-[80px] sm:min-w-[100px]">인원</th>
                   {days.map(d => {
                     const h = fmtDayHeader(d)
                     return (
                       <th
                         key={d.toISOString()}
-                        className={`sticky top-0 z-20 px-2 py-2 text-center font-semibold border-r border-b border-border min-w-[130px] ${
+                        className={`sticky top-0 z-20 px-1 sm:px-2 py-2 text-center text-xs sm:text-[13px] font-semibold border-r border-b border-border min-w-[90px] sm:min-w-[130px] ${
                           h.isToday ? 'bg-primary-50 text-primary-700' :
                           h.isSunday ? 'bg-surface-muted text-danger-text' :
                           h.isWeekend ? 'bg-surface-muted text-text-secondary' :
@@ -544,8 +544,8 @@ export default function CalendarMatrixPage() {
                     {/* 본부 단위 이벤트 행 (있을 때만) */}
                     {divisionMatrix.get(grp.id) && (
                       <tr key={`${grp.id}-div`} className="bg-purple-50/40 border-t-4 border-purple-400">
-                        <td className="sticky left-0 z-[5] bg-purple-50/80 px-3 py-2 font-semibold text-purple-900 border-r border-border align-top">{grp.divisionName}</td>
-                        <td className="sticky left-[90px] z-[5] bg-purple-50/80 px-3 py-2 text-purple-900 font-semibold border-r border-border align-top">본부 일정</td>
+                        <td className="sticky left-0 z-[5] bg-purple-50/80 px-2 sm:px-3 py-2 text-xs sm:text-[13px] font-semibold text-purple-900 border-r border-border align-top">{grp.divisionName}</td>
+                        <td className="sticky left-[60px] sm:left-[90px] z-[5] bg-purple-50/80 px-2 sm:px-3 py-2 text-xs sm:text-[13px] text-purple-900 font-semibold border-r border-border align-top">본부 일정</td>
                         {days.map(d => {
                           const dateIso = toKstIsoDate(d)
                           const cell = divisionMatrix.get(grp.id)?.get(dateIso) ?? []
@@ -582,10 +582,10 @@ export default function CalendarMatrixPage() {
                                 key={u.email}
                                 className={`bg-surface hover:bg-primary-50/30 transition-colors ${rowBorder}`}
                               >
-                                <td className="sticky left-0 z-[5] bg-surface px-3 py-2 text-text-secondary border-r border-border align-top">
+                                <td className="sticky left-0 z-[5] bg-surface px-2 sm:px-3 py-2 text-xs sm:text-[13px] text-text-secondary border-r border-border align-top">
                                   {team.teamName ?? grp.divisionName}
                                 </td>
-                                <td className={`sticky left-[90px] z-[5] bg-surface px-3 py-2 border-r border-border align-top ${isMe ? 'font-bold text-primary-700' : 'font-medium text-text-primary'}`}>
+                                <td className={`sticky left-[60px] sm:left-[90px] z-[5] bg-surface px-2 sm:px-3 py-2 text-xs sm:text-[13px] border-r border-border align-top ${isMe ? 'font-bold text-primary-700' : 'font-medium text-text-primary'}`}>
                                   {u.displayName}
                                   {isMe && <span className="ml-1 text-[10px] text-primary-600">(나)</span>}
                                 </td>
@@ -615,8 +615,8 @@ export default function CalendarMatrixPage() {
                           {/* 팀의 "기타" 행 — 그 팀 사용자들 아래에 바로 붙음 */}
                           {otherInfo && (
                             <tr key={`${grp.id}-${team.teamId}-other`} className={`bg-amber-50/50 ${team.users.length === 0 ? teamBorder : 'border-t border-amber-200'}`}>
-                              <td className="sticky left-0 z-[5] bg-amber-50/90 px-3 py-2 text-text-secondary border-r border-border align-top">{team.teamName ?? grp.divisionName}</td>
-                              <td className="sticky left-[90px] z-[5] bg-amber-50/90 px-3 py-2 italic font-medium text-text-secondary border-r border-border align-top">기타</td>
+                              <td className="sticky left-0 z-[5] bg-amber-50/90 px-2 sm:px-3 py-2 text-xs sm:text-[13px] text-text-secondary border-r border-border align-top">{team.teamName ?? grp.divisionName}</td>
+                              <td className="sticky left-[60px] sm:left-[90px] z-[5] bg-amber-50/90 px-2 sm:px-3 py-2 text-xs sm:text-[13px] italic font-medium text-text-secondary border-r border-border align-top">기타</td>
                               {days.map(d => {
                                 const dateIso = toKstIsoDate(d)
                                 const cell = otherInfo.cells.get(dateIso) ?? []
