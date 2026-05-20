@@ -260,7 +260,14 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // calendar prefill 자동 — type + tokens의 첫 tag/user 팀 기준
+  // calendar prefill 자동 — type + tokens의 첫 tag/user 팀 기준.
+  //
+  // 정책 (2026-05-20 사용자 명시, 본부별 mapping은 추후 확장):
+  //   - meeting · other  →  팀별 회의 캘린더 (calendar_type='meeting', team_id=targetTeamId)
+  //   - vacation         →  팀별 휴가 캘린더 (calendar_type='vacation', team_id=targetTeamId)
+  //   - birthday         →  본부 생일/기념일 캘린더 (calendar_type='birthday', team_id=null)
+  //
+  // 매칭 실패 시 fallback: 본부 안 같은 type → 본부 안 첫 캘린더 → 전체 첫 캘린더.
   useEffect(() => {
     if (!data) return
     if (userTouchedCalendar) return
@@ -279,16 +286,34 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
       targetDivisionId = data.myProfile.divisionId
       targetTeamId = data.myProfile.teamId
     }
+    if (!targetDivisionId) return
 
-    // 매칭 우선순위: division+team+type → division+team(any type) → division+공용+type → 첫 활성 캘린더
-    const pickType = inferredType === 'birthday' ? 'birthday' : inferredType
-    const candidates = data.calendars.filter(c => c.division_id === targetDivisionId)
-    const pick =
-      candidates.find(c => c.team_id === targetTeamId && c.calendar_type === pickType) ??
-      candidates.find(c => c.team_id === null && c.calendar_type === pickType) ??
-      candidates.find(c => c.team_id === targetTeamId) ??
-      candidates[0] ??
-      data.calendars[0]
+    // type → 매핑 rule
+    const targetCalType: CalendarType = inferredType === 'other' ? 'meeting' : inferredType
+    const scopeIsDivision = inferredType === 'birthday'  // 본부 공용으로
+
+    const inDiv = data.calendars.filter(c => c.division_id === targetDivisionId)
+
+    let pick: typeof data.calendars[number] | undefined
+    if (scopeIsDivision) {
+      // 1) 본부 공용 (team_id null) + 정확 type
+      pick = inDiv.find(c => c.team_id === null && c.calendar_type === targetCalType)
+      // 2) fallback: 팀 + 정확 type
+      if (!pick && targetTeamId) {
+        pick = inDiv.find(c => c.team_id === targetTeamId && c.calendar_type === targetCalType)
+      }
+    } else if (targetTeamId) {
+      // 1) 팀 + 정확 type
+      pick = inDiv.find(c => c.team_id === targetTeamId && c.calendar_type === targetCalType)
+      // 2) fallback: 본부 공용 + 정확 type
+      if (!pick) pick = inDiv.find(c => c.team_id === null && c.calendar_type === targetCalType)
+    }
+
+    // 3) 마지막 fallback: 본부 내 같은 type → 본부 내 첫 → 전체 첫
+    if (!pick) pick = inDiv.find(c => c.calendar_type === targetCalType)
+    if (!pick) pick = inDiv[0]
+    if (!pick) pick = data.calendars[0]
+
     if (pick) setCalendarId(pick.id)
   }, [data, tokens, inferredType, isCreate, initial, userTouchedCalendar])
 
