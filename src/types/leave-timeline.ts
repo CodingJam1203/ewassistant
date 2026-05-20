@@ -55,6 +55,12 @@ export interface LeaveTimelineItem {
   roundedMinutes: number
   /** 입력 출처 */
   source?: 'manual' | 'calendar' | 'expected'
+  /**
+   * Phase 1.5b — Google Calendar 휴가 캘린더에 push된 이벤트의 plain id.
+   * N-Click → Google push 후 채워짐. 수정/삭제 시 같은 id로 events.update/delete 호출.
+   * 양방향 sync 식별 키로도 사용 (reverse hook에서 매칭).
+   */
+  google_event_id?: string
 }
 
 export type LeaveTimeline = LeaveTimelineItem[]

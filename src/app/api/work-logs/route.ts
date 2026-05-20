@@ -271,11 +271,13 @@ export async function POST(request: Request) {
 
     // ─── D-day row UPSERT ───────────────────────────────────────────────────
     // leave_date=body.leaveDate 매칭. 있으면 UPDATE, 없으면 INSERT.
+    // Phase 1.5b — prev leave_timeline을 같이 받아 Google sync diff 산출에 사용
     let workLogId: string | null = null
+    let dDayPrevLeaveTimeline: import('@/types/leave-timeline').LeaveTimeline = []
     {
       const { data: existing } = await adminClient
         .from('work_logs')
-        .select('id')
+        .select('id, leave_timeline')
         .eq('user_email', user.email!)
         .eq('leave_date', body.leaveDate)
         .eq('is_deleted', false)
@@ -283,6 +285,8 @@ export async function POST(request: Request) {
         .limit(1)
         .maybeSingle()
       workLogId = existing?.id ?? null
+      const prevLt = (existing as { leave_timeline?: import('@/types/leave-timeline').LeaveTimeline } | null)?.leave_timeline
+      dDayPrevLeaveTimeline = Array.isArray(prevLt) ? prevLt : []
     }
 
     const dDayData: Record<string, unknown> = {
@@ -376,6 +380,29 @@ export async function POST(request: Request) {
       workLogId = savedLog?.id as string ?? null
     }
 
+    // ─── Phase 1.5b — N-Click → Google 휴가 push (D-day) ────────────────────
+    // best-effort: 실패해도 work_logs 저장은 정상. leave_timeline diff만 Google에 반영.
+    try {
+      const { syncLeaveTimelineWithGoogle } = await import('@/lib/google-calendar/vacation-sync')
+      const result = await syncLeaveTimelineWithGoogle({
+        adminClient,
+        userEmail: user.email!,
+        userDisplayName: body.name || user.email!,
+        leaveDate: body.leaveDate,
+        prev: dDayPrevLeaveTimeline,
+        next: leaveTimeline ?? [],
+      })
+      if (result.changed && result.updatedTimeline && workLogId) {
+        // google_event_id 채워진 leave_timeline으로 재update
+        await adminClient
+          .from('work_logs')
+          .update({ leave_timeline: result.updatedTimeline })
+          .eq('id', workLogId)
+      }
+    } catch (vacationSyncErr) {
+      console.error('[work-logs POST] vacation sync failed (D-day, non-fatal):', vacationSyncErr)
+    }
+
     // ─── D+1 row UPSERT (다음 출근 예정) ─────────────────────────────────────
     const isCheckInProgress = body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
     if (isCheckInProgress && body.expectedStartDate) {
@@ -401,13 +428,17 @@ export async function POST(request: Request) {
       // ABC-180: D+1 출근보고 동시 제출 시 새 값이 무시되는 버그 — 중복 row 정리 + UPDATE 결과 검증 추가
       const { data: existingNextRows } = await adminClient
         .from('work_logs')
-        .select('id, created_at')
+        .select('id, created_at, leave_timeline')
         .eq('user_email', user.email!)
         .eq('leave_date', nextDate)
         .eq('is_deleted', false)
         .order('created_at', { ascending: false })
 
       const existingNext = existingNextRows && existingNextRows.length > 0 ? existingNextRows[0] : null
+      // Phase 1.5b — D+1 prev leave_timeline 보존 (Google sync diff에 사용)
+      const dPlus1PrevLeaveTimeline: import('@/types/leave-timeline').LeaveTimeline = Array.isArray(
+        (existingNext as { leave_timeline?: import('@/types/leave-timeline').LeaveTimeline } | null)?.leave_timeline,
+      ) ? (existingNext as { leave_timeline: import('@/types/leave-timeline').LeaveTimeline }).leave_timeline : []
 
       // 동일 (user_email, leave_date) 활성 row 가 2개 이상이면 — 가장 최근 1건만 살리고 나머지 soft-delete.
       // (옛 분리 모델 row 또는 race condition 으로 중복 생성된 경우 대비)
@@ -507,6 +538,29 @@ export async function POST(request: Request) {
             __warning: `다음 출근 예정(${nextDate}) 저장에 실패했습니다. 잠시 후 다시 시도해주세요.`,
           })
         }
+      }
+
+      // ─── Phase 1.5b — N-Click → Google 휴가 push (D+1) ────────────────────
+      try {
+        const { syncLeaveTimelineWithGoogle } = await import('@/lib/google-calendar/vacation-sync')
+        const result = await syncLeaveTimelineWithGoogle({
+          adminClient,
+          userEmail: user.email!,
+          userDisplayName: body.name || user.email!,
+          leaveDate: nextDate,
+          prev: dPlus1PrevLeaveTimeline,
+          next: expectedLeaveTimeline ?? [],
+        })
+        if (result.changed && result.updatedTimeline) {
+          await adminClient
+            .from('work_logs')
+            .update({ leave_timeline: result.updatedTimeline })
+            .eq('user_email', user.email!)
+            .eq('leave_date', nextDate)
+            .eq('is_deleted', false)
+        }
+      } catch (vacationSyncErr) {
+        console.error('[work-logs POST] vacation sync failed (D+1, non-fatal):', vacationSyncErr)
       }
     }
 
