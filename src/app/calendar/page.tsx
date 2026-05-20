@@ -112,22 +112,33 @@ interface EventCellEntry {
 
 /** 이벤트가 특정 KST 날짜에 걸치는지 확인 + 표시 텍스트 생성 */
 function eventOnDate(ev: ApiEvent, dateIso: string): EventCellEntry | null {
+  // 종일 이벤트는 KST 날짜 문자열 + duration(일수) 기반으로 판정.
+  // iCal DTEND는 exclusive(다음 날 자정). DB에 UTC 자정으로 저장됐든 KST 자정으로
+  // 저장됐든 duration 일수는 동일하므로 (end - start)/86400000 round로 안전하게 산출.
+  // 시각 비교를 그대로 쓰면 UTC 자정 저장 케이스에서 +9h 만큼 다음 날에 잘못 매칭됨.
+  if (ev.isAllDay) {
+    const startMs = new Date(ev.startAt).getTime()
+    const endMs   = new Date(ev.endAt).getTime()
+    const durationDays = Math.max(1, Math.round((endMs - startMs) / 86_400_000))
+    const startKst = toKstIsoDate(new Date(startMs))
+    // 시작 + (duration-1)일까지가 표시 범위. 시작 KST 자정에 day를 더해 안전 비교.
+    const [sy, sm, sd] = startKst.split('-').map(Number)
+    const lastKst = toKstIsoDate(new Date(Date.UTC(sy, sm - 1, sd + durationDays - 1)))
+    if (dateIso < startKst || dateIso > lastKst) return null
+    return { ev, timeLabel: '종일', title: ev.title || '(제목 없음)' }
+  }
+
+  // 시각 이벤트는 기존 시각 비교 그대로. evEnd <= dayStart는 정확히 자정 종료(24:00 표현)도
+  // 다음 날 매칭 안 되게 보장.
   const dayStartIso = `${dateIso}T00:00:00+09:00`
   const dayEndIso   = `${dateIso}T23:59:59+09:00`
   const dayStart = new Date(dayStartIso).getTime()
   const dayEnd   = new Date(dayEndIso).getTime()
-  const evStart = new Date(ev.startAt).getTime()
-  const evEnd   = new Date(ev.endAt).getTime()
-  // 종일이면 end는 다음 날 자정인 경우 많음 — start ≤ dayEnd && end > dayStart 비교
+  const evStart  = new Date(ev.startAt).getTime()
+  const evEnd    = new Date(ev.endAt).getTime()
   if (evStart > dayEnd || evEnd <= dayStart) return null
-  const timeLabel = ev.isAllDay
-    ? '종일'
-    : `${fmtTime(ev.startAt)}~${fmtTime(ev.endAt)}`
-  return {
-    ev,
-    timeLabel,
-    title: ev.title || '(제목 없음)',
-  }
+  const timeLabel = `${fmtTime(ev.startAt)}~${fmtTime(ev.endAt)}`
+  return { ev, timeLabel, title: ev.title || '(제목 없음)' }
 }
 
 interface ApiDivision { id: string; name: string; sortOrder: number }

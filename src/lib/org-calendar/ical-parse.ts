@@ -162,11 +162,13 @@ function parseDateTime(
   const v = value.trim()
   const isDateValue = params['VALUE']?.toUpperCase() === 'DATE'
 
-  // 8자리 = 종일 DATE
+  // 8자리 = 종일 DATE — KST 자정으로 저장하여 시각/날짜 비교 일관성 확보.
+  // (이전엔 UTC 자정으로 저장 → KST 기준 +9h 어긋남 → 종일 이벤트가 다음 날에도 매칭되는 버그)
   if (isDateValue || /^\d{8}$/.test(v)) {
     if (!/^\d{8}$/.test(v)) return null
     const y = +v.slice(0, 4), mo = +v.slice(4, 6) - 1, d = +v.slice(6, 8)
-    return { date: new Date(Date.UTC(y, mo, d)), isDate: true }
+    const utcMs = Date.UTC(y, mo, d) - 9 * 3600 * 1000
+    return { date: new Date(utcMs), isDate: true }
   }
 
   // DATETIME: YYYYMMDDTHHMMSS[Z]
