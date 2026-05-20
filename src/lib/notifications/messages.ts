@@ -372,7 +372,7 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       // start = expectedStartTime > checkedInAt fallback. end = expectedEndTime (있을 때만 ~end 추가)
       const startStr = p.expectedStartTime ? fmtTime(p.expectedStartTime) : kstHHmm(p.checkedInAt)
       const endStr   = p.expectedEndTime   ? fmtTime(p.expectedEndTime)   : ''
-      const timeStr  = endStr ? `${startStr}~${endStr}` : `${startStr} 출근`
+      const timeStr  = endStr ? `근무예정 ${startStr}~${endStr}` : `${startStr} 출근`
       lines.push(`${p.name} : ${shortKoreanDate(p.date)} ${timeStr}`)
       if (leaveLines.length > 0) {
         lines.push(...(leaveLines.length === 1
@@ -402,7 +402,7 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       // legacy 단일 라벨 fallback — 같은 start~end 정책 유지
       const startStrFb = p.expectedStartTime ? fmtTime(p.expectedStartTime) : kstHHmm(p.checkedInAt)
       const endStrFb   = p.expectedEndTime   ? fmtTime(p.expectedEndTime)   : ''
-      const timeStrFb  = endStrFb ? `${startStrFb}~${endStrFb}` : `${startStrFb} 출근`
+      const timeStrFb  = endStrFb ? `근무예정 ${startStrFb}~${endStrFb}` : `${startStrFb} 출근`
       return `${p.name} : ${shortKoreanDate(p.date)} ${timeStrFb} ${p.workLocation || '미입력'}`
     }
 
