@@ -48,18 +48,13 @@ function toKstDateString(d: Date): string {
 }
 
 /**
- * 본인 이름 prefix 제거. MY PAGE 캘린더는 본인 일정만 보여주므로 `[재민] 휴가` 같은 본인 표시는 노이즈.
- * 다중 인원 prefix는 본인만 제거하고 나머지 유지: `[재민,승현] 잠패스` → `[승현] 잠패스`.
- * 본인 이름 매칭은 full display_name + 끝 2글자(예 "김재민"→"재민") 둘 다 인정.
+ * 제목 앞 대괄호 prefix를 통째로 제거. MY PAGE 캘린더는 본인 일정만 보여주므로
+ * 참석자 이름·팀 라벨(`[재민,승현]`, `[MICE팀]`) prefix는 노이즈 — 모두 노출 안 함.
+ * 본인이든 타인이든 무관하게 첫 번째 `[...]` 블록을 제거. 본문 텍스트(`잠패스`)만 남김.
  */
-function stripMyNamePrefix(title: string, userNames: Set<string>): string {
-  if (!title || userNames.size === 0) return title
-  return title.replace(/^\[([^\]]+)\]\s*/, (_m, inside: string) => {
-    const names = String(inside).split(/[,，·/]/).map(s => s.trim()).filter(Boolean)
-    const filtered = names.filter(n => !userNames.has(n))
-    if (filtered.length === 0) return ''
-    return `[${filtered.join(',')}] `
-  })
+function stripBracketPrefix(title: string): string {
+  if (!title) return title
+  return title.replace(/^\[[^\]]*\]\s*/, '')
 }
 
 /** vacation 이벤트의 시간 범위 → LeaveType 분류 */
@@ -116,22 +111,12 @@ export async function GET(request: Request) {
     // org_calendar_events에서 본인 매칭 이벤트 조회 (Phase 4.7 sync 결과)
     const adminClient = createAdminClient()
 
-    // 본인 이름 prefix 제거용 — display_name(예 "김재민") + 끝 2글자 short name(예 "재민") 모두 매칭
-    const { data: meProfile } = await adminClient
-      .from('user_profiles')
-      .select('display_name')
-      .eq('id', user.id)
-      .maybeSingle()
-    const fullName = (meProfile as { display_name?: string | null } | null)?.display_name?.trim() ?? ''
-    const shortName = fullName.length > 2 ? fullName.slice(-2) : fullName
-    const userNames = new Set<string>([fullName, shortName].filter(Boolean))
-
     const fromIso = new Date(`${from}T00:00:00+09:00`).toISOString()
     const toIso   = new Date(`${to}T23:59:59+09:00`).toISOString()
 
     const { data: rows, error: rowsErr } = await adminClient
       .from('org_calendar_events')
-      .select('id, title, start_at, end_at, is_all_day, inferred_type, matched_user_emails')
+      .select('id, title, start_at, end_at, is_all_day, inferred_type, matched_user_emails, org_calendar_id, rrule, recurring_event_id')
       .lte('start_at', toIso)
       .gte('end_at',   fromIso)
       .contains('matched_user_emails', [userEmail])
@@ -144,6 +129,9 @@ export async function GET(request: Request) {
         is_all_day: boolean
         inferred_type: string | null
         matched_user_emails: string[] | null
+        org_calendar_id: string
+        rrule: string | null
+        recurring_event_id: string | null
       }>>()
 
     if (rowsErr) {
@@ -193,8 +181,8 @@ export async function GET(request: Request) {
         })
       }
 
-      // 본인 이름 prefix 제거된 표시 라벨 (MY PAGE 캘린더는 본인 일정만 보여주므로)
-      const cleanedTitle = stripMyNamePrefix(r.title ?? '', userNames)
+      // 대괄호 prefix(`[재민,승현]`·`[MICE팀]` 등) 통째 제거 (MY PAGE는 본인 일정만이라 모두 노이즈)
+      const cleanedTitle = stripBracketPrefix(r.title ?? '')
 
       for (const dateIso of matchingDates) {
         const lookup = byDate[dateIso]
@@ -210,6 +198,15 @@ export async function GET(request: Request) {
             startTime: r.is_all_day ? null : toKstTime(r.start_at),
             endTime:   r.is_all_day ? null : toKstTime(r.end_at),
             title:     cleanedTitle,
+            // Phase 1.5e — chip 클릭 시 EventEditModal로 수정/삭제 가능하도록 식별자/원본 데이터 포함
+            id: r.id,
+            startAt: r.start_at,
+            endAt:   r.end_at,
+            isAllDay: r.is_all_day,
+            inferredType: r.inferred_type,
+            orgCalendarId: r.org_calendar_id,
+            rrule: r.rrule,
+            recurringEventId: r.recurring_event_id,
           }
           lookup.events.push(chunk)
         }
