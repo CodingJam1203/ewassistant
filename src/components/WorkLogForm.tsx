@@ -349,6 +349,13 @@ export default function WorkLogForm({
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [showEwPopup, setShowEwPopup] = useState(false)
   const [lastSubmitResult, setLastSubmitResult] = useState<EwCalculationResult | null>(null)
+  // Phase 1.5d (2026-05-20): 종일 휴가 + 근무 의도 동시 입력 시 confirm modal.
+  // 휴가가 prefill로 살아있는데 사용자가 actual 위치 변경/근무내용 입력으로 "근무" 의도를
+  // 분명히 한 경우, 묻지 않고 휴가를 묵시적으로 날리는 종전 동작(line 800-803)을 → 명시 확인으로 변경.
+  // 확인 시 휴가 항목 자동 제거 후 submit 계속 + Google 캘린더 휴가도 자동 삭제 (Phase 1.5b sync).
+  const [stripLeaveConfirmOpen, setStripLeaveConfirmOpen] = useState(false)
+  const pendingFormDataRef = useRef<WorkLogFormData | null>(null)
+  const userConfirmedStripLeaveRef = useRef(false)
   // 2026-05-19 v1.15: prefill fetch 중 시간 dropdown loading 표시.
   // 모달 mount 시 default(09:00/18:00)가 잠깐 보였다가 prefill 응답으로 갱신되는 flicker 방지.
   // 2026-05-19 v1.20: 수정 모드(editingLog) 또는 부모가 initialStartTime props로 즉시
@@ -784,15 +791,22 @@ export default function WorkLogForm({
       const actualWasTouched = !!data.actualWorkLocationsTouched
         || !locationsEqual(submittedActual, baselineActualRef.current)
 
-      // ─── 자동 정리: 일반 출퇴근 신호가 있는데 종일 휴가가 prefill로 살아있으면 해제 ──
+      // ─── Phase 1.5d (2026-05-20): 종일 휴가 prefill + 일반 근무 의도 → 명시 확인 후 제거 ─
       // 휴가 등록 후 같은 날 출퇴근 보고 작성/수정 시 모달 prefill로 leaveTimeline=full_day가
       // 들어오는데, 사용자가 안 건드리면 그대로 다시 저장되어 모순(휴가 + 사무실 출퇴근) 발생.
-      // 사용자가 명백히 "일반 근무" 의도(actual 위치 직접 변경 / 근무내용 입력)면 종일 휴가
-      // 항목만 자동 제거. 반차(morning_half 등)는 유지.
+      // 종전엔 묻지 않고 묵시 제거 → 이제 confirm modal로 명시 확인. 확인 시 휴가 항목 제거 후
+      // 진행(서버에서 Phase 1.5b vacation-sync가 Google 캘린더 휴가 자동 삭제). 반차(morning_half 등)는 유지.
       const isRegularWorkSubmit = !!(
         actualWasTouched ||
         (data.workContent && data.workContent.trim().length > 0)
       )
+      const hasFullDayLeave = rawSubmittedLeave.some(it => it.leaveType === 'full_day')
+      if (isRegularWorkSubmit && hasFullDayLeave && !userConfirmedStripLeaveRef.current) {
+        pendingFormDataRef.current = data
+        setStripLeaveConfirmOpen(true)
+        setIsSubmitting(false)
+        return
+      }
       // C2 정책 (2026-05-19): Google 캘린더 자동 매핑(source='calendar') 항목은
       // 사용자가 N-Click에서 출퇴근보고를 제출하는 행위 자체로 N-Click 입력 우선 →
       // submit 시 항상 자동 제거. 사용자가 LeaveTimelineInput에서 직접 추가한 항목
@@ -942,7 +956,23 @@ export default function WorkLogForm({
       setSubmitError(err.message)
     } finally {
       setIsSubmitting(false)
+      // Phase 1.5d — 한 submit 사이클 끝나면 confirm flag 리셋 (다음 submit은 다시 묻기)
+      userConfirmedStripLeaveRef.current = false
+      pendingFormDataRef.current = null
     }
+  }
+
+  // Phase 1.5d — 종일 휴가 제거 confirm 핸들러
+  const handleConfirmStripLeave = () => {
+    setStripLeaveConfirmOpen(false)
+    userConfirmedStripLeaveRef.current = true
+    const pending = pendingFormDataRef.current
+    if (pending) onSubmit(pending)
+  }
+  const handleCancelStripLeave = () => {
+    setStripLeaveConfirmOpen(false)
+    pendingFormDataRef.current = null
+    userConfirmedStripLeaveRef.current = false
   }
 
   // chips 변경 핸들러
@@ -955,6 +985,34 @@ export default function WorkLogForm({
 
   return (
     <>
+      {/* Phase 1.5d — 종일 휴가 prefill + 일반 근무 의도 동시 입력 시 명시 확인 */}
+      {stripLeaveConfirmOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4">
+          <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <h3 className="text-lg font-semibold text-text-primary mb-2">휴가가 등록되어 있습니다</h3>
+            <p className="text-sm text-text-secondary mb-5">
+              해당 일자에 종일 휴가가 등록되어 있습니다. 이대로 진행하면 <strong className="text-text-primary">휴가가 자동 삭제</strong>되고 근무로 저장됩니다. 정말 진행하시겠습니까?
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleCancelStripLeave}
+                className="px-4 py-2 rounded-[10px] border border-border text-text-primary hover:bg-surface-muted text-sm"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmStripLeave}
+                className="px-4 py-2 rounded-[10px] bg-primary-600 text-white hover:bg-primary-700 text-sm font-medium"
+              >
+                휴가 삭제하고 진행
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showEwPopup && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
           <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-sm p-6">
