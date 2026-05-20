@@ -274,10 +274,11 @@ export async function POST(request: Request) {
     // Phase 1.5b — prev leave_timeline을 같이 받아 Google sync diff 산출에 사용
     let workLogId: string | null = null
     let dDayPrevLeaveTimeline: import('@/types/leave-timeline').LeaveTimeline = []
+    let dDayExistingPlannedStart: string | null = null
     {
       const { data: existing } = await adminClient
         .from('work_logs')
-        .select('id, leave_timeline')
+        .select('id, leave_timeline, planned_start_time')
         .eq('user_email', user.email!)
         .eq('leave_date', body.leaveDate)
         .eq('is_deleted', false)
@@ -287,6 +288,7 @@ export async function POST(request: Request) {
       workLogId = existing?.id ?? null
       const prevLt = (existing as { leave_timeline?: import('@/types/leave-timeline').LeaveTimeline } | null)?.leave_timeline
       dDayPrevLeaveTimeline = Array.isArray(prevLt) ? prevLt : []
+      dDayExistingPlannedStart = (existing as { planned_start_time?: string | null } | null)?.planned_start_time ?? null
     }
 
     const dDayData: Record<string, unknown> = {
@@ -382,8 +384,11 @@ export async function POST(request: Request) {
 
     // ─── Phase 1.5b — N-Click → Google 휴가 push (D-day) ────────────────────
     // best-effort: 실패해도 work_logs 저장은 정상. leave_timeline diff만 Google에 반영.
+    // 진단 위해 결과 객체를 응답 body의 __vacationSync.dDay 에 포함.
+    let vacationSyncDDay: unknown = null
     try {
       const { syncLeaveTimelineWithGoogle } = await import('@/lib/google-calendar/vacation-sync')
+      const dDayPlannedStart = dDayExistingPlannedStart ?? body.startTime ?? finalStartTime
       const result = await syncLeaveTimelineWithGoogle({
         adminClient,
         userEmail: user.email!,
@@ -391,7 +396,9 @@ export async function POST(request: Request) {
         leaveDate: body.leaveDate,
         prev: dDayPrevLeaveTimeline,
         next: leaveTimeline ?? [],
+        plannedStartTime: dDayPlannedStart,
       })
+      vacationSyncDDay = result
       if (result.changed && result.updatedTimeline && workLogId) {
         // google_event_id 채워진 leave_timeline으로 재update
         await adminClient
@@ -400,10 +407,13 @@ export async function POST(request: Request) {
           .eq('id', workLogId)
       }
     } catch (vacationSyncErr) {
+      const msg = vacationSyncErr instanceof Error ? vacationSyncErr.message : String(vacationSyncErr)
       console.error('[work-logs POST] vacation sync failed (D-day, non-fatal):', vacationSyncErr)
+      vacationSyncDDay = { thrown: msg }
     }
 
     // ─── D+1 row UPSERT (다음 출근 예정) ─────────────────────────────────────
+    let vacationSyncDPlus1: unknown = null
     const isCheckInProgress = body.attendanceRecordType === '출근보고 진행 (주말출근, 휴가 포함)'
     if (isCheckInProgress && body.expectedStartDate) {
       // D+1 row의 본문 영역에 다음날 출근예정 정보 저장
@@ -550,7 +560,9 @@ export async function POST(request: Request) {
           leaveDate: nextDate,
           prev: dPlus1PrevLeaveTimeline,
           next: expectedLeaveTimeline ?? [],
+          plannedStartTime: dPlus1PlannedStart,
         })
+        vacationSyncDPlus1 = result
         if (result.changed && result.updatedTimeline) {
           await adminClient
             .from('work_logs')
@@ -560,7 +572,9 @@ export async function POST(request: Request) {
             .eq('is_deleted', false)
         }
       } catch (vacationSyncErr) {
+        const msg = vacationSyncErr instanceof Error ? vacationSyncErr.message : String(vacationSyncErr)
         console.error('[work-logs POST] vacation sync failed (D+1, non-fatal):', vacationSyncErr)
+        vacationSyncDPlus1 = { thrown: msg }
       }
     }
 
@@ -710,7 +724,13 @@ export async function POST(request: Request) {
       })
     }
 
-    return NextResponse.json(savedLog)
+    return NextResponse.json({
+      ...(savedLog ?? {}),
+      __vacationSync: {
+        dDay: vacationSyncDDay,
+        dPlus1: vacationSyncDPlus1,
+      },
+    })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('Work Log API Error:', message)

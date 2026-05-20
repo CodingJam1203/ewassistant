@@ -90,11 +90,18 @@ function addDaysToKstDate(yyyymmdd: string, n: number): string {
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`
 }
 
-/** entry → Google event requestBody */
+/** entry → Google event requestBody
+ *
+ *  부분 휴가의 시작 시각 결정:
+ *    1) plannedStartTime 인자가 있으면 그것 우선 (그 사용자의 그날 출근예정 시각)
+ *    2) 없으면 entry.startTime fallback (LEAVE_TYPE_DEFINITIONS의 fixed = 보통 09:00)
+ *  종일(full_day)은 date 형식 — 시작 시각 무관.
+ */
 function buildVacationEventBody(
   leaveDate: string,
   userDisplayName: string,
   entry: LeaveTimelineItem,
+  plannedStartTime: string | null,
 ): import('googleapis').calendar_v3.Schema$Event {
   const title = `[${userDisplayName}] ${entry.label}`
   if (entry.leaveType === 'full_day') {
@@ -104,8 +111,9 @@ function buildVacationEventBody(
       end:   { date: addDaysToKstDate(leaveDate, 1) },  // exclusive
     }
   }
-  // 부분 휴가 — startTime부터 actualMinutes 만큼
-  const [hh, mm] = entry.startTime.split(':').map(Number)
+  // 부분 휴가 — plannedStartTime(또는 entry.startTime fallback)부터 actualMinutes 만큼
+  const startStr = (plannedStartTime ?? entry.startTime ?? '09:00').slice(0, 5)  // 'HH:mm:ss' → 'HH:mm'
+  const [hh, mm] = startStr.split(':').map(Number)
   const totalEndMin = hh * 60 + mm + entry.actualMinutes
   const eh = Math.floor(totalEndMin / 60)
   const em = totalEndMin % 60
@@ -133,6 +141,15 @@ export interface SyncVacationResult {
   updatedTimeline: LeaveTimeline | null
   /** sync 대상 본부 아니면 true */
   skipped: boolean
+  /** 진단용 — sync 동작 요약 (응답 body에 포함해 디버깅 용이) */
+  debug?: {
+    calendarMatched: boolean
+    calendarRawId?: string
+    inserted: number
+    updated: number
+    deleted: number
+    errors: string[]
+  }
 }
 
 /**
@@ -152,13 +169,21 @@ export async function syncLeaveTimelineWithGoogle(args: {
   leaveDate: string  // 'YYYY-MM-DD'
   prev: LeaveTimeline
   next: LeaveTimeline
+  /** 그날 출근예정 시각 'HH:mm[:ss]' — 부분 휴가 시작 시각 결정에 사용 */
+  plannedStartTime: string | null
 }): Promise<SyncVacationResult> {
-  const { adminClient, userEmail, userDisplayName, leaveDate, prev, next } = args
+  const { adminClient, userEmail, userDisplayName, leaveDate, prev, next, plannedStartTime } = args
+  const debug: NonNullable<SyncVacationResult['debug']> = {
+    calendarMatched: false, inserted: 0, updated: 0, deleted: 0, errors: [],
+  }
 
   const vacationCal = await getUserVacationCalendar(adminClient, userEmail)
   if (!vacationCal) {
-    return { changed: false, updatedTimeline: null, skipped: true }
+    debug.errors.push('no_vacation_calendar_for_user_division')
+    return { changed: false, updatedTimeline: null, skipped: true, debug }
   }
+  debug.calendarMatched = true
+  debug.calendarRawId = vacationCal.rawCalId
 
   const cal = getGoogleCalendarClient()
   const prevById = new Map<string, LeaveTimelineItem>()
@@ -175,11 +200,14 @@ export async function syncLeaveTimelineWithGoogle(args: {
     if (nextIds.has(id)) continue
     try {
       await cal.events.delete({ calendarId: vacationCal.rawCalId, eventId: id })
+      debug.deleted++
     } catch (err: unknown) {
       const code = (err as { code?: number; status?: number })?.code
                   ?? (err as { code?: number; status?: number })?.status
       if (code !== 404 && code !== 410) {
+        const msg = err instanceof Error ? err.message : String(err)
         console.error('[vacation-sync] delete failed:', id, err)
+        debug.errors.push(`delete ${id}: ${msg}`)
       }
     }
   }
@@ -190,34 +218,39 @@ export async function syncLeaveTimelineWithGoogle(args: {
 
   for (const entry of next) {
     if (!entry.google_event_id) {
-      // 새 entry — insert
       try {
-        const body = buildVacationEventBody(leaveDate, userDisplayName, entry)
+        const body = buildVacationEventBody(leaveDate, userDisplayName, entry, plannedStartTime)
         const ins = await cal.events.insert({ calendarId: vacationCal.rawCalId, requestBody: body })
         const newId = ins.data.id ?? null
         if (newId) {
           updatedNext.push({ ...entry, google_event_id: newId })
+          debug.inserted++
           changed = true
           continue
         }
+        debug.errors.push(`insert returned no id (${entry.label})`)
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
         console.error('[vacation-sync] insert failed:', entry.label, err)
+        debug.errors.push(`insert ${entry.label}: ${msg}`)
       }
-      // insert 실패 — entry 그대로
       updatedNext.push(entry)
     } else {
       const prevEntry = prevById.get(entry.google_event_id)
       if (prevEntry && entryChanged(prevEntry, entry)) {
         try {
-          const body = buildVacationEventBody(leaveDate, userDisplayName, entry)
+          const body = buildVacationEventBody(leaveDate, userDisplayName, entry, plannedStartTime)
           await cal.events.update({
             calendarId: vacationCal.rawCalId,
             eventId: entry.google_event_id,
             requestBody: body,
           })
+          debug.updated++
           changed = true
         } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
           console.error('[vacation-sync] update failed:', entry.google_event_id, err)
+          debug.errors.push(`update ${entry.google_event_id}: ${msg}`)
         }
       }
       updatedNext.push(entry)
@@ -228,5 +261,6 @@ export async function syncLeaveTimelineWithGoogle(args: {
     changed,
     updatedTimeline: changed ? updatedNext : null,
     skipped: false,
+    debug,
   }
 }
