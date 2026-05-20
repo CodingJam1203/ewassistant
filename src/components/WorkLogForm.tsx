@@ -356,6 +356,11 @@ export default function WorkLogForm({
   const [stripLeaveConfirmOpen, setStripLeaveConfirmOpen] = useState(false)
   const pendingFormDataRef = useRef<WorkLogFormData | null>(null)
   const userConfirmedStripLeaveRef = useRef(false)
+  // Phase 1.5d (2026-05-21 fix): 사용자가 LeaveTimelineInput을 직접 건드렸는지 추적.
+  // true = 사용자가 휴가 추가/수정/삭제 명시 액션 → 그 사람의 휴가 의도 분명하므로 confirm 가드 skip.
+  // false = prefill 상태 그대로 → 사용자가 prefill 휴가를 모르고 근무 등록 케이스 → confirm 의미 있음.
+  // (4/14 QA 보고: 휴가 없던 빈 날 휴가 신규 등록 시 confirm 떴음 false positive fix)
+  const leaveTimelineUserTouchedRef = useRef(false)
   // 2026-05-19 v1.15: prefill fetch 중 시간 dropdown loading 표시.
   // 모달 mount 시 default(09:00/18:00)가 잠깐 보였다가 prefill 응답으로 갱신되는 flicker 방지.
   // 2026-05-19 v1.20: 수정 모드(editingLog) 또는 부모가 initialStartTime props로 즉시
@@ -801,7 +806,10 @@ export default function WorkLogForm({
         (data.workContent && data.workContent.trim().length > 0)
       )
       const hasFullDayLeave = rawSubmittedLeave.some(it => it.leaveType === 'full_day')
-      if (isRegularWorkSubmit && hasFullDayLeave && !userConfirmedStripLeaveRef.current) {
+      // user-touched 추적: 사용자가 leaveTimeline 직접 건드렸으면 confirm skip — 명시적 휴가 의도.
+      // 휴가 신규 등록(4/14 QA fix) / 기존 휴가 수정 / 삭제 모두 user-touched=true.
+      const userExplicitLeaveIntent = leaveTimelineUserTouchedRef.current
+      if (isRegularWorkSubmit && hasFullDayLeave && !userExplicitLeaveIntent && !userConfirmedStripLeaveRef.current) {
         pendingFormDataRef.current = data
         setStripLeaveConfirmOpen(true)
         setIsSubmitting(false)
@@ -1247,7 +1255,11 @@ export default function WorkLogForm({
             </p>
             <LeaveTimelineInput
               value={(formValues.leaveTimeline ?? []) as LeaveTimeline}
-              onChange={next => setValue('leaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
+              onChange={next => {
+                // Phase 1.5d — 사용자가 직접 leaveTimeline 건드림 신호 (휴가 추가/수정/삭제)
+                leaveTimelineUserTouchedRef.current = true
+                setValue('leaveTimeline', next, { shouldValidate: false, shouldDirty: true })
+              }}
             />
           </div>
           )}

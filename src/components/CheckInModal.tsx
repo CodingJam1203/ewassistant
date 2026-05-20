@@ -105,6 +105,11 @@ export default function CheckInModal({
   //   (서버는 Phase 1.5b sync로 Google 휴가 자동 삭제).
   const [stripLeaveConfirmOpen, setStripLeaveConfirmOpen] = useState(false)
   const userConfirmedStripLeaveRef = useRef(false)
+  // Phase 1.5d (2026-05-21 fix): 사용자가 LeaveTimelineInput을 직접 건드렸는지 추적.
+  // true = 사용자가 휴가 추가/수정/삭제 명시 액션 → 휴가 의도 분명하므로 confirm 가드 skip.
+  // false = prefill 상태 그대로 (Google 매핑 포함) → confirm 발동 의미 있음.
+  // (QA 4/14 보고: 휴가 없던 빈 날에 사용자가 8h 휴가 신규 등록할 때 confirm 뜨던 false positive fix)
+  const leaveTimelineUserTouchedRef = useRef(false)
 
   // 케이스 분기
   const [caseMode, setCaseMode] = useState<CaseMode>('none')
@@ -295,14 +300,16 @@ export default function CheckInModal({
       return setError(validationErrors[0])
     }
 
-    // Phase 1.5d (CheckInModal 확장): 종일 휴가 + 근무 의도 신호 동시 입력 시 명시 확인.
+    // Phase 1.5d (CheckInModal 확장, 2026-05-21 fix): 종일 휴가 + 근무 의도 신호 동시 입력 시 명시 확인.
     // 근무 의도 신호 = 실제 출근시간 직접 입력 OR 근무내용 입력.
-    // (휴가 그대로 두고 휴가만 저장하려는 사용자는 confirm 안 보고 진행)
+    // user-touched ref 추가 — 사용자가 LeaveTimelineInput을 직접 건드림 = 명시적 휴가 의도면 가드 skip.
+    // (4/14 QA 보고: 휴가 없던 빈 날에 휴가 8h 신규 등록 + 메모 입력 시 confirm 뜨던 false positive fix)
     const hasUserIntentWork = !!(
       actualCheckInTime ||
       (workContent && workContent.trim().length > 0)
     )
-    if (isAllDayLeave && hasUserIntentWork && !userConfirmedStripLeaveRef.current) {
+    const userExplicitLeaveIntent = leaveTimelineUserTouchedRef.current
+    if (isAllDayLeave && hasUserIntentWork && !userExplicitLeaveIntent && !userConfirmedStripLeaveRef.current) {
       setStripLeaveConfirmOpen(true)
       return
     }
@@ -712,7 +719,11 @@ export default function CheckInModal({
             <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
               {caseMode === 'future' ? '다음 출근일 휴가여부' : '휴가'}
             </label>
-            <LeaveTimelineInput value={leaveTimeline} onChange={setLeaveTimeline} />
+            <LeaveTimelineInput value={leaveTimeline} onChange={next => {
+              // Phase 1.5d — 사용자가 직접 leaveTimeline 건드림 신호 (휴가 추가/수정/삭제)
+              leaveTimelineUserTouchedRef.current = true
+              setLeaveTimeline(next)
+            }} />
           </div>
 
           {/* 메모 */}
