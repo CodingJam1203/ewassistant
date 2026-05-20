@@ -14,9 +14,9 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { extractCalendarRawId } from '@/lib/google-calendar/client'
-import { pushEventUpdate, pushEventDelete, extractRawEventIdFromGoogleEventId } from '@/lib/google-calendar/events'
+import { pushEventUpdate, pushEventDelete, extractRawEventIdFromGoogleEventId, syncMasterById } from '@/lib/google-calendar/events'
 import { resolveUserAuthz, canWriteToCalendar } from '@/lib/google-calendar/authz'
-import { loadUserLookup, matchUsers } from '@/lib/org-calendar/match-users'
+import { loadUserLookup, matchUsers, inferEventType } from '@/lib/org-calendar/match-users'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -112,43 +112,38 @@ export async function PATCH(
     return NextResponse.json({ error: `Google update 실패: ${message}` }, { status: 502 })
   }
 
-  // matched_user_emails 재산출 (title 변경 시 영향)
+  // Phase 4.7+ — master/single 모두 events.list({iCalUID})로 동기화 (master row 직접 update 안 함)
   const lookup = await loadUserLookup(admin)
-  const matched = matchUsers(
-    { title: next.title, attendeeEmails: ev.attendee_emails ?? [], divisionId: cal.division_id, teamId: cal.team_id },
-    lookup,
-  )
-
-  const nowIso = new Date().toISOString()
-  const { data: updated, error: updErr } = await admin
-    .from('org_calendar_events')
-    .update({
-      title: next.title,
-      description: next.description,
-      location: next.location,
-      start_at: next.startAt.toISOString(),
-      end_at:   next.endAt.toISOString(),
-      is_all_day: next.isAllDay,
-      matched_user_emails: matched,
-      inferred_type: next.inferredType,
+  let syncResult
+  try {
+    syncResult = await syncMasterById({
+      adminClient: admin,
+      rawCalId,
+      calendar: {
+        id: cal.id,
+        division_id: cal.division_id,
+        team_id: cal.team_id,
+        calendar_type: next.inferredType,
+      },
+      iCalUID: pushed.iCalUID,
       rrule: next.rrule,
-      // start time이 바뀌면 google_event_id의 "::ms" suffix도 변경됨 — pushed에서 회수
-      google_event_id: pushed.googleEventId,
-      synced_at: nowIso,
-      source: 'nclick',
-      nclick_pushed_at: nowIso,
+      userId: user.id,
+      matchUsersForTitle: (t, attendees) => matchUsers(
+        { title: t, attendeeEmails: attendees, divisionId: cal.division_id, teamId: cal.team_id },
+        lookup,
+      ),
+      inferType: inferEventType,
     })
-    .eq('id', id)
-    .select('*')
-    .single()
-
-  if (updErr || !updated) {
-    console.error('[calendar/events PATCH] db update failed:', updErr?.message)
-    return NextResponse.json({ error: `DB update 실패: ${updErr?.message}` }, { status: 500 })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[calendar/events PATCH] syncMasterById failed:', message)
+    return NextResponse.json({ error: `DB 동기화 실패: ${message}` }, { status: 500 })
   }
 
+  const updated = syncResult.primaryRow ?? ev
+
   await admin.from('org_calendar_event_history').insert({
-    event_id: updated.id,
+    event_id: (updated as { id: string }).id,
     org_calendar_id: cal.id,
     action: 'update',
     actor_user_id: user.id,

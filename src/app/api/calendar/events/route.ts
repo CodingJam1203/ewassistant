@@ -12,9 +12,9 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { extractCalendarRawId } from '@/lib/google-calendar/client'
-import { pushEventInsert, pushEventDelete } from '@/lib/google-calendar/events'
+import { pushEventInsert, pushEventDelete, syncMasterById } from '@/lib/google-calendar/events'
 import { resolveUserAuthz, canWriteToCalendar } from '@/lib/google-calendar/authz'
-import { loadUserLookup, matchUsers } from '@/lib/org-calendar/match-users'
+import { loadUserLookup, matchUsers, inferEventType } from '@/lib/org-calendar/match-users'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -203,58 +203,54 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Google push 실패: ${message}` }, { status: 502 })
   }
 
-  // matched_user_emails — title에서 우리 매칭 규칙으로 expand
+  // Phase 4.7+ — master row 직접 insert 하지 않고, events.list({iCalUID})로 instance(들) 받아 채움.
+  // single: 1 row, recurring: occurrence별 N rows. master row 잔존으로 인한 중복 노출 차단.
   const lookup = await loadUserLookup(admin)
-  const matched = matchUsers(
-    { title, attendeeEmails: [], divisionId: calendar.division_id, teamId: calendar.team_id },
-    lookup,
-  )
-
-  const nowIso = new Date().toISOString()
-  const { data: inserted, error: insErr } = await admin
-    .from('org_calendar_events')
-    .insert({
-      org_calendar_id: calendar.id,
-      google_event_id: pushed.googleEventId,
-      title,
-      description,
-      location,
-      start_at: startAt.toISOString(),
-      end_at:   endAt.toISOString(),
-      is_all_day: isAllDay,
-      attendee_emails: null,
-      matched_user_emails: matched,
-      inferred_type: inferredType,
-      raw_uid: pushed.iCalUID,
-      synced_at: nowIso,
-      source: 'nclick',
-      created_by_user_id: user.id,
+  let syncResult
+  try {
+    syncResult = await syncMasterById({
+      adminClient: admin,
+      rawCalId,
+      calendar: {
+        id: calendar.id,
+        division_id: calendar.division_id,
+        team_id: calendar.team_id,
+        calendar_type: inferredType,
+      },
+      iCalUID: pushed.iCalUID,
       rrule,
-      nclick_pushed_at: nowIso,
+      userId: user.id,
+      matchUsersForTitle: (t, attendees) => matchUsers(
+        { title: t, attendeeEmails: attendees, divisionId: calendar.division_id, teamId: calendar.team_id },
+        lookup,
+      ),
+      inferType: inferEventType,
     })
-    .select('*')
-    .single()
-
-  if (insErr || !inserted) {
-    console.error('[calendar/events POST] db insert failed:', insErr?.message)
-    // Google에는 push 됐는데 DB insert 실패 — best-effort 보상 삭제
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[calendar/events POST] syncMasterById failed:', message)
+    // Google엔 push 됐는데 DB 동기화 실패 — best-effort 보상 삭제
     try {
       await pushEventDelete(rawCalId, pushed.rawId)
     } catch (rollbackErr) {
       console.error('[calendar/events POST] rollback delete failed:', rollbackErr)
     }
-    return NextResponse.json({ error: `DB insert 실패: ${insErr?.message}` }, { status: 500 })
+    return NextResponse.json({ error: `DB 동기화 실패: ${message}` }, { status: 500 })
   }
 
-  // history 기록 (best-effort — 실패해도 본 작업은 성공으로 처리)
+  if (!syncResult.primaryRow) {
+    return NextResponse.json({ error: '동기화 결과 없음 — events.list가 빈 응답' }, { status: 500 })
+  }
+
+  // history 기록 (best-effort)
   await admin.from('org_calendar_event_history').insert({
-    event_id: inserted.id,
+    event_id: syncResult.primaryRow.id,
     org_calendar_id: calendar.id,
     action: 'create',
     actor_user_id: user.id,
     actor_email: user.email,
-    snapshot: inserted,
+    snapshot: syncResult.primaryRow,
   })
 
-  return NextResponse.json({ event: inserted })
+  return NextResponse.json({ event: syncResult.primaryRow })
 }

@@ -201,13 +201,176 @@ export async function pushEventDelete(
 
 /**
  * google_event_id 형식("uid::ms")에서 plain rawEventId 회수.
- * push insert 응답에서 rawId를 DB에 별도 저장하지 않으면 update/delete 시 필요.
- * 우리는 row.google_event_id의 "::" 앞부분 = iCalUID = Google rawId(대부분 동일)로 가정.
- *
- * 단 Google이 iCalUID와 plain id가 다른 케이스(recurrence 등)도 있어 update/delete 시점에는
- * row에 별도 컬럼 두는 게 더 안전하나 — 4.2 MVP는 단일 이벤트만이라 iCalUID==id 가정으로 진행.
+ * Phase 4.7 이후 새 google_event_id는 plain id라 이 함수는 사실상 그대로 반환.
+ * 안전망으로 옛 형식이 남아있을 때만 prefix 추출.
  */
 export function extractRawEventIdFromGoogleEventId(googleEventId: string): string {
   const idx = googleEventId.indexOf('::')
   return idx > 0 ? googleEventId.slice(0, idx) : googleEventId
+}
+
+/**
+ * Phase 4.7+ — Google API events.list({iCalUID}) 으로 master/single event의 instances 받아
+ * org_calendar_events row로 upsert. master row를 만들지 않고 occurrence row(들)만 채움.
+ *
+ * POST /api/calendar/events 후, PATCH 후 호출.
+ * 단일 이벤트면 1 row, 반복이면 timeMin~timeMax 안의 occurrence들 다수.
+ *
+ * cleanup: 이 master id 관련된 우리 DB의 잔존 row(이전 등록 후 사라진 occurrence 등) 정리.
+ */
+export interface SyncMasterByIdResult {
+  /** upsert된 row들 (events.list 결과 N개) */
+  upsertedIds: string[]
+  /** cleanup으로 삭제된 row id들 */
+  deletedIds: string[]
+  /** 이번 작업이 성공적으로 처리한 첫 row (history.create의 event_id로 사용) */
+  primaryRow: Record<string, unknown> | null
+}
+
+const SYNC_RANGE_PAST_DAYS_PUSH   = 90
+const SYNC_RANGE_FUTURE_DAYS_PUSH = 365
+
+export async function syncMasterById(args: {
+  adminClient: import('@supabase/supabase-js').SupabaseClient
+  rawCalId: string
+  calendar: { id: string; division_id: string; team_id: string | null; calendar_type: 'meeting' | 'vacation' | 'birthday' | 'other' }
+  iCalUID: string
+  rrule: string | null
+  userId: string
+  /** matched_user_emails 산출용 — 호출자가 미리 loadUserLookup 한 결과 전달 */
+  matchUsersForTitle: (title: string, attendeeEmails: string[]) => string[]
+  /** inferred_type 결정 helper */
+  inferType: (calendarType: 'meeting' | 'vacation' | 'birthday' | 'other', title: string) => 'meeting' | 'vacation' | 'birthday' | 'other'
+}): Promise<SyncMasterByIdResult> {
+  const { adminClient, rawCalId, calendar, iCalUID, rrule, userId, matchUsersForTitle, inferType } = args
+
+  const cal = getGoogleCalendarClient()
+  const now = Date.now()
+  const timeMin = new Date(now - SYNC_RANGE_PAST_DAYS_PUSH  * 86_400_000).toISOString()
+  const timeMax = new Date(now + SYNC_RANGE_FUTURE_DAYS_PUSH * 86_400_000).toISOString()
+
+  // iCalUID 필터로 그 master의 모든 occurrence (또는 single 1건) 받기
+  const items: import('googleapis').calendar_v3.Schema$Event[] = []
+  let pageToken: string | undefined
+  do {
+    const res = await cal.events.list({
+      calendarId: rawCalId,
+      iCalUID,
+      singleEvents: true,
+      timeMin,
+      timeMax,
+      maxResults: 2500,
+      orderBy: 'startTime',
+      showDeleted: false,
+      pageToken,
+    })
+    if (res.data.items) items.push(...res.data.items)
+    pageToken = res.data.nextPageToken ?? undefined
+  } while (pageToken)
+
+  const nowIso = new Date().toISOString()
+  const payloads: Record<string, unknown>[] = []
+  let masterId: string | null = null
+
+  for (const it of items) {
+    if (!it.id) continue
+    const start = parseEventTimeForPush(it.start)
+    const end   = parseEventTimeForPush(it.end)
+    if (!start || !end) continue
+    const isAllDay = !!it.start?.date
+    const attendeeEmails = (it.attendees ?? [])
+      .map(a => (a.email ?? '').toLowerCase().trim())
+      .filter(Boolean)
+    const title = it.summary ?? ''
+    const recurringEventId = it.recurringEventId ?? null
+    if (recurringEventId) masterId = recurringEventId
+
+    payloads.push({
+      org_calendar_id: calendar.id,
+      google_event_id: it.id,
+      title: title || null,
+      description: it.description ?? null,
+      location: it.location ?? null,
+      start_at: start.toISOString(),
+      end_at: end.toISOString(),
+      is_all_day: isAllDay,
+      attendee_emails: attendeeEmails.length > 0 ? attendeeEmails : null,
+      matched_user_emails: matchUsersForTitle(title, attendeeEmails),
+      inferred_type: inferType(calendar.calendar_type, title),
+      raw_uid: it.iCalUID ?? null,
+      recurring_event_id: recurringEventId,
+      rrule: recurringEventId ? rrule : null,
+      synced_at: nowIso,
+      source: 'nclick',
+      created_by_user_id: userId,
+      nclick_pushed_at: nowIso,
+    })
+  }
+
+  // single 이벤트의 경우 recurringEventId 없음 → masterId 못 정함. 그땐 그 1건의 id가 곧 master.
+  if (!masterId && items.length === 1 && items[0].id) {
+    masterId = items[0].id
+  }
+
+  let upsertedIds: string[] = []
+  if (payloads.length > 0) {
+    const { data: upserted, error: upErr } = await adminClient
+      .from('org_calendar_events')
+      .upsert(payloads, { onConflict: 'org_calendar_id,google_event_id' })
+      .select('id, google_event_id')
+    if (upErr) throw new Error(`upsert failed: ${upErr.message}`)
+    upsertedIds = (upserted ?? []).map((r: { id: string }) => r.id)
+  }
+
+  // cleanup: 이 master id 관련 row 중 이번 fetched에 없는 잔존 row 삭제.
+  // (POST에서는 master row 자체가 잘못 들어가는 케이스, PATCH에서는 RRULE 변경으로 사라진 occurrence)
+  let deletedIds: string[] = []
+  if (masterId) {
+    const fetchedSet = new Set(payloads.map(p => p.google_event_id as string))
+    const { data: existing } = await adminClient
+      .from('org_calendar_events')
+      .select('id, google_event_id')
+      .eq('org_calendar_id', calendar.id)
+      .or(`google_event_id.eq.${masterId},recurring_event_id.eq.${masterId}`)
+      .range(0, 9999)
+    const toDelete = (existing ?? [])
+      .filter((r: { google_event_id: string }) => !fetchedSet.has(r.google_event_id))
+      .map((r: { id: string }) => r.id)
+    if (toDelete.length > 0) {
+      const { error: delErr } = await adminClient
+        .from('org_calendar_events')
+        .delete()
+        .in('id', toDelete)
+      if (delErr) throw new Error(`cleanup delete failed: ${delErr.message}`)
+      deletedIds = toDelete
+    }
+  }
+
+  // history용 primary row — 첫 occurrence 또는 single row 선택
+  let primaryRow: Record<string, unknown> | null = null
+  if (upsertedIds.length > 0) {
+    const { data } = await adminClient
+      .from('org_calendar_events')
+      .select('*')
+      .eq('id', upsertedIds[0])
+      .maybeSingle()
+    primaryRow = (data as Record<string, unknown> | null) ?? null
+  }
+
+  return { upsertedIds, deletedIds, primaryRow }
+}
+
+function parseEventTimeForPush(t: import('googleapis').calendar_v3.Schema$EventDateTime | undefined): Date | null {
+  if (!t) return null
+  if (t.dateTime) {
+    const d = new Date(t.dateTime)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  if (t.date) {
+    const m = t.date.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    if (!m) return null
+    const y = +m[1], mo = +m[2] - 1, d = +m[3]
+    return new Date(Date.UTC(y, mo, d, -9, 0, 0))
+  }
+  return null
 }
