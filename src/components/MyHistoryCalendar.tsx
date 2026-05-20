@@ -35,8 +35,9 @@ import { Button, FilterBar } from '@/components/ui'
 import { cn } from '@/lib/utils/cn'
 import VacationRegisterModal from '@/components/VacationRegisterModal'
 import CalendarDayDetailModal from '@/components/CalendarDayDetailModal'
+import EventEditModal, { type EventEditInitial, type CalendarType } from '@/components/calendar/EventEditModal'
 import type { SubmissionRow } from '@/components/SubmissionsRawTable'
-import type { UserCalendarLookup } from '@/types/leave-calendar'
+import type { UserCalendarLookup, CalendarEventChunk } from '@/types/leave-calendar'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import type { WorkLocations } from '@/types/work-locations-v2'
 import type { LeaveTimeline, LeaveTimelineItem } from '@/types/leave-timeline'
@@ -253,6 +254,10 @@ export default function MyHistoryCalendar({
 
   const [vacationOpen, setVacationOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  // Phase 1.5e — EventEditModal 통합
+  //   - { isCreate: true, initial: { ... default date prefill ... } } → 신규 등록
+  //   - { isCreate: false, initial: { id, ...row } } → 수정
+  const [eventModal, setEventModal] = useState<{ isCreate: boolean; initial: EventEditInitial | null } | null>(null)
 
   // useMemo로 안정화 — 매 렌더마다 새 Date 객체가 만들어지면
   // fetchAll의 useCallback이 재생성되어 useEffect가 무한 재실행됨.
@@ -515,7 +520,7 @@ export default function MyHistoryCalendar({
       )}
 
       {/* 날짜 상세 모달 — 휴가 모달이 떠 있을 때는 가린다 */}
-      {selectedDate && !vacationOpen && (
+      {selectedDate && !vacationOpen && !eventModal && (
         <CalendarDayDetailModal
           date={selectedDate}
           checkIn={pairsByDate.get(selectedDate)?.checkIn ?? null}
@@ -545,6 +550,50 @@ export default function MyHistoryCalendar({
             setSelectedDate(null)
             if (d) onCreateCheckOut(d)
           } : undefined}
+          // Phase 1.5e — Google 캘린더 일정 chip 클릭 → EventEditModal 수정 모드
+          onEditEvent={(ev: CalendarEventChunk) => {
+            if (!ev.id) return
+            setEventModal({
+              isCreate: false,
+              initial: {
+                id: ev.id,
+                title: ev.title,
+                startAt: ev.startAt,
+                endAt: ev.endAt,
+                isAllDay: ev.isAllDay ?? false,
+                inferredType: (ev.inferredType ?? 'other') as CalendarType,
+                calendarId: ev.orgCalendarId,
+                rrule: ev.rrule ?? null,
+                recurringEventId: ev.recurringEventId ?? null,
+              },
+            })
+          }}
+          // Phase 1.5e — "+ 일정 등록" → EventEditModal 신규 모드, 해당 date prefill
+          onCreateEvent={() => {
+            const d = selectedDate
+            if (!d) return
+            // ISO 09:00 KST 시작 + 10:00 종료 default (EventEditModal 안에서 수정 가능)
+            const startIso = new Date(`${d}T09:00:00+09:00`).toISOString()
+            const endIso   = new Date(`${d}T10:00:00+09:00`).toISOString()
+            setEventModal({
+              isCreate: true,
+              initial: { startAt: startIso, endAt: endIso, isAllDay: false },
+            })
+          }}
+        />
+      )}
+
+      {/* Phase 1.5e — EventEditModal (수정/신규) */}
+      {eventModal && (
+        <EventEditModal
+          isCreate={eventModal.isCreate}
+          initial={eventModal.initial}
+          onClose={() => setEventModal(null)}
+          onSaved={() => {
+            setEventModal(null)
+            setSelectedDate(null)
+            fetchAll()
+          }}
         />
       )}
     </div>

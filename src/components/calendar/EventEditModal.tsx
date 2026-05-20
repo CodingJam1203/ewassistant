@@ -22,7 +22,7 @@ import CustomDropdown from '@/components/ui/CustomDropdown'
 import TimeSelect from '@/components/TimeSelect'
 import MultiTagPicker, { buildSuffixCount, userShortLabel, type PickerToken, type PickerUser, type PickerTag } from './MultiTagPicker'
 
-type CalendarType = 'meeting' | 'vacation' | 'birthday' | 'other'
+export type CalendarType = 'meeting' | 'vacation' | 'birthday' | 'other'
 
 interface PickerData {
   users: PickerUser[]

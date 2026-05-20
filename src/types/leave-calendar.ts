@@ -53,6 +53,16 @@ export interface CalendarEventChunk {
   endTime: string | null
   /** 일정 제목/설명 */
   title: string
+  /** Phase 1.5e — org_calendar_events row id. chip 클릭 시 EventEditModal로 수정/삭제. */
+  id?: string
+  /** Phase 1.5e — EventEditModal initial 생성용 */
+  startAt?: string         // ISO
+  endAt?: string           // ISO
+  isAllDay?: boolean
+  inferredType?: string | null
+  orgCalendarId?: string
+  rrule?: string | null
+  recurringEventId?: string | null
 }
 
 /** 사용자 본인 일정 조회 결과 (CheckInModal/WorkLogForm 표시용) */

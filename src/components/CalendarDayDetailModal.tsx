@@ -49,6 +49,10 @@ export interface CalendarDayDetailModalProps {
   onCreateCheckIn?: () => void
   /** "퇴근보고 작성" — 부모에서 WorkLogModal 호출 (해당 date로 신규 제출) */
   onCreateCheckOut?: () => void
+  /** Phase 1.5e — Google 캘린더 chip 클릭 → EventEditModal 수정 모드. ev에는 id + 원본 필드 포함 */
+  onEditEvent?: (ev: import('@/types/leave-calendar').CalendarEventChunk) => void
+  /** Phase 1.5e — "+ 일정 등록" → EventEditModal 신규 모드 (해당 date prefill) */
+  onCreateEvent?: () => void
 }
 
 function trimToHHmm(s: string | null | undefined): string {
@@ -75,6 +79,8 @@ export default function CalendarDayDetailModal({
   onRegisterVacation,
   onCreateCheckIn,
   onCreateCheckOut,
+  onEditEvent,
+  onCreateEvent,
 }: CalendarDayDetailModalProps) {
   // Stage 4: 글로벌 모달 카운터 등록
   useRegisterModalOpen()
@@ -238,15 +244,29 @@ export default function CalendarDayDetailModal({
               )}
               {calendar.events && calendar.events.length > 0 && (
                 <ul className="text-[13px] text-text-primary space-y-0.5 tabular-nums mt-1">
-                  {calendar.events.map((ev, i) => (
-                    <li key={i}>
-                      {ev.startTime && ev.endTime
-                        ? `${ev.startTime}~${ev.endTime} ${ev.title}`
-                        : ev.startTime
-                          ? `${ev.startTime}~ ${ev.title}`
-                          : `(종일) ${ev.title}`}
-                    </li>
-                  ))}
+                  {calendar.events.map((ev, i) => {
+                    const text = ev.startTime && ev.endTime
+                      ? `${ev.startTime}~${ev.endTime} ${ev.title}`
+                      : ev.startTime
+                        ? `${ev.startTime}~ ${ev.title}`
+                        : `(종일) ${ev.title}`
+                    // Phase 1.5e — id가 있는 chunk만 클릭 가능 (org_calendar_events row 식별)
+                    if (ev.id && onEditEvent) {
+                      return (
+                        <li key={ev.id ?? i}>
+                          <button
+                            type="button"
+                            onClick={() => onEditEvent(ev)}
+                            className="text-left w-full rounded-md px-1.5 py-0.5 hover:bg-primary-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                            title="클릭해서 수정"
+                          >
+                            {text}
+                          </button>
+                        </li>
+                      )
+                    }
+                    return <li key={i} className="px-1.5">{text}</li>
+                  })}
                 </ul>
               )}
             </Section>
@@ -255,12 +275,20 @@ export default function CalendarDayDetailModal({
 
         {/* 푸터 */}
         <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-border bg-background/40 rounded-b-[20px]">
-          {onRegisterVacation && (
-            <Button variant="secondary" size="sm" onClick={onRegisterVacation}>
-              <CalendarPlus className="h-4 w-4" aria-hidden />
-              이 날 휴가 등록
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {onRegisterVacation && (
+              <Button variant="secondary" size="sm" onClick={onRegisterVacation}>
+                <CalendarPlus className="h-4 w-4" aria-hidden />
+                이 날 휴가 등록
+              </Button>
+            )}
+            {onCreateEvent && (
+              <Button variant="ghost" size="sm" onClick={onCreateEvent}>
+                <CalendarPlus className="h-4 w-4" aria-hidden />
+                일정 등록
+              </Button>
+            )}
+          </div>
           <div className="ml-auto">
             <Button variant="ghost" size="sm" onClick={onClose}>닫기</Button>
           </div>
