@@ -29,6 +29,12 @@ interface ResultRow {
   error?: string
 }
 
+interface MyCalendarRow {
+  id: string
+  summary: string | null
+  accessRole: string | null
+}
+
 export async function GET() {
   const admin = await requireAdmin()
   if (!admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -61,6 +67,21 @@ export async function GET() {
       serviceAccountEmail,
       error: err instanceof Error ? err.message : String(err),
     }, { status: 500 })
+  }
+
+  // 진단용: service account 본인에게 list된 모든 캘린더 조회.
+  // 캘린더 ID 매칭 실패(공유 누락/오타) vs 정책 차단을 구분하는 데 사용.
+  let myCalendars: MyCalendarRow[] = []
+  let myCalendarsError: string | null = null
+  try {
+    const listed = await cal.calendarList.list({ maxResults: 250 })
+    myCalendars = (listed.data.items ?? []).map(c => ({
+      id: c.id ?? '',
+      summary: c.summary ?? null,
+      accessRole: c.accessRole ?? null,
+    }))
+  } catch (err) {
+    myCalendarsError = err instanceof Error ? err.message : String(err)
   }
 
   const results: ResultRow[] = []
@@ -101,5 +122,9 @@ export async function GET() {
     serviceAccountEmail,
     summary: `${okCount}/${results.length} 캘린더 접근 OK`,
     results,
+    // 진단 — service account 본인 calendarList.list 결과
+    myCalendars,
+    myCalendarsCount: myCalendars.length,
+    myCalendarsError,
   })
 }
