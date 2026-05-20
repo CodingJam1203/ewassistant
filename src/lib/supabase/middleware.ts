@@ -114,9 +114,12 @@ export async function updateSession(request: NextRequest) {
       }
     }
 
-    // 4. /admin 페이지는 admin만 접근
+    // 4. /admin 페이지는 admin만 접근. 단 /admin/tags 는 leader도 진입 가능 (본인 scope 안에서만 관리).
+    //    실제 CRUD 권한 scope 적용은 /api/admin/tags 라우트에서 requireLeaderOrAdmin으로 처리.
     if (pathname.startsWith('/admin')) {
-      if (role !== 'admin') {
+      const allowLeader = pathname.startsWith('/admin/tags')
+      const allowed = role === 'admin' || (allowLeader && role === 'leader')
+      if (!allowed) {
         const url = request.nextUrl.clone()
         url.pathname = '/home'
         return NextResponse.redirect(url)
