@@ -1,20 +1,29 @@
 /**
- * org_calendars → iCal fetch → org_calendar_events upsert
+ * Google Calendar API events.list({ singleEvents: true }) 기반 sync (Phase 4.7).
  *
- * 호출처: /api/cron/calendar-sync (정기) + /api/admin/calendars/[id]/sync (수동)
+ * 호출처: /api/cron/calendar-sync, /api/admin/calendars/sync, /api/calendar/refresh
  *
  * 정책:
- *   - 1회 호출당 모든 active 캘린더 fetch (병렬 처리, 동시성 5 제한)
- *   - 각 캘린더 fetch 실패 시 다른 캘린더는 계속 진행 (Promise.allSettled)
- *   - 이벤트 upsert 시 (org_calendar_id, google_event_id) UNIQUE 기준
- *   - 한 캘린더 fetch 결과의 google_event_id 외 모든 row를 삭제 — Google에서 삭제된 이벤트 반영
+ *   - timeMin: now - 90일, timeMax: now + 365일 (사용자 기본값. 캘린더 뷰 범위 +backfill).
+ *   - singleEvents=true: RRULE 반복 이벤트를 occurrence별 instance로 expand해서 받음.
+ *     각 occurrence는 별도 row가 됨 → 매트릭스/Agenda에 매 occurrence 노출.
+ *   - recurring instance의 master rrule 회수: distinct recurringEventId set → events.get(master).
+ *     master 1번 fetch로 그 master의 모든 instance row에 rrule 동일 복사.
+ *   - google_event_id = Google API의 plain `id` (occurrence면 `<masterId>_<startUTC>` 형식).
+ *     events.update/delete에 직접 사용 가능 (resolvePlainEventId fallback 불요).
+ *   - cleanup grace: source='nclick' + nclick_pushed_at 최근 60초 row는 보존.
+ *
+ * 이전 iCal feed 기반 ical-fetch/ical-parse는 더 이상 사용 안 함 (코드는 남아있되 dead).
  */
 
-import { fetchCalendarEvents, type ParsedEvent } from './ical-fetch'
-import { loadUserLookup, matchUsers, inferEventType } from './match-users'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { calendar_v3 } from 'googleapis'
+import { getGoogleCalendarClient, extractCalendarRawId } from '@/lib/google-calendar/client'
+import { loadUserLookup, matchUsers, inferEventType, type UserLookup } from './match-users'
 
 const FETCH_CONCURRENCY = 5
+const SYNC_RANGE_PAST_DAYS = 90
+const SYNC_RANGE_FUTURE_DAYS = 365
 
 export interface SyncResult {
   totalCalendars: number
@@ -36,7 +45,6 @@ interface CalendarRow {
 export async function syncAllCalendars(
   adminClient: SupabaseClient,
 ): Promise<SyncResult> {
-  // 1) active 캘린더 list
   const { data: calendars, error } = await adminClient
     .from('org_calendars')
     .select('id, division_id, team_id, google_calendar_id, calendar_type, label')
@@ -47,10 +55,8 @@ export async function syncAllCalendars(
     throw new Error(`org_calendars list failed: ${error?.message ?? 'no data'}`)
   }
 
-  // 2) 사용자 lookup 1회 load
   const lookup = await loadUserLookup(adminClient)
 
-  // 3) 캘린더별 fetch (concurrency 제한)
   const result: SyncResult = {
     totalCalendars: calendars.length,
     succeeded: 0,
@@ -59,7 +65,6 @@ export async function syncAllCalendars(
     failures: [],
   }
 
-  // 단순 batch 처리 — 동시 N개
   for (let i = 0; i < calendars.length; i += FETCH_CONCURRENCY) {
     const batch = calendars.slice(i, i + FETCH_CONCURRENCY)
     const settled = await Promise.allSettled(
@@ -83,70 +88,94 @@ export async function syncAllCalendars(
   return result
 }
 
+/**
+ * 한 캘린더의 events를 Google API로 fetch → upsert → cleanup.
+ * timeMin~timeMax 범위의 모든 occurrence를 받음 (singleEvents=true).
+ */
 async function syncOne(
   adminClient: SupabaseClient,
   cal: CalendarRow,
-  lookup: Awaited<ReturnType<typeof loadUserLookup>>,
+  lookup: UserLookup,
 ): Promise<number> {
-  // 1) iCal fetch
-  const events = await fetchCalendarEvents(cal.google_calendar_id, { timeoutMs: 20_000 })
+  const calClient = getGoogleCalendarClient()
+  const rawCalId = extractCalendarRawId(cal.google_calendar_id)
 
-  // 2) 매핑 + upsert payload 만들기
-  const now = new Date().toISOString()
-  const rawPayloads = events.map((ev: ParsedEvent) => ({
-    org_calendar_id: cal.id,
-    google_event_id: ev.googleEventId,
-    title: ev.title || null,
-    description: ev.description,
-    location: ev.location,
-    start_at: ev.startAt.toISOString(),
-    end_at: ev.endAt.toISOString(),
-    is_all_day: ev.isAllDay,
-    attendee_emails: ev.attendeeEmails.length > 0 ? ev.attendeeEmails : null,
-    matched_user_emails: matchUsers(
-      {
-        title: ev.title || '',
-        attendeeEmails: ev.attendeeEmails,
-        divisionId: cal.division_id,
-        teamId: cal.team_id,
-      },
-      lookup,
-    ),
-    inferred_type: inferEventType(cal.calendar_type, ev.title || ''),
-    raw_uid: ev.rawUid,
-    synced_at: now,
-  }))
+  const now = Date.now()
+  const timeMin = new Date(now - SYNC_RANGE_PAST_DAYS  * 86_400_000).toISOString()
+  const timeMax = new Date(now + SYNC_RANGE_FUTURE_DAYS * 86_400_000).toISOString()
 
-  // payload dedup 안전망 — Postgres upsert는 같은 conflict key를 한 번에 두 번
-  // affect 못 함("cannot affect row a second time"). 같은 google_event_id가
-  // 들어오면 마지막 것 유지 (Map은 같은 key set 시 덮어씀).
-  const dedupMap = new Map<string, typeof rawPayloads[number]>()
-  for (const p of rawPayloads) {
+  // 1) 모든 occurrence fetch (페이지네이션)
+  const items: calendar_v3.Schema$Event[] = []
+  let pageToken: string | undefined
+  do {
+    const res = await calClient.events.list({
+      calendarId: rawCalId,
+      singleEvents: true,
+      timeMin,
+      timeMax,
+      maxResults: 2500,
+      orderBy: 'startTime',
+      pageToken,
+      showDeleted: false,
+    })
+    if (res.data.items) items.push(...res.data.items)
+    pageToken = res.data.nextPageToken ?? undefined
+  } while (pageToken)
+
+  // 2) recurring master id set → master events.get 으로 rrule 회수
+  const masterIds = new Set<string>()
+  for (const it of items) {
+    if (it.recurringEventId) masterIds.add(it.recurringEventId)
+  }
+  const rruleByMaster = new Map<string, string | null>()
+  await Promise.all(
+    Array.from(masterIds).map(async (mId) => {
+      try {
+        const r = await calClient.events.get({ calendarId: rawCalId, eventId: mId })
+        const rec = r.data.recurrence
+        if (Array.isArray(rec) && rec.length > 0) {
+          // 보통 ['RRULE:FREQ=...'] 형태 — 첫 RRULE만 사용 (Simple)
+          const rruleLine = rec.find(s => s.startsWith('RRULE:'))
+          if (rruleLine) {
+            rruleByMaster.set(mId, rruleLine.replace(/^RRULE:/, ''))
+            return
+          }
+        }
+        rruleByMaster.set(mId, null)
+      } catch {
+        // master events.get 실패해도 instance row는 만듦. rrule만 null.
+        rruleByMaster.set(mId, null)
+      }
+    }),
+  )
+
+  // 3) upsert payload 생성
+  const nowIso = new Date().toISOString()
+  type Payload = NonNullable<ReturnType<typeof buildPayload>>
+  const payloads: Payload[] = []
+  for (const it of items) {
+    const p = buildPayload(it, cal, lookup, rruleByMaster, nowIso)
+    if (p) payloads.push(p)
+  }
+
+  // payload dedup 안전망 — 같은 google_event_id가 들어오면 마지막 것 유지
+  const dedupMap = new Map<string, typeof payloads[number]>()
+  for (const p of payloads) {
     dedupMap.set(p.google_event_id, p)
   }
-  const payloads = Array.from(dedupMap.values())
+  const finalPayloads = Array.from(dedupMap.values())
 
-  // 3) upsert (UNIQUE: org_calendar_id, google_event_id)
-  if (payloads.length > 0) {
+  // 4) upsert
+  if (finalPayloads.length > 0) {
     const { error: upsertErr } = await adminClient
       .from('org_calendar_events')
-      .upsert(payloads, { onConflict: 'org_calendar_id,google_event_id' })
+      .upsert(finalPayloads, { onConflict: 'org_calendar_id,google_event_id' })
     if (upsertErr) throw new Error(`upsert failed: ${upsertErr.message}`)
   }
 
-  // 4) Google에서 삭제된 이벤트 정리 — 이번 fetch에 없는 row 삭제.
-  //
-  // 이전 방식: `.not('google_event_id', 'in', '(quoted,list)')` — URL 길이/quoting 한계로
-  // 캘린더 events 수백 개 이상일 때 silent fail. (실제 PROD에서 647 events 마이스팀 휴가에서
-  // Google측 삭제된 이벤트가 정리 안 되던 케이스 확인)
-  //
-  // 새 방식: 그 캘린더의 (id, google_event_id) 전체를 한 번 select → JS Set으로 fetched와
-  // diff → 삭제 대상 row id만 chunk로 `.in('id', [...])` delete. PostgREST id IN 절은
-  // chunk size 200으로 URL 길이 안전.
-  if (events.length > 0) {
-    const fetchedSet = new Set(events.map(e => e.googleEventId))
-    // Phase 4.2 — nclick_pushed_at 60s grace: 우리가 방금 push한 이벤트가 Google iCal feed에
-    // 아직 export 안 됐을 race window에서 fetched에 없다고 cleanup 당하는 것 방지.
+  // 5) cleanup — fetched 외 모든 row 삭제 (nclick 60s grace 제외).
+  if (items.length > 0) {
+    const fetchedSet = new Set(finalPayloads.map(p => p.google_event_id))
     const graceMs = 60 * 1000
     const graceCutoff = new Date(Date.now() - graceMs).toISOString()
     const { data: existing, error: listErr } = await adminClient
@@ -158,7 +187,6 @@ async function syncOne(
     const toDelete: string[] = []
     for (const row of existing ?? []) {
       if (fetchedSet.has(row.google_event_id)) continue
-      // nclick source + 최근 60초 내 push → cleanup skip
       if (row.source === 'nclick' && row.nclick_pushed_at && row.nclick_pushed_at > graceCutoff) continue
       toDelete.push(row.id)
     }
@@ -172,7 +200,83 @@ async function syncOne(
       if (delErr) throw new Error(`cleanup delete failed: ${delErr.message}`)
     }
   }
-  // events.length === 0이면 캘린더 자체가 비었거나 fetch 실패 케이스. 후자 보호 위해 삭제 skip.
+  // items.length === 0이면 캘린더 자체가 비었거나 fetch 실패. 보수적 skip.
 
-  return payloads.length
+  return finalPayloads.length
+}
+
+/** Google event item → DB row payload (또는 invalid면 null) */
+function buildPayloadValid(
+  item: calendar_v3.Schema$Event,
+  cal: CalendarRow,
+  lookup: UserLookup,
+  rruleByMaster: Map<string, string | null>,
+  nowIso: string,
+) {
+  // 시간 파싱
+  const start = parseEventTime(item.start)
+  const end   = parseEventTime(item.end)
+  if (!start || !end) return null
+  const isAllDay = !!item.start?.date
+
+  const attendeeEmails = (item.attendees ?? [])
+    .map(a => (a.email ?? '').toLowerCase().trim())
+    .filter(Boolean)
+
+  const title = item.summary ?? ''
+  const recurringEventId = item.recurringEventId ?? null
+  const rrule = recurringEventId ? (rruleByMaster.get(recurringEventId) ?? null) : null
+
+  return {
+    org_calendar_id: cal.id,
+    google_event_id: item.id ?? '',
+    title: title || null,
+    description: item.description ?? null,
+    location: item.location ?? null,
+    start_at: start.toISOString(),
+    end_at: end.toISOString(),
+    is_all_day: isAllDay,
+    attendee_emails: attendeeEmails.length > 0 ? attendeeEmails : null,
+    matched_user_emails: matchUsers(
+      { title, attendeeEmails, divisionId: cal.division_id, teamId: cal.team_id },
+      lookup,
+    ),
+    inferred_type: inferEventType(cal.calendar_type, title),
+    raw_uid: item.iCalUID ?? null,
+    recurring_event_id: recurringEventId,
+    rrule,
+    synced_at: nowIso,
+    // source는 upsert 시 기존 값 유지 (default 'google'). nclick으로 우리가 만든 row는
+    // 이 sync에서 동일 google_event_id로 다시 들어오니 그대로 'google'로 덮어쓰지 않도록
+    // 분기 처리는 안 함 — 새 sync 후 source='nclick'은 nclick_pushed_at으로만 식별.
+  }
+}
+
+function buildPayload(
+  item: calendar_v3.Schema$Event,
+  cal: CalendarRow,
+  lookup: UserLookup,
+  rruleByMaster: Map<string, string | null>,
+  nowIso: string,
+) {
+  if (!item.id) return null
+  return buildPayloadValid(item, cal, lookup, rruleByMaster, nowIso)
+}
+
+/** Google event의 start/end (date 또는 dateTime) → Date 객체 */
+function parseEventTime(t: calendar_v3.Schema$EventDateTime | undefined): Date | null {
+  if (!t) return null
+  if (t.dateTime) {
+    const d = new Date(t.dateTime)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  if (t.date) {
+    // 종일 — YYYY-MM-DD. KST 자정 기준 ISO 변환.
+    const m = t.date.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    if (!m) return null
+    const y = +m[1], mo = +m[2] - 1, d = +m[3]
+    // KST 자정 = UTC 그 전날 15:00
+    return new Date(Date.UTC(y, mo, d, -9, 0, 0))
+  }
+  return null
 }

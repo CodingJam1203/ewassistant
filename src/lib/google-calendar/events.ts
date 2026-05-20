@@ -61,9 +61,13 @@ function buildEventBody(p: PushPayload): calendar_v3.Schema$Event {
   return body
 }
 
-/** 우리 sync.ts와 동일 형식으로 google_event_id 구성 — idempotent 보장 */
-function composeGoogleEventId(iCalUID: string, startAt: Date): string {
-  return `${iCalUID}::${startAt.getTime()}`
+/**
+ * Phase 4.7 이후: google_event_id는 Google API의 plain event id 그대로 사용 (sync도 동일).
+ * 이전 "iCalUID::startMs" 형식은 events.update/delete API에 직접 못 써서 resolvePlainEventId
+ * fallback이 필요했음. 이제 plain id라 직접 hit — fallback은 안전망으로만 유지.
+ */
+function composeGoogleEventId(rawId: string): string {
+  return rawId
 }
 
 export async function pushEventInsert(
@@ -81,7 +85,7 @@ export async function pushEventInsert(
     throw new Error('Google events.insert returned no id/iCalUID')
   }
   return {
-    googleEventId: composeGoogleEventId(iCalUID, payload.startAt),
+    googleEventId: composeGoogleEventId(rawId),
     rawId,
     iCalUID,
   }
@@ -140,7 +144,7 @@ export async function pushEventUpdate(
     const rawId   = res.data.id ?? rawEventIdOrICalUID
     const iCalUID = res.data.iCalUID ?? rawId
     return {
-      googleEventId: composeGoogleEventId(iCalUID, payload.startAt),
+      googleEventId: composeGoogleEventId(rawId),
       rawId,
       iCalUID,
     }
@@ -161,7 +165,7 @@ export async function pushEventUpdate(
   const rawId   = res.data.id ?? realId
   const iCalUID = res.data.iCalUID ?? rawId
   return {
-    googleEventId: composeGoogleEventId(iCalUID, payload.startAt),
+    googleEventId: composeGoogleEventId(rawId),
     rawId,
     iCalUID,
   }
