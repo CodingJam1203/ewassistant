@@ -1,37 +1,75 @@
 /**
  * GET /api/calendar/range?from=YYYY-MM-DD&to=YYYY-MM-DD
  *
- * 현재 로그인 사용자의 외부 Google Sheets 캘린더 일정을 날짜 범위 단위로 조회.
- * 캘린더뷰(MyHistoryCalendar)에서 월간 그리드를 그릴 때 사용한다.
+ * Phase 1.5a (2026-05-20) — 데이터 소스 swap:
+ *   - 이전: Apps Script Web App + leave_calendar_cache (Google Sheets 캐시)
+ *   - 변경: org_calendar_events (Phase 4.7 sync 결과, Google Calendar API 기반)
  *
- * - 단일 날짜 endpoint(`/api/team-status/calendar-events`)를 N번 호출하는 대신
- *   서버에서 병렬로 묶어 응답.
- * - 각 날짜의 결과는 DB cache(`leave_calendar_cache`) hit이면 거의 무료, miss이면
- *   Apps Script 호출. 캐시 없이 호출하면 비쌀 수 있어 최대 45일로 제한.
+ * 응답 shape는 그대로 유지 — MyHistoryCalendar / CheckInModal 등 클라이언트 코드 영향 0.
+ *
+ * 데이터 매핑:
+ *   - 본인 매칭 row (matched_user_emails 안에 본인 이메일 포함) 만 조회
+ *   - inferred_type === 'vacation'  → UserCalendarLookup.leaveType + leaveLabel
+ *     · 종일(is_all_day) 또는 duration ≥ 8h → 'full_day'
+ *     · 종료 시간 ≤ 14:00 → 'morning_half'
+ *     · 시작 시간 ≥ 14:00 → 'afternoon_half'
+ *     · 그 외 → 'morning_half' (default)
+ *   - 그 외 (meeting/birthday/other) → events[] CalendarEventChunk 로 누적
  *
  * 응답:
  *   {
  *     enabled: boolean
  *     byDate: Record<'YYYY-MM-DD', UserCalendarLookup>
- *     fetchFailed?: boolean (전체 실패 시)
+ *     fetchFailed?: boolean (DB 조회 실패 시)
  *   }
  */
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { isCalendarEnabled, getCalendarRangeBatch, parseCell } from '@/lib/leave-calendar'
-import type { UserCalendarLookup } from '@/types/leave-calendar'
+import type { UserCalendarLookup, CalendarEventChunk } from '@/types/leave-calendar'
+import type { LeaveType } from '@/types/leave-timeline'
 
 const MAX_DAYS = 45
 
-// 캐시 IN 쿼리 1회로 끝남 → 보통 100~300ms. 콜드스타트 여유 두고 30s.
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 export const maxDuration = 30
+
+function toKstTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('ko-KR', {
+    timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false,
+  })
+}
+
+function toKstDateString(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d)
+}
+
+/** vacation 이벤트의 시간 범위 → LeaveType 분류 */
+function decideLeaveType(startMs: number, endMs: number, isAllDay: boolean): LeaveType {
+  if (isAllDay) return 'full_day'
+  const duration = endMs - startMs
+  if (duration >= 480 * 60 * 1000) return 'full_day'
+  // KST 기준 시작/끝 시간으로 morning_half / afternoon_half 분류
+  const startKstHour = new Date(startMs).getUTCHours() + 9
+  const endKstHour   = new Date(endMs).getUTCHours()   + 9
+  // 정규화 (24+ → 다음 날)
+  const sh = startKstHour % 24
+  const eh = endKstHour % 24
+  if (eh <= 14) return 'morning_half'
+  if (sh >= 14) return 'afternoon_half'
+  return 'morning_half'
+}
 
 export async function GET(request: Request) {
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const userEmail = (user.email ?? '').toLowerCase()
+    if (!userEmail) return NextResponse.json({ enabled: false, byDate: {} })
 
     const { searchParams } = new URL(request.url)
     const from = (searchParams.get('from') || '').trim()
@@ -44,23 +82,6 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'from must be <= to' }, { status: 400 })
     }
 
-    // 캘린더 연동 비활성 시 즉시 빈 결과
-    if (!isCalendarEnabled()) {
-      return NextResponse.json({ enabled: false, byDate: {} })
-    }
-
-    // 사용자 프로필 조회 (시트 매칭용)
-    const adminClient = createAdminClient()
-    const { data: profile } = await adminClient
-      .from('user_profiles')
-      .select('display_name, division')
-      .eq('email', user.email!)
-      .single()
-    if (!profile?.display_name || !profile?.division) {
-      return NextResponse.json({ enabled: true, byDate: {} })
-    }
-
-    // from~to 사이 날짜 나열 (UTC 기준 enumerate — 시트는 KST 날짜라 같은 결과)
     const start = new Date(`${from}T00:00:00Z`)
     const end   = new Date(`${to}T00:00:00Z`)
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
@@ -77,39 +98,94 @@ export async function GET(request: Request) {
       dates.push(d.toISOString().slice(0, 10))
     }
 
-    // Apps Script batch 호출 (?from=&to=) — 시트 read 1회로 모든 날짜 처리.
-    // 누락된 날짜만 모아 한 번에 호출하고, 응답에서 본인 row를 추출해 lookup 변환.
-    const batch = await getCalendarRangeBatch(dates)
+    // org_calendar_events에서 본인 매칭 이벤트 조회 (Phase 4.7 sync 결과)
+    const adminClient = createAdminClient()
+    const fromIso = new Date(`${from}T00:00:00+09:00`).toISOString()
+    const toIso   = new Date(`${to}T23:59:59+09:00`).toISOString()
 
-    const results: UserCalendarLookup[] = dates.map(date => {
-      const data = batch[date]
-      if (!data) {
-        return {
-          enabled: true,
-          fetchFailed: true,
-          leaveType: null,
-          leaveLabel: null,
-          events: [],
-          raw: null,
+    const { data: rows, error: rowsErr } = await adminClient
+      .from('org_calendar_events')
+      .select('id, title, start_at, end_at, is_all_day, inferred_type, matched_user_emails')
+      .lte('start_at', toIso)
+      .gte('end_at',   fromIso)
+      .contains('matched_user_emails', [userEmail])
+      .range(0, 9999)
+      .returns<Array<{
+        id: string
+        title: string | null
+        start_at: string
+        end_at: string
+        is_all_day: boolean
+        inferred_type: string | null
+        matched_user_emails: string[] | null
+      }>>()
+
+    if (rowsErr) {
+      console.error('[calendar/range] rows query error:', rowsErr.message)
+      return NextResponse.json({ enabled: true, byDate: {}, fetchFailed: true }, { status: 200 })
+    }
+
+    // 결과 초기화 — 각 날짜별 빈 lookup
+    const byDate: Record<string, UserCalendarLookup> = {}
+    for (const dateIso of dates) {
+      byDate[dateIso] = {
+        enabled: true,
+        leaveType: null,
+        leaveLabel: null,
+        events: [],
+        raw: null,
+      }
+    }
+
+    // 각 row를 KST 날짜 범위에 매핑 (종일은 duration 기반, 시각은 시각 비교)
+    const dayBoundsMs = new Map<string, { start: number; end: number }>()
+    for (const dateIso of dates) {
+      const s = new Date(`${dateIso}T00:00:00+09:00`).getTime()
+      const e = new Date(`${dateIso}T23:59:59+09:00`).getTime()
+      dayBoundsMs.set(dateIso, { start: s, end: e })
+    }
+
+    for (const r of rows ?? []) {
+      const evStartMs = new Date(r.start_at).getTime()
+      const evEndMs   = new Date(r.end_at).getTime()
+      const isVacation = r.inferred_type === 'vacation'
+
+      // 그 row가 걸치는 KST 날짜 set
+      let matchingDates: string[]
+      if (r.is_all_day) {
+        // 종일 — duration일수 기반 (Phase 4.4 정책)
+        const durationDays = Math.max(1, Math.round((evEndMs - evStartMs) / 86_400_000))
+        const startKst = toKstDateString(new Date(evStartMs))
+        const [sy, sm, sd] = startKst.split('-').map(Number)
+        const lastKst = toKstDateString(new Date(Date.UTC(sy, sm - 1, sd + durationDays - 1)))
+        matchingDates = dates.filter(d => d >= startKst && d <= lastKst)
+      } else {
+        matchingDates = dates.filter(d => {
+          const b = dayBoundsMs.get(d)
+          if (!b) return false
+          return !(evStartMs > b.end || evEndMs <= b.start)
+        })
+      }
+
+      for (const dateIso of matchingDates) {
+        const lookup = byDate[dateIso]
+        if (isVacation) {
+          // 첫 vacation 만 leaveType으로 (multi-vacation 1일은 비표준 — 첫 것 채택)
+          if (lookup.leaveType === null) {
+            lookup.leaveType = decideLeaveType(evStartMs, evEndMs, r.is_all_day)
+            lookup.leaveLabel = r.title ?? '휴가'
+            lookup.raw = r.title ?? null
+          }
+        } else {
+          const chunk: CalendarEventChunk = {
+            startTime: r.is_all_day ? null : toKstTime(r.start_at),
+            endTime:   r.is_all_day ? null : toKstTime(r.end_at),
+            title:     r.title ?? '',
+          }
+          lookup.events.push(chunk)
         }
       }
-      const deptEntries = data.departments?.[profile.division!] ?? []
-      const target = deptEntries.find(e => e.name?.trim() === profile.display_name!.trim())
-      if (!target) {
-        return { enabled: true, leaveType: null, leaveLabel: null, events: [], raw: null }
-      }
-      const parsed = parseCell(target.cellValue)
-      return {
-        enabled: true,
-        leaveType: parsed.leaveType,
-        leaveLabel: parsed.leaveType ? target.cellValue.trim() : null,
-        events: parsed.events,
-        raw: target.cellValue,
-      }
-    })
-
-    const byDate: Record<string, UserCalendarLookup> = {}
-    dates.forEach((d, i) => { byDate[d] = results[i] })
+    }
 
     return NextResponse.json({
       enabled: true,
