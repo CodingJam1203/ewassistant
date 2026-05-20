@@ -226,7 +226,7 @@ export interface MorningSummaryData {
   yesterdayWorkLogs: Array<{
     name: string
     status: string
-    /** 야근 여부 — EW 실근무 8시간(=480분) 이상 */
+    /** 야근 여부 — EW 실근무 8시간(=480분) 초과 (정확히 480분은 야근 아님) */
     isOvertime?: boolean
   }>
   /** @deprecated legacy — 기존 메시지 빌더 호환용. 신규 코드는 completedSection 사용 */

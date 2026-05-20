@@ -580,7 +580,7 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
         lines.push('')
       }
 
-      // 어제 퇴근보고 요약 (참고) — 야근(EW 실근무 8h↑)은 ⚠️ 표식
+      // 어제 퇴근보고 요약 (참고) — 야근(EW 실근무 > 8h, 480분 초과)은 ⚠️ 표식
       if (p.yesterdayWorkLogs.length > 0) {
         lines.push(`🕘 ${koreanDate(p.yesterdayDate)} 퇴근 보고`)
         for (const m of p.yesterdayWorkLogs) {

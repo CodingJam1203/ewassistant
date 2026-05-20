@@ -193,7 +193,7 @@ export async function GET(request: Request) {
     if (mins < 0) mins += 24 * 60
     return mins
   }
-  const OVERTIME_THRESHOLD_MIN = 480  // EW 실근무 8h 이상이면 야근
+  const OVERTIME_THRESHOLD_MIN = 480  // EW 실근무가 8h(=480분)를 초과하면 야근 (정확히 480분은 야근 아님)
 
   // ─── 외부 캘린더 강제 갱신 + 본부별 휴가자 조회 ───────────────────────────
   await forceRefreshCalendar(todayDate)
@@ -307,7 +307,7 @@ export async function GET(request: Request) {
       return {
         name:   u.display_name || u.email,
         status: formatMorningWorklogStatus(log),
-        isOvertime: actualMin >= OVERTIME_THRESHOLD_MIN,
+        isOvertime: actualMin > OVERTIME_THRESHOLD_MIN,
       }
     })
 
