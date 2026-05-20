@@ -21,7 +21,7 @@ import { ChevronDown, Search, Star, User as UserIcon, Tag as TagIcon, X } from '
 
 export interface PickerUser {
   email: string
-  display_name: string
+  display_name: string | null
   division: string | null
   team: string | null
 }
@@ -84,14 +84,15 @@ export default function MultiTagPicker({
   // 본인 본부 안 사용자/그룹 우선 정렬을 위해 본부 이름 필요
   const myDivisionName = myProfile.divisionId ? (divisionNameById.get(myProfile.divisionId) ?? null) : null
 
-  // 검색·정렬된 사용자 리스트
+  // 검색·정렬된 사용자 리스트 — display_name null인 active 사용자도 안전하게 처리
   const filteredUsers = useMemo(() => {
     const query = q.trim().toLowerCase()
-    let arr = users.slice()
+    // display_name 없는 row는 picker에서 제외 — 사람으로 식별 불가
+    let arr = users.filter(u => (u.display_name ?? '').trim().length > 0)
     if (query) {
       arr = arr.filter(u =>
-        u.display_name.toLowerCase().includes(query) ||
-        u.email.toLowerCase().includes(query) ||
+        (u.display_name ?? '').toLowerCase().includes(query) ||
+        (u.email ?? '').toLowerCase().includes(query) ||
         (u.team ?? '').toLowerCase().includes(query) ||
         (u.division ?? '').toLowerCase().includes(query),
       )
@@ -100,7 +101,7 @@ export default function MultiTagPicker({
       const aIn = a.division === myDivisionName ? 0 : 1
       const bIn = b.division === myDivisionName ? 0 : 1
       if (aIn !== bIn) return aIn - bIn
-      return a.display_name.localeCompare(b.display_name, 'ko')
+      return (a.display_name ?? '').localeCompare(b.display_name ?? '', 'ko')
     })
     return arr
   }, [users, q, myDivisionName])
@@ -254,15 +255,16 @@ export default function MultiTagPicker({
         {filteredUsers.slice(0, 50).map(u => {
           const key = `user:${u.email.toLowerCase()}`
           const selected = selectedKeys.has(key)
+          const displayName = u.display_name ?? u.email
           return (
             <button
               key={key}
               type="button"
-              onClick={() => addToken({ kind: 'user', key, label: u.display_name, email: u.email })}
+              onClick={() => addToken({ kind: 'user', key, label: displayName, email: u.email })}
               className={`w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 border-b border-border/60 ${selected ? 'bg-primary-50 text-primary-700' : 'bg-surface hover:bg-primary-50 hover:text-primary-700'}`}
               style={{ minHeight: ITEM_HEIGHT }}
             >
-              <span className="font-medium">{u.display_name}</span>
+              <span className="font-medium">{displayName}</span>
               {u.team && <span className="text-xs text-text-muted">({u.team})</span>}
               {selected && <span className="ml-auto text-[10px] text-primary-600">선택됨</span>}
             </button>
