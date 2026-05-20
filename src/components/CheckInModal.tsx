@@ -110,6 +110,10 @@ export default function CheckInModal({
   // false = prefill 상태 그대로 (Google 매핑 포함) → confirm 발동 의미 있음.
   // (QA 4/14 보고: 휴가 없던 빈 날에 사용자가 8h 휴가 신규 등록할 때 confirm 뜨던 false positive fix)
   const leaveTimelineUserTouchedRef = useRef(false)
+  // 추가 안전망 (2026-05-21 fix #2): baseline = prefill 응답 시점의 leaveTimeline.
+  // baseline에 full_day가 없으면 → 빈 날에 사용자가 휴가 신규 등록하는 케이스 → 가드 절대 발동 X.
+  // useState로 시작하므로 prefill effect 끝에서 set (사용자 액션은 user-touched ref가 별도 추적).
+  const baselineLeaveTimelineRef = useRef<LeaveTimeline>([])
 
   // 케이스 분기
   const [caseMode, setCaseMode] = useState<CaseMode>('none')
@@ -223,10 +227,14 @@ export default function CheckInModal({
 
         // 휴가 — 응답 우선, 없으면 reset (이전 날짜의 휴가가 끌려가지 않게).
         // calendar-events effect가 별개로 Google 자동 매핑 시도하므로 여기선 reset만 담당.
+        // Phase 1.5d fix #2 — prefill 응답 시점의 leaveTimeline을 baseline으로 박제.
+        // baseline에 full_day 없으면 confirm 가드 절대 발동 X (휴가 신규 등록 false positive 차단).
         if (Array.isArray(data.leaveTimeline) && data.leaveTimeline.length > 0) {
           setLeaveTimeline(data.leaveTimeline)
+          baselineLeaveTimelineRef.current = data.leaveTimeline
         } else {
           setLeaveTimeline([])
+          baselineLeaveTimelineRef.current = []
         }
 
         // 메모 — 응답 우선, 없으면 reset
@@ -308,8 +316,12 @@ export default function CheckInModal({
       actualCheckInTime ||
       (workContent && workContent.trim().length > 0)
     )
+    // 1차 안전망 (Phase 1.5d fix #2): baseline(prefill 시점)에 full_day가 있었던 경우만 가드 발동.
+    //   - 빈 날 + 사용자가 휴가 신규 등록 → baseline에 휴가 X → 가드 절대 발동 X (4/14, 4/16 fix).
+    const baselineHadFullDay = baselineLeaveTimelineRef.current.some(it => it.leaveType === 'full_day')
+    // 2차 안전망 — 사용자가 LeaveTimelineInput을 직접 건드림 = 명시 휴가 의도 → 가드 skip.
     const userExplicitLeaveIntent = leaveTimelineUserTouchedRef.current
-    if (isAllDayLeave && hasUserIntentWork && !userExplicitLeaveIntent && !userConfirmedStripLeaveRef.current) {
+    if (baselineHadFullDay && hasUserIntentWork && !userExplicitLeaveIntent && !userConfirmedStripLeaveRef.current) {
       setStripLeaveConfirmOpen(true)
       return
     }

@@ -361,6 +361,14 @@ export default function WorkLogForm({
   // false = prefill 상태 그대로 → 사용자가 prefill 휴가를 모르고 근무 등록 케이스 → confirm 의미 있음.
   // (4/14 QA 보고: 휴가 없던 빈 날 휴가 신규 등록 시 confirm 떴음 false positive fix)
   const leaveTimelineUserTouchedRef = useRef(false)
+  // 추가 안전망 (2026-05-21 fix #2): baseline = 폼 mount 시점의 leaveTimeline.
+  // baseline에 full_day가 없으면 → 사용자가 빈 날에 휴가 신규 등록하는 케이스 → 가드 절대 발동 X.
+  // user-touched ref가 어떤 이유로든 false인 경우에도 baseline 비교가 1차 안전망.
+  const baselineLeaveTimelineRef = useRef<LeaveTimeline>(
+    isEditing && editingLog
+      ? ((editingLog.leave_timeline ?? []) as LeaveTimeline)
+      : ((initialLeaveTimeline ?? []) as LeaveTimeline)
+  )
   // 2026-05-19 v1.15: prefill fetch 중 시간 dropdown loading 표시.
   // 모달 mount 시 default(09:00/18:00)가 잠깐 보였다가 prefill 응답으로 갱신되는 flicker 방지.
   // 2026-05-19 v1.20: 수정 모드(editingLog) 또는 부모가 initialStartTime props로 즉시
@@ -805,11 +813,13 @@ export default function WorkLogForm({
         actualWasTouched ||
         (data.workContent && data.workContent.trim().length > 0)
       )
-      const hasFullDayLeave = rawSubmittedLeave.some(it => it.leaveType === 'full_day')
-      // user-touched 추적: 사용자가 leaveTimeline 직접 건드렸으면 confirm skip — 명시적 휴가 의도.
-      // 휴가 신규 등록(4/14 QA fix) / 기존 휴가 수정 / 삭제 모두 user-touched=true.
+      // 1차 안전망 — baseline(mount 시점)에 full_day가 있었던 경우만 가드 발동.
+      //   - 빈 날 + 사용자가 휴가 신규 등록 → baseline에 휴가 X → 가드 절대 발동 X (4/14, 4/16 fix).
+      //   - 휴가가 있던 날 prefill → baseline에 휴가 O → 사용자 액션 따라 confirm 여부 판단.
+      const baselineHadFullDay = baselineLeaveTimelineRef.current.some(it => it.leaveType === 'full_day')
+      // 2차 안전망 — 사용자가 LeaveTimelineInput을 직접 건드림 = 명시 휴가 의도 → 가드 skip.
       const userExplicitLeaveIntent = leaveTimelineUserTouchedRef.current
-      if (isRegularWorkSubmit && hasFullDayLeave && !userExplicitLeaveIntent && !userConfirmedStripLeaveRef.current) {
+      if (baselineHadFullDay && isRegularWorkSubmit && !userExplicitLeaveIntent && !userConfirmedStripLeaveRef.current) {
         pendingFormDataRef.current = data
         setStripLeaveConfirmOpen(true)
         setIsSubmitting(false)
