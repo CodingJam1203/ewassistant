@@ -145,15 +145,22 @@ async function syncOne(
   // chunk size 200으로 URL 길이 안전.
   if (events.length > 0) {
     const fetchedSet = new Set(events.map(e => e.googleEventId))
+    // Phase 4.2 — nclick_pushed_at 60s grace: 우리가 방금 push한 이벤트가 Google iCal feed에
+    // 아직 export 안 됐을 race window에서 fetched에 없다고 cleanup 당하는 것 방지.
+    const graceMs = 60 * 1000
+    const graceCutoff = new Date(Date.now() - graceMs).toISOString()
     const { data: existing, error: listErr } = await adminClient
       .from('org_calendar_events')
-      .select('id, google_event_id')
+      .select('id, google_event_id, source, nclick_pushed_at')
       .eq('org_calendar_id', cal.id)
-      .returns<Array<{ id: string; google_event_id: string }>>()
+      .returns<Array<{ id: string; google_event_id: string; source: string | null; nclick_pushed_at: string | null }>>()
     if (listErr) throw new Error(`existing list failed: ${listErr.message}`)
     const toDelete: string[] = []
     for (const row of existing ?? []) {
-      if (!fetchedSet.has(row.google_event_id)) toDelete.push(row.id)
+      if (fetchedSet.has(row.google_event_id)) continue
+      // nclick source + 최근 60초 내 push → cleanup skip
+      if (row.source === 'nclick' && row.nclick_pushed_at && row.nclick_pushed_at > graceCutoff) continue
+      toDelete.push(row.id)
     }
     const CHUNK = 200
     for (let i = 0; i < toDelete.length; i += CHUNK) {

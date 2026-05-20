@@ -1,17 +1,20 @@
 /**
- * GET /api/calendar/events?from=YYYY-MM-DD&to=YYYY-MM-DD&divisionIds=a,b
+ * /api/calendar/events
  *
- * 본부 캘린더 뷰(/calendar)용 read endpoint. org_calendar_events 캐시 read만 — Google
- * 직접 호출 X. 인증된 사용자만 (RLS authenticated SELECT).
+ * GET  ?from=YYYY-MM-DD&to=YYYY-MM-DD&divisionIds=a,b
+ *      본부 캘린더 뷰(/calendar)용 read endpoint. org_calendar_events 캐시 read만.
  *
- * 응답:
- *   { events: [{ id, calendarId, calendarLabel, calendarType, divisionId,
- *                divisionName, teamId, teamName, title, description, location,
- *                startAt, endAt, isAllDay, matchedUserEmails, inferredType }] }
+ * POST — N-Click에서 일정 등록 → Google API push → DB insert + history (Phase 4.2)
+ *        body: { calendarId, title, description?, location?, startAt, endAt, isAllDay, rrule?, inferredType? }
+ *        권한: 본인 본부의 캘린더만 (admin은 전체). 다른 본부 시도 403.
  */
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { extractCalendarRawId } from '@/lib/google-calendar/client'
+import { pushEventInsert, pushEventDelete } from '@/lib/google-calendar/events'
+import { resolveUserAuthz, canWriteToCalendar } from '@/lib/google-calendar/authz'
+import { loadUserLookup, matchUsers } from '@/lib/org-calendar/match-users'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -122,4 +125,133 @@ export async function GET(request: Request) {
   })
 
   return NextResponse.json({ events, userEmail: user.email })
+}
+
+interface PostBody {
+  calendarId?: string
+  title?: string
+  description?: string | null
+  location?: string | null
+  startAt?: string
+  endAt?: string
+  isAllDay?: boolean
+  rrule?: string | null
+  inferredType?: 'meeting' | 'vacation' | 'birthday' | 'other'
+}
+
+export async function POST(request: Request) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user || !user.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const admin = createAdminClient()
+  const authz = await resolveUserAuthz(admin, user.id, user.email)
+  if (!authz) return NextResponse.json({ error: 'Forbidden — profile not found' }, { status: 403 })
+
+  const body: PostBody = await request.json().catch(() => ({}))
+  const calendarId  = (body.calendarId ?? '').trim()
+  const title       = (body.title ?? '').trim()
+  const startIso    = (body.startAt ?? '').trim()
+  const endIso      = (body.endAt ?? '').trim()
+  const isAllDay    = body.isAllDay === true
+  const rrule       = body.rrule?.trim() || null
+  const description = body.description ?? null
+  const location    = body.location ?? null
+
+  if (!calendarId) return NextResponse.json({ error: 'calendarId required' }, { status: 400 })
+  if (!title)      return NextResponse.json({ error: 'title required' },      { status: 400 })
+  if (!startIso || !endIso) return NextResponse.json({ error: 'startAt/endAt required' }, { status: 400 })
+
+  const startAt = new Date(startIso)
+  const endAt   = new Date(endIso)
+  if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) {
+    return NextResponse.json({ error: 'invalid startAt/endAt' }, { status: 400 })
+  }
+  if (startAt >= endAt) {
+    return NextResponse.json({ error: 'startAt must be < endAt' }, { status: 400 })
+  }
+
+  // 캘린더 조회 + 권한 검증
+  const { data: calendar, error: calErr } = await admin
+    .from('org_calendars')
+    .select('id, division_id, team_id, google_calendar_id, calendar_type, is_active')
+    .eq('id', calendarId)
+    .maybeSingle()
+  if (calErr || !calendar) return NextResponse.json({ error: 'calendar not found' }, { status: 404 })
+  if (!calendar.is_active)  return NextResponse.json({ error: 'calendar inactive' }, { status: 400 })
+  if (!canWriteToCalendar(authz, calendar.division_id)) {
+    return NextResponse.json({ error: 'Forbidden — 본인 본부 캘린더에만 등록 가능' }, { status: 403 })
+  }
+
+  const inferredType = body.inferredType ?? calendar.calendar_type
+
+  // Google push
+  const rawCalId = extractCalendarRawId(calendar.google_calendar_id)
+  let pushed
+  try {
+    pushed = await pushEventInsert(rawCalId, {
+      title, description, location,
+      startAt, endAt, isAllDay,
+      rrule,
+    })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[calendar/events POST] google push failed:', message)
+    return NextResponse.json({ error: `Google push 실패: ${message}` }, { status: 502 })
+  }
+
+  // matched_user_emails — title에서 우리 매칭 규칙으로 expand
+  const lookup = await loadUserLookup(admin)
+  const matched = matchUsers(
+    { title, attendeeEmails: [], divisionId: calendar.division_id, teamId: calendar.team_id },
+    lookup,
+  )
+
+  const nowIso = new Date().toISOString()
+  const { data: inserted, error: insErr } = await admin
+    .from('org_calendar_events')
+    .insert({
+      org_calendar_id: calendar.id,
+      google_event_id: pushed.googleEventId,
+      title,
+      description,
+      location,
+      start_at: startAt.toISOString(),
+      end_at:   endAt.toISOString(),
+      is_all_day: isAllDay,
+      attendee_emails: null,
+      matched_user_emails: matched,
+      inferred_type: inferredType,
+      raw_uid: pushed.iCalUID,
+      synced_at: nowIso,
+      source: 'nclick',
+      created_by_user_id: user.id,
+      rrule,
+      nclick_pushed_at: nowIso,
+    })
+    .select('*')
+    .single()
+
+  if (insErr || !inserted) {
+    console.error('[calendar/events POST] db insert failed:', insErr?.message)
+    // Google에는 push 됐는데 DB insert 실패 — best-effort 보상 삭제
+    try {
+      await pushEventDelete(rawCalId, pushed.rawId)
+    } catch (rollbackErr) {
+      console.error('[calendar/events POST] rollback delete failed:', rollbackErr)
+    }
+    return NextResponse.json({ error: `DB insert 실패: ${insErr?.message}` }, { status: 500 })
+  }
+
+  // history 기록 (best-effort — 실패해도 본 작업은 성공으로 처리)
+  await admin.from('org_calendar_event_history').insert({
+    event_id: inserted.id,
+    org_calendar_id: calendar.id,
+    action: 'create',
+    actor_user_id: user.id,
+    actor_email: user.email,
+    snapshot: inserted,
+  })
+
+  return NextResponse.json({ event: inserted })
 }
