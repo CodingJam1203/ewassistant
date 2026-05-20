@@ -50,6 +50,7 @@ export interface EventEditInitial {
   isAllDay?: boolean
   inferredType?: CalendarType
   calendarId?: string
+  rrule?: string | null         // RRULE 본문 (Phase 4.4 반복)
 }
 
 interface EventEditModalProps {
@@ -84,6 +85,56 @@ function toLocalTime(iso: string | undefined): string {
   return new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(d)
+}
+
+// ─── Phase 4.4 반복(RRULE) Simple preset ─────────────────────────────────────
+//
+// 4 preset: 없음 / 매일 / 매주 (시작일 같은 요일) / 매월 (시작일 같은 일자).
+// 더 복잡한 RRULE(UNTIL/COUNT/BYSETPOS 등)은 후속.
+// "custom"은 우리가 만든 게 아니라 외부에서 들어온 복잡한 RRULE — 변경 시 강제 reset 차단을
+// 위해 별도 카테고리로 표시. 사용자가 preset 선택 시 그 RRULE은 덮어쓰임.
+
+type RecurPreset = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom'
+
+const DOWS_ICAL = ['SU','MO','TU','WE','TH','FR','SA'] as const
+const DOW_KO    = ['일','월','화','수','목','금','토']
+
+function getKstDayParts(date: Date): { day: number; weekday: number } {
+  const k = new Date(date.getTime() + 9 * 3600 * 1000)
+  return { day: k.getUTCDate(), weekday: k.getUTCDay() }
+}
+
+function buildRRule(preset: RecurPreset, startAt: Date): string | null {
+  if (preset === 'none' || preset === 'custom') return null
+  if (preset === 'daily') return 'FREQ=DAILY'
+  const { day, weekday } = getKstDayParts(startAt)
+  if (preset === 'weekly') return `FREQ=WEEKLY;BYDAY=${DOWS_ICAL[weekday]}`
+  if (preset === 'monthly') return `FREQ=MONTHLY;BYMONTHDAY=${day}`
+  return null
+}
+
+/** DB rrule 본문 → preset 종류 + 자연어 미리보기 */
+function parseRRule(rrule: string | null | undefined, startAt: Date): { preset: RecurPreset; preview: string } {
+  if (!rrule) return { preset: 'none', preview: '반복 없음' }
+  const r = rrule.replace(/^RRULE:/i, '').trim()
+  if (r === 'FREQ=DAILY') return { preset: 'daily', preview: '매일' }
+  const w = r.match(/^FREQ=WEEKLY;BYDAY=(SU|MO|TU|WE|TH|FR|SA)$/)
+  if (w) {
+    const idx = DOWS_ICAL.indexOf(w[1] as typeof DOWS_ICAL[number])
+    return { preset: 'weekly', preview: `매주 ${DOW_KO[idx]}요일` }
+  }
+  const m = r.match(/^FREQ=MONTHLY;BYMONTHDAY=(\d{1,2})$/)
+  if (m) return { preset: 'monthly', preview: `매월 ${m[1]}일` }
+  // 그 외 — 외부에서 들어온 복잡한 RRULE. 사용자가 preset 바꾸면 단순화됨.
+  return { preset: 'custom', preview: `사용자 정의 (${r})` }
+}
+
+function recurPresetPreview(preset: RecurPreset, startAt: Date): string {
+  if (preset === 'none')    return '반복 없음'
+  if (preset === 'daily')   return '매일'
+  if (preset === 'weekly')  { const { weekday } = getKstDayParts(startAt); return `매주 ${DOW_KO[weekday]}요일` }
+  if (preset === 'monthly') { const { day } = getKstDayParts(startAt); return `매월 ${day}일` }
+  return '사용자 정의'
 }
 
 /** title에서 "[토큰들] 본문" 분리. 토큰들 매핑해서 PickerToken[] 만들기 어려우니 본문만 잘라냄. */
@@ -217,6 +268,11 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
   const [userTouchedCalendar, setUserTouchedCalendar] = useState(false)
   const [description, setDescription] = useState<string>(initial?.description ?? '')
   const [location, setLocation] = useState<string>(initial?.location ?? '')
+  // 반복(RRULE) — 수정 모드면 initial.rrule 파싱해 preset 복원
+  const [recurPreset, setRecurPreset] = useState<RecurPreset>(() => {
+    const startGuess = new Date(initial?.startAt ?? Date.now())
+    return parseRRule(initial?.rrule ?? null, startGuess).preset
+  })
 
   // picker data fetch
   useEffect(() => {
@@ -374,6 +430,12 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
       return setError('시작이 종료보다 빨라야 합니다')
     }
 
+    // RRULE 결정 — 'custom'은 외부에서 들어온 복잡한 RRULE이므로 사용자가 굳이 다시 손대지 않으면
+    // 기존 값 유지. 4 preset은 시작 시각 기반으로 본문 재생성. 'none'은 null.
+    const rrulePayload: string | null = recurPreset === 'custom'
+      ? (initial?.rrule ?? null)
+      : buildRRule(recurPreset, new Date(startIso))
+
     setSaving(true)
     try {
       const url = isCreate ? '/api/calendar/events' : `/api/calendar/events/${initial!.id}`
@@ -390,6 +452,7 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
           endAt: endIso,
           isAllDay,
           inferredType,
+          rrule: rrulePayload,
         }),
         cache: 'no-store',
       })
@@ -561,6 +624,36 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
               />
               <div className="mt-1 text-[10px] text-text-muted">
                 속성 + 태그 팀에 따라 자동 prefill. 필요 시 직접 변경.
+              </div>
+            </div>
+
+            {/* 반복(RRULE) Simple preset */}
+            <div>
+              <label className="block text-xs font-medium text-text-secondary mb-1">반복</label>
+              <div className="inline-flex flex-wrap items-center rounded-[10px] border border-border-strong bg-surface overflow-hidden">
+                {(['none','daily','weekly','monthly'] as RecurPreset[]).map(p => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setRecurPreset(p)}
+                    className={`h-9 px-3 text-xs font-medium ${recurPreset === p ? 'bg-primary-600 text-white' : 'text-text-secondary hover:bg-surface-muted'}`}
+                  >
+                    {p === 'none' ? '없음' : p === 'daily' ? '매일' : p === 'weekly' ? '매주' : '매월'}
+                  </button>
+                ))}
+                {recurPreset === 'custom' && (
+                  <span className="h-9 inline-flex items-center px-3 text-xs font-medium bg-amber-50 text-amber-800 border-l border-border-strong">
+                    사용자 정의 RRULE
+                  </span>
+                )}
+              </div>
+              <div className="mt-1 text-[10px] text-text-muted">
+                {recurPreset === 'none'
+                  ? '한 번만 발생'
+                  : `${recurPresetPreview(recurPreset, new Date(startDate ? `${startDate}T00:00:00+09:00` : Date.now()))} — Google Calendar에 반복 일정으로 등록`}
+                {recurPreset === 'custom' && initial?.rrule && (
+                  <span className="block mt-0.5">원본 RRULE: <code className="text-[10px]">{initial.rrule}</code></span>
+                )}
               </div>
             </div>
 

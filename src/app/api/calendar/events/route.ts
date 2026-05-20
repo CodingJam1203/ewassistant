@@ -51,6 +51,7 @@ export async function GET(request: Request) {
       id, title, description, location,
       start_at, end_at, is_all_day,
       matched_user_emails, inferred_type,
+      rrule,
       org_calendar:org_calendars!inner(
         id, label, calendar_type, is_active,
         division_id, team_id,
@@ -95,6 +96,7 @@ export async function GET(request: Request) {
     is_all_day: boolean
     matched_user_emails: string[] | null
     inferred_type: string | null
+    rrule: string | null
     org_calendar: OrgCalendarShape | OrgCalendarShape[] | null
   }
 
@@ -114,6 +116,7 @@ export async function GET(request: Request) {
       isAllDay: r.is_all_day,
       matchedUserEmails: r.matched_user_emails ?? [],
       inferredType: (r.inferred_type ?? 'other') as 'meeting' | 'vacation' | 'birthday' | 'other',
+      rrule: r.rrule ?? null,
       calendarId: cal?.id ?? '',
       calendarLabel: cal?.label ?? '',
       calendarType: cal?.calendar_type ?? 'other',

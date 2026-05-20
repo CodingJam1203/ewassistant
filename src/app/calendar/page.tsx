@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight, Home, RefreshCw, Plus } from 'lucide-react'
+import { ArrowLeft, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight, Home, RefreshCw, Plus, Repeat } from 'lucide-react'
 import CustomDropdown from '@/components/ui/CustomDropdown'
 import EventEditModal, { type EventEditInitial } from '@/components/calendar/EventEditModal'
 
@@ -31,6 +31,7 @@ interface ApiEvent {
   matchedUserEmails: string[]
   inferredType: CalendarType
   calendarType: CalendarType
+  rrule: string | null
   calendarId: string
   divisionId: string
   divisionName: string
@@ -276,7 +277,10 @@ function AgendaView({
                         onClick={() => onEventClick(x.entry.ev)}
                         className={`w-full text-left px-2 py-1 rounded leading-tight hover:ring-1 hover:ring-primary-300 ${TYPE_BG[x.entry.ev.inferredType]}`}
                       >
-                        <div className="text-[10px] tabular-nums opacity-80">{x.entry.timeLabel}</div>
+                        <div className="text-[10px] tabular-nums opacity-80 flex items-center gap-1">
+                          {x.entry.ev.rrule && <Repeat className="h-3 w-3 shrink-0" />}
+                          <span>{x.entry.timeLabel}</span>
+                        </div>
                         <div className="text-[13px]">{x.entry.title}</div>
                       </button>
                     ))}
@@ -306,7 +310,10 @@ function AgendaView({
                           onClick={() => onEventClick(e.ev)}
                           className={`w-full text-left px-2 py-1 rounded leading-tight hover:ring-1 hover:ring-primary-300 ${TYPE_BG[e.ev.inferredType]}`}
                         >
-                          <div className="text-[10px] tabular-nums opacity-80">{e.timeLabel}</div>
+                          <div className="text-[10px] tabular-nums opacity-80 flex items-center gap-1">
+                            {e.ev.rrule && <Repeat className="h-3 w-3 shrink-0" />}
+                            <span>{e.timeLabel}</span>
+                          </div>
                           <div className="text-[13px]">{e.title}</div>
                         </button>
                       ))}
@@ -327,7 +334,10 @@ function AgendaView({
                         onClick={() => onEventClick(x.entry.ev)}
                         className={`w-full text-left px-2 py-1 rounded leading-tight hover:ring-1 hover:ring-primary-300 ${TYPE_BG[x.entry.ev.inferredType]}`}
                       >
-                        <div className="text-[10px] tabular-nums opacity-80">{x.entry.timeLabel}</div>
+                        <div className="text-[10px] tabular-nums opacity-80 flex items-center gap-1">
+                          {x.entry.ev.rrule && <Repeat className="h-3 w-3 shrink-0" />}
+                          <span>{x.entry.timeLabel}</span>
+                        </div>
                         <div className="text-[13px]">{x.entry.title}</div>
                       </button>
                     ))}
@@ -698,6 +708,7 @@ export default function CalendarMatrixPage() {
         isAllDay: ev.isAllDay,
         inferredType: ev.inferredType,
         calendarId: ev.calendarId,
+        rrule: ev.rrule,
       },
     })
   }, [])
@@ -948,7 +959,10 @@ export default function CalendarMatrixPage() {
                                             onClick={(ev) => { ev.stopPropagation(); handleEventClick(e.ev) }}
                                             className={`w-full text-left px-1.5 py-1 rounded leading-tight cursor-pointer hover:ring-1 hover:ring-primary-300 ${TYPE_BG[e.ev.inferredType]}`}
                                           >
-                                            <div className="text-[10px] tabular-nums opacity-80 truncate">{e.timeLabel}</div>
+                                            <div className="text-[10px] tabular-nums opacity-80 truncate flex items-center gap-0.5">
+                                              {e.ev.rrule && <Repeat className="h-2.5 w-2.5 shrink-0" />}
+                                              <span className="truncate">{e.timeLabel}</span>
+                                            </div>
                                             <div className="text-xs truncate">{e.title}</div>
                                           </button>
                                         ))}
@@ -978,7 +992,10 @@ export default function CalendarMatrixPage() {
                                           onClick={(ev) => { ev.stopPropagation(); handleEventClick(e.ev) }}
                                           className={`w-full text-left px-1.5 py-1 rounded leading-tight cursor-pointer hover:ring-1 hover:ring-primary-300 ${TYPE_BG[e.ev.inferredType]}`}
                                         >
-                                          <div className="text-[10px] tabular-nums opacity-80 truncate">{e.timeLabel}</div>
+                                          <div className="text-[10px] tabular-nums opacity-80 truncate flex items-center gap-0.5">
+                                            {e.ev.rrule && <Repeat className="h-2.5 w-2.5 shrink-0" />}
+                                            <span className="truncate">{e.timeLabel}</span>
+                                          </div>
                                           <div className="text-xs truncate">{e.title}</div>
                                         </button>
                                       ))}
