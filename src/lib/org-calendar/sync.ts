@@ -124,17 +124,38 @@ async function syncOne(
     if (upsertErr) throw new Error(`upsert failed: ${upsertErr.message}`)
   }
 
-  // 4) Google에서 삭제된 이벤트 정리 — 이번 fetch에 없는 row 삭제
-  const fetchedIds = events.map(e => e.googleEventId)
-  // 빈 array면 모든 row 삭제 — 캘린더 자체가 비었거나 fetch 안 됐을 케이스. 후자 보호 위해
-  // events.length === 0이면 삭제 skip (보수적). 정말 비었으면 다음번 sync에서 정리됨.
-  if (fetchedIds.length > 0) {
-    await adminClient
+  // 4) Google에서 삭제된 이벤트 정리 — 이번 fetch에 없는 row 삭제.
+  //
+  // 이전 방식: `.not('google_event_id', 'in', '(quoted,list)')` — URL 길이/quoting 한계로
+  // 캘린더 events 수백 개 이상일 때 silent fail. (실제 PROD에서 647 events 마이스팀 휴가에서
+  // Google측 삭제된 이벤트가 정리 안 되던 케이스 확인)
+  //
+  // 새 방식: 그 캘린더의 (id, google_event_id) 전체를 한 번 select → JS Set으로 fetched와
+  // diff → 삭제 대상 row id만 chunk로 `.in('id', [...])` delete. PostgREST id IN 절은
+  // chunk size 200으로 URL 길이 안전.
+  if (events.length > 0) {
+    const fetchedSet = new Set(events.map(e => e.googleEventId))
+    const { data: existing, error: listErr } = await adminClient
       .from('org_calendar_events')
-      .delete()
+      .select('id, google_event_id')
       .eq('org_calendar_id', cal.id)
-      .not('google_event_id', 'in', `(${fetchedIds.map(id => `"${id.replace(/"/g, '""')}"`).join(',')})`)
+      .returns<Array<{ id: string; google_event_id: string }>>()
+    if (listErr) throw new Error(`existing list failed: ${listErr.message}`)
+    const toDelete: string[] = []
+    for (const row of existing ?? []) {
+      if (!fetchedSet.has(row.google_event_id)) toDelete.push(row.id)
+    }
+    const CHUNK = 200
+    for (let i = 0; i < toDelete.length; i += CHUNK) {
+      const batch = toDelete.slice(i, i + CHUNK)
+      const { error: delErr } = await adminClient
+        .from('org_calendar_events')
+        .delete()
+        .in('id', batch)
+      if (delErr) throw new Error(`cleanup delete failed: ${delErr.message}`)
+    }
   }
+  // events.length === 0이면 캘린더 자체가 비었거나 fetch 실패 케이스. 후자 보호 위해 삭제 skip.
 
   return payloads.length
 }
