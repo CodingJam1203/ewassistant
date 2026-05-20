@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight, Home } from 'lucide-react'
+import { ArrowLeft, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight, Home, RefreshCw } from 'lucide-react'
 import CustomDropdown from '@/components/ui/CustomDropdown'
 
 type CalendarType = 'meeting' | 'vacation' | 'birthday' | 'other'
@@ -99,6 +99,13 @@ function fmtDayHeader(d: Date): { date: string; dow: string; isToday: boolean; i
 }
 
 function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('ko-KR', {
+    timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false,
+  })
+}
+
+/** "최신 14:36" 같은 KST HH:mm 표시 — refresh indicator용 */
+function fmtSyncTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('ko-KR', {
     timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false,
   })
@@ -338,6 +345,13 @@ export default function CalendarMatrixPage() {
   // (본부가 바뀌면 false로 reset — 새 본부에서는 다시 default 적용)
   const userTouchedTeamRef = useRef(false)
 
+  // 실시간성 — /api/calendar/refresh 호출 상태. mount 시 1회 silent refresh,
+  // 사용자 수동 새로고침 버튼은 force=true로 throttle(5분) 우회.
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  // mount 시 silent refresh 1회만 실행하도록 가드
+  const didMountSyncRef = useRef(false)
+
   const days = useMemo(() => {
     const n = RANGE_DAYS[rangeView]
     return Array.from({ length: n }, (_, i) => addDays(startDate, i))
@@ -382,6 +396,42 @@ export default function CalendarMatrixPage() {
   }, [range.from, range.to])
 
   useEffect(() => { load() }, [load])
+
+  /**
+   * /api/calendar/refresh 호출.
+   *   - force=false (mount/silent): throttle(5분) 안이면 즉시 throttled 응답. UI 그대로.
+   *   - force=true (수동 새로고침 버튼): throttle 무시 강제 sync. 완료 후 events 재load.
+   * 어느 쪽이든 응답에서 lastSyncedAt 갱신.
+   */
+  const refresh = useCallback(async (force: boolean) => {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/calendar/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force }),
+        cache: 'no-store',
+      })
+      const data: { status?: string; lastSyncedAt?: string | null } = await res.json().catch(() => ({}))
+      if (data.lastSyncedAt) setLastSyncedAt(data.lastSyncedAt)
+      // 실제 sync가 일어났을 때만 events 재load (throttled면 DB 변경 없음)
+      if (data.status === 'synced') {
+        await load()
+      }
+    } catch (err) {
+      // refresh 실패는 silent — 캘린더 자체 read는 별개로 동작
+      console.error('[calendar/refresh] failed:', err)
+    } finally {
+      setSyncing(false)
+    }
+  }, [load])
+
+  // mount 시 1회 silent refresh
+  useEffect(() => {
+    if (didMountSyncRef.current) return
+    didMountSyncRef.current = true
+    refresh(false)
+  }, [refresh])
 
   // 선택된 본부의 users / events 1차 필터
   const divUsers = useMemo(() => {
@@ -643,6 +693,29 @@ export default function CalendarMatrixPage() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* sync indicator + 수동 새로고침 — 마지막 동기화 KST HH:mm. force=true로 throttle 우회 */}
+          <div className="inline-flex items-center gap-1 text-[11px] text-text-muted">
+            {syncing ? (
+              <>
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span>동기화 중…</span>
+              </>
+            ) : lastSyncedAt ? (
+              <>
+                <span className="tabular-nums">최신 {fmtSyncTime(lastSyncedAt)}</span>
+                <button
+                  type="button"
+                  onClick={() => refresh(true)}
+                  className="ml-1 inline-flex items-center gap-0.5 text-primary-600 hover:text-primary-700 hover:underline"
+                  aria-label="지금 새로고침"
+                  title="지금 새로고침 (Google 캘린더 즉시 fetch)"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  <span>새로고침</span>
+                </button>
+              </>
+            ) : null}
+          </div>
           {/* 범위 토글 */}
           <div className="inline-flex items-center rounded-[10px] border border-border-strong bg-surface overflow-hidden">
             {(['1week', '2weeks', 'month'] as RangeView[]).map(r => (
