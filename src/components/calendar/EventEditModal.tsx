@@ -91,6 +91,112 @@ function splitTitleBody(title: string): string {
   return m ? m[1] : title
 }
 
+/** title에서 "[토큰들]" 부분만 추출. 콤마/공백 splits → 각 토큰 문자열 배열 */
+function extractTitleTokenStrings(title: string): string[] {
+  const m = title.match(/^\s*\[([^\]]+)\]/)
+  if (!m) return []
+  return m[1]
+    .split(/[,+&·\/]/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0)
+}
+
+/**
+ * 수정 모드에서 title의 [토큰들]을 실제 PickerToken[]으로 복원.
+ *
+ * 매칭 규칙 (사람 우선):
+ *   1) users에서 풀네임 정확 매칭 (예: "김재민" → 그 user)
+ *   2) users에서 마지막 2글자 suffix 일치 — suffix가 unique이면 그 user 단독, 충돌이면 모두 추가
+ *   3) tags에서 label 정확 매칭 (event의 calendar 본부 우선 + 그 안에서 team 우선)
+ *   4) tags에서 alias_patterns 포함 (동일 우선순위)
+ *
+ * 매칭 못 한 토큰은 무시 (사용자가 다시 손으로 추가).
+ */
+function reconstructTokens(
+  title: string,
+  users: PickerUser[],
+  tags: PickerTag[],
+  eventCalendarDivisionId: string | null,
+  eventCalendarTeamId: string | null,
+): PickerToken[] {
+  const tokenStrs = extractTitleTokenStrings(title)
+  if (tokenStrs.length === 0) return []
+
+  // suffix → users[] map
+  const suffixToUsers = new Map<string, PickerUser[]>()
+  const nameToUsers   = new Map<string, PickerUser[]>()
+  for (const u of users) {
+    const name = (u.display_name ?? '').trim()
+    if (!name) continue
+    const list = nameToUsers.get(name) ?? []
+    list.push(u)
+    nameToUsers.set(name, list)
+    if (name.length >= 2) {
+      const sfx = name.slice(-2)
+      const slist = suffixToUsers.get(sfx) ?? []
+      slist.push(u)
+      suffixToUsers.set(sfx, slist)
+    }
+  }
+
+  // 같은 division 우선, 같은 team 우선 — tag 점수 함수
+  const tagScore = (t: PickerTag): number => {
+    let s = 0
+    if (t.division_id === eventCalendarDivisionId) s += 10
+    if (t.team_id === eventCalendarTeamId) s += 5
+    return s
+  }
+
+  const out: PickerToken[] = []
+  const addedKeys = new Set<string>()
+
+  const pushUser = (u: PickerUser, label?: string) => {
+    const key = `user:${u.email.toLowerCase()}`
+    if (addedKeys.has(key)) return
+    addedKeys.add(key)
+    out.push({ kind: 'user', key, label: label ?? (u.display_name ?? u.email), email: u.email })
+  }
+  const pushTag = (t: PickerTag) => {
+    const key = `tag:${t.id}`
+    if (addedKeys.has(key)) return
+    addedKeys.add(key)
+    out.push({ kind: 'tag', key, label: t.label, tagId: t.id })
+  }
+
+  for (const tok of tokenStrs) {
+    // 1) 풀네임
+    const fullMatch = nameToUsers.get(tok)
+    if (fullMatch && fullMatch.length > 0) {
+      for (const u of fullMatch) pushUser(u)
+      continue
+    }
+    // 2) suffix (2글자 토큰)
+    if (tok.length >= 2) {
+      const sfxMatch = suffixToUsers.get(tok.length === 2 ? tok : tok.slice(-2))
+      if (sfxMatch && sfxMatch.length > 0) {
+        for (const u of sfxMatch) pushUser(u)
+        continue
+      }
+    }
+    // 3) tag — label 정확. 동일 label 여러 division/team이면 점수 가장 높은 것
+    const tagLabelMatches = tags.filter(t => t.label === tok)
+    if (tagLabelMatches.length > 0) {
+      tagLabelMatches.sort((a, b) => tagScore(b) - tagScore(a))
+      pushTag(tagLabelMatches[0])
+      continue
+    }
+    // 4) tag alias
+    const aliasMatches = tags.filter(t => t.alias_patterns.includes(tok))
+    if (aliasMatches.length > 0) {
+      aliasMatches.sort((a, b) => tagScore(b) - tagScore(a))
+      pushTag(aliasMatches[0])
+      continue
+    }
+    // 그 외 — 매칭 실패. 무시.
+  }
+  return out
+}
+
 export default function EventEditModal({ isCreate, initial, onClose, onSaved }: EventEditModalProps) {
   const [data, setData] = useState<PickerData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -129,6 +235,19 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
             label: userShortLabel(json.myProfile.displayName, json.myProfile.email, sfxCount),
             email: json.myProfile.email,
           }])
+        }
+        // 수정 모드: title의 [토큰들] 부분을 PickerToken[]으로 복원
+        if (!isCreate && tokens.length === 0 && initial?.title) {
+          // event의 캘린더 division/team 식별 — tag 매칭 점수에 사용
+          const evCal = json.calendars.find(c => c.id === initial.calendarId)
+          const reconstructed = reconstructTokens(
+            initial.title,
+            json.users,
+            json.tags,
+            evCal?.division_id ?? null,
+            evCal?.team_id ?? null,
+          )
+          if (reconstructed.length > 0) setTokens(reconstructed)
         }
       } catch (err) {
         if ((err as Error).name === 'AbortError') return

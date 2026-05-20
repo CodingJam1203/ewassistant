@@ -941,14 +941,16 @@ export default function CalendarMatrixPage() {
                                     <td key={dateIso} className="px-1 py-1 border-r border-border align-top">
                                       <div className="space-y-0.5">
                                         {cell.map((e, i) => (
-                                          <div
+                                          <button
                                             key={i}
+                                            type="button"
                                             title={`${e.timeLabel} · ${e.title}`}
-                                            className={`px-1.5 py-1 rounded leading-tight cursor-default ${TYPE_BG[e.ev.inferredType]}`}
+                                            onClick={(ev) => { ev.stopPropagation(); handleEventClick(e.ev) }}
+                                            className={`w-full text-left px-1.5 py-1 rounded leading-tight cursor-pointer hover:ring-1 hover:ring-primary-300 ${TYPE_BG[e.ev.inferredType]}`}
                                           >
                                             <div className="text-[10px] tabular-nums opacity-80 truncate">{e.timeLabel}</div>
                                             <div className="text-xs truncate">{e.title}</div>
-                                          </div>
+                                          </button>
                                         ))}
                                       </div>
                                     </td>
@@ -969,14 +971,16 @@ export default function CalendarMatrixPage() {
                                   <td key={dateIso} className="px-1 py-1 border-r border-border align-top">
                                     <div className="space-y-0.5">
                                       {cell.map((e, i) => (
-                                        <div
+                                        <button
                                           key={i}
+                                          type="button"
                                           title={`${e.timeLabel} · ${e.title}`}
-                                          className={`px-1.5 py-1 rounded leading-tight cursor-default ${TYPE_BG[e.ev.inferredType]}`}
+                                          onClick={(ev) => { ev.stopPropagation(); handleEventClick(e.ev) }}
+                                          className={`w-full text-left px-1.5 py-1 rounded leading-tight cursor-pointer hover:ring-1 hover:ring-primary-300 ${TYPE_BG[e.ev.inferredType]}`}
                                         >
                                           <div className="text-[10px] tabular-nums opacity-80 truncate">{e.timeLabel}</div>
                                           <div className="text-xs truncate">{e.title}</div>
-                                        </div>
+                                        </button>
                                       ))}
                                     </div>
                                   </td>
