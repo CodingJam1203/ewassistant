@@ -32,6 +32,7 @@ interface ApiEvent {
   inferredType: CalendarType
   calendarType: CalendarType
   rrule: string | null
+  recurringEventId: string | null
   calendarId: string
   divisionId: string
   divisionName: string
@@ -709,6 +710,7 @@ export default function CalendarMatrixPage() {
         inferredType: ev.inferredType,
         calendarId: ev.calendarId,
         rrule: ev.rrule,
+        recurringEventId: ev.recurringEventId,
       },
     })
   }, [])

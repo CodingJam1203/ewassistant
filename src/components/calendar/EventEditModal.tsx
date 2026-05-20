@@ -51,7 +51,11 @@ export interface EventEditInitial {
   inferredType?: CalendarType
   calendarId?: string
   rrule?: string | null         // RRULE 본문 (Phase 4.4 반복)
+  recurringEventId?: string | null  // master id (있으면 이 instance는 반복 시리즈 소속)
 }
+
+/** Phase 4.8 — 반복 시리즈에서 수정·삭제 옵션 (Google Calendar 패턴 동일) */
+export type RecurrenceMode = 'instance' | 'following' | 'all'
 
 interface EventEditModalProps {
   isCreate: boolean
@@ -409,6 +413,10 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
   const [userTouchedCalendar, setUserTouchedCalendar] = useState(false)
   const [description, setDescription] = useState<string>(initial?.description ?? '')
   const [location, setLocation] = useState<string>(initial?.location ?? '')
+  // Phase 4.8 — 반복 시리즈 수정/삭제 옵션 confirm modal
+  const isRecurringInstance = !isCreate && !!initial?.recurringEventId
+  const [recurrenceConfirm, setRecurrenceConfirm] = useState<null | { action: 'submit' | 'delete'; mode: RecurrenceMode }>(null)
+
   // 반복(RRULE) — 수정 모드면 initial.rrule 파싱해 preset/custom state 복원
   const [recurPreset, setRecurPreset] = useState<RecurPreset>(() => {
     const startGuess = new Date(initial?.startAt ?? Date.now())
@@ -553,6 +561,12 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
     }
     if (!calendarId) return setError('캘린더 선택 필요')
 
+    // Phase 4.8 — 반복 시리즈 instance면 confirm modal 띄우고 mode 받기
+    if (isRecurringInstance && !recurrenceConfirm) {
+      setRecurrenceConfirm({ action: 'submit', mode: 'instance' })
+      return
+    }
+
     // 시간 ISO 합성 (KST 기준)
     let startIso: string
     let endIso: string
@@ -604,6 +618,7 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
           isAllDay,
           inferredType,
           rrule: rrulePayload,
+          recurrenceMode: recurrenceConfirm?.mode ?? 'all',
         }),
         cache: 'no-store',
       })
@@ -619,11 +634,23 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
 
   const handleDelete = async () => {
     if (isCreate || !initial?.id) return
-    if (!confirm('이 일정을 삭제하시겠습니까? Google Calendar에도 함께 삭제됩니다.')) return
+
+    // Phase 4.8 — 반복 시리즈 instance면 confirm modal로 mode 받기
+    if (isRecurringInstance && !recurrenceConfirm) {
+      setRecurrenceConfirm({ action: 'delete', mode: 'instance' })
+      return
+    }
+    if (!isRecurringInstance) {
+      if (!confirm('이 일정을 삭제하시겠습니까? Google Calendar에도 함께 삭제됩니다.')) return
+    }
+
     setSaving(true)
     setError(null)
     try {
-      const res = await fetch(`/api/calendar/events/${initial.id}`, { method: 'DELETE', cache: 'no-store' })
+      const mode = recurrenceConfirm?.mode ?? 'all'
+      const res = await fetch(`/api/calendar/events/${initial.id}?mode=${mode}`, {
+        method: 'DELETE', cache: 'no-store',
+      })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`)
       onSaved()
@@ -636,7 +663,7 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3" onClick={onClose}>
-      <div className="bg-surface rounded-[10px] shadow-xl max-w-2xl w-full max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="relative bg-surface rounded-[10px] shadow-xl max-w-2xl w-full max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
           <h2 className="text-base font-semibold text-text-primary">
             {isCreate ? '새 일정 등록' : '일정 수정'}
@@ -974,6 +1001,60 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
             </button>
           </div>
         </div>
+
+        {/* Phase 4.8 — 반복 시리즈 수정·삭제 3옵션 confirm modal */}
+        {recurrenceConfirm && (
+          <div className="absolute inset-0 z-10 bg-black/40 flex items-center justify-center p-3" onClick={() => setRecurrenceConfirm(null)}>
+            <div className="bg-surface rounded-[10px] shadow-xl w-80 p-4" onClick={e => e.stopPropagation()}>
+              <h3 className="text-sm font-semibold text-text-primary mb-3">
+                {recurrenceConfirm.action === 'delete' ? '반복 일정 삭제' : '반복 일정 수정'}
+              </h3>
+              <div className="space-y-2 mb-4">
+                {([
+                  { v: 'instance',  label: '이 일정' },
+                  { v: 'following', label: '이 일정 및 향후 일정' },
+                  { v: 'all',       label: '모든 일정' },
+                ] as Array<{ v: RecurrenceMode; label: string }>).map(opt => (
+                  <label key={opt.v} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="recurrenceMode"
+                      checked={recurrenceConfirm.mode === opt.v}
+                      onChange={() => setRecurrenceConfirm({ ...recurrenceConfirm, mode: opt.v })}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRecurrenceConfirm(null)}
+                  disabled={saving}
+                  className="h-9 px-3 text-sm rounded-[10px] border border-border-strong bg-surface text-text-secondary hover:bg-surface-muted disabled:opacity-50"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // confirm 상태는 유지된 채로 handleSubmit/Delete 재호출 — 그쪽에서 mode를 읽음
+                    if (recurrenceConfirm.action === 'submit') {
+                      void handleSubmit()
+                    } else {
+                      void handleDelete()
+                    }
+                  }}
+                  disabled={saving}
+                  className="h-9 px-4 text-sm font-medium rounded-[10px] bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 inline-flex items-center gap-1"
+                >
+                  {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                  확인
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

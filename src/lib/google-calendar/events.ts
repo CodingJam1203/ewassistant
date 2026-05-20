@@ -171,6 +171,112 @@ export async function pushEventUpdate(
   }
 }
 
+/** Phase 4.8 — '이 일정' 수정: events.patch(instanceId)로 그 instance만 override */
+export async function pushInstanceOverride(
+  calendarRawId: string,
+  instanceId: string,
+  payload: PushPayload,
+): Promise<void> {
+  const cal = getGoogleCalendarClient()
+  await cal.events.patch({
+    calendarId: calendarRawId,
+    eventId: instanceId,
+    requestBody: buildEventBody(payload),
+  })
+}
+
+/** Phase 4.8 — '이 일정' 삭제: events.delete(instanceId)로 그 occurrence만 cancel */
+export async function pushInstanceDelete(
+  calendarRawId: string,
+  instanceId: string,
+): Promise<void> {
+  const cal = getGoogleCalendarClient()
+  try {
+    await cal.events.delete({ calendarId: calendarRawId, eventId: instanceId })
+  } catch (err: unknown) {
+    const code = getErrCode(err)
+    if (code === 404 || code === 410) return
+    throw err
+  }
+}
+
+/** 그 instance start time -1초의 UTC Zulu 형식 (RRULE UNTIL 표준) */
+function computeUntilZulu(beforeInstanceStart: Date): string {
+  const before = new Date(beforeInstanceStart.getTime() - 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${before.getUTCFullYear()}${pad(before.getUTCMonth()+1)}${pad(before.getUTCDate())}T${pad(before.getUTCHours())}${pad(before.getUTCMinutes())}${pad(before.getUTCSeconds())}Z`
+}
+
+/** 기존 master의 recurrence(RRULE 배열)에 UNTIL 적용 — UNTIL/COUNT는 제거 후 새로 추가 */
+function applyUntilToRecurrence(oldRecurrence: string[], untilStr: string): string[] {
+  return oldRecurrence.map(line => {
+    if (!line.startsWith('RRULE:')) return line
+    const body = line.replace(/^RRULE:/, '')
+    const cleaned = body
+      .split(';')
+      .filter(p => p && !p.toUpperCase().startsWith('UNTIL=') && !p.toUpperCase().startsWith('COUNT='))
+      .join(';')
+    return `RRULE:${cleaned};UNTIL=${untilStr}`
+  })
+}
+
+/**
+ * Phase 4.8 — '이 일정 및 향후 일정' 삭제:
+ * 기존 master RRULE에 UNTIL=<instanceStart-1s> 적용. 새 master 생성 안 함.
+ * 그 instance부터 끝까지 시리즈 모두 사라짐.
+ */
+export async function truncateMasterFollowing(
+  calendarRawId: string,
+  masterId: string,
+  instanceStart: Date,
+): Promise<{ oldMasterICalUID: string }> {
+  const cal = getGoogleCalendarClient()
+  const masterGet = await cal.events.get({ calendarId: calendarRawId, eventId: masterId })
+  const oldICalUID = masterGet.data.iCalUID ?? masterId
+  const oldRecurrence = masterGet.data.recurrence ?? []
+  const untilStr = computeUntilZulu(instanceStart)
+  const newRecurrence = applyUntilToRecurrence(oldRecurrence, untilStr)
+  await cal.events.patch({
+    calendarId: calendarRawId,
+    eventId: masterId,
+    requestBody: { recurrence: newRecurrence },
+  })
+  return { oldMasterICalUID: oldICalUID }
+}
+
+/**
+ * Phase 4.8 — '이 일정 및 향후 일정' 수정:
+ * 1) 기존 master RRULE에 UNTIL=<instanceStart-1s> 적용
+ * 2) 새 master event 생성 — 변경된 내용 + 새 시작점 + RRULE (newPayload에 포함)
+ * 시리즈 2개로 split (Google Calendar 표준 동작).
+ */
+export async function splitMasterFollowing(
+  calendarRawId: string,
+  masterId: string,
+  instanceStart: Date,
+  newPayload: PushPayload,
+): Promise<{ oldMasterICalUID: string; newMaster: PushResult }> {
+  const cal = getGoogleCalendarClient()
+  // 1) 기존 master truncate
+  const { oldMasterICalUID } = await truncateMasterFollowing(calendarRawId, masterId, instanceStart)
+  // 2) 새 master insert
+  const insRes = await cal.events.insert({
+    calendarId: calendarRawId,
+    requestBody: buildEventBody(newPayload),
+  })
+  const rawId   = insRes.data.id ?? ''
+  const iCalUID = insRes.data.iCalUID ?? rawId
+  if (!rawId || !iCalUID) throw new Error('split: new master insert returned no id/iCalUID')
+  return {
+    oldMasterICalUID,
+    newMaster: {
+      googleEventId: composeGoogleEventId(rawId),
+      rawId,
+      iCalUID,
+    },
+  }
+}
+
 export async function pushEventDelete(
   calendarRawId: string,
   rawEventIdOrICalUID: string,
