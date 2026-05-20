@@ -495,20 +495,22 @@ export default function CalendarMatrixPage() {
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-[13px]">
               <thead>
+                {/* 날짜 헤더 — 페이지 세로 스크롤 시 상단 고정. 좌측 sticky 컬럼과 교차하는
+                    셀은 z를 더 높여 본문 sticky 셀(z-[5]) 위에 떠 있도록. */}
                 <tr className="bg-surface-muted">
-                  <th className="sticky left-0 z-10 bg-surface-muted px-3 py-2.5 text-left font-semibold text-text-secondary border-r border-border min-w-[90px]">구분</th>
-                  <th className="sticky left-[90px] z-10 bg-surface-muted px-3 py-2.5 text-left font-semibold text-text-secondary border-r border-border min-w-[100px]">인원</th>
-                  <th className="sticky left-[190px] z-10 bg-surface-muted px-3 py-2.5 text-left font-semibold text-text-secondary border-r border-border min-w-[100px]">직급/직책</th>
+                  <th className="sticky left-0 top-0 z-30 bg-surface-muted px-3 py-2.5 text-left font-semibold text-text-secondary border-r border-b border-border min-w-[90px]">구분</th>
+                  <th className="sticky left-[90px] top-0 z-30 bg-surface-muted px-3 py-2.5 text-left font-semibold text-text-secondary border-r border-b border-border min-w-[100px]">인원</th>
+                  <th className="sticky left-[190px] top-0 z-30 bg-surface-muted px-3 py-2.5 text-left font-semibold text-text-secondary border-r border-b border-border min-w-[100px]">직급/직책</th>
                   {days.map(d => {
                     const h = fmtDayHeader(d)
                     return (
                       <th
                         key={d.toISOString()}
-                        className={`px-2 py-2 text-center font-semibold border-r border-border min-w-[130px] ${
+                        className={`sticky top-0 z-20 px-2 py-2 text-center font-semibold border-r border-b border-border min-w-[130px] ${
                           h.isToday ? 'bg-primary-50 text-primary-700' :
-                          h.isSunday ? 'text-danger-text' :
-                          h.isWeekend ? 'text-text-secondary' :
-                          'text-text-primary'
+                          h.isSunday ? 'bg-surface-muted text-danger-text' :
+                          h.isWeekend ? 'bg-surface-muted text-text-secondary' :
+                          'bg-surface-muted text-text-primary'
                         }`}
                       >
                         {h.date} ({h.dow})
