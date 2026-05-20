@@ -360,6 +360,24 @@ export default function MyHistoryCalendar({
     setLoading(false)
   }, [monthStart, monthEnd, gridStart, gridEnd])
 
+  // 2026-05-21 — 사용자 명시 새로고침 시 Google → DB sync까지 트리거 후 fetchAll.
+  // 한 명만 새로고침해도 org_calendar_events DB가 갱신되므로 다른 사용자도 fresh 상태로 봄.
+  // /api/calendar/refresh 는 일반 사용자 권한으로 호출 가능, force=true로 5분 throttle 우회.
+  // sync 실패해도 fetchAll은 진행 (캐시된 DB 상태라도 표시).
+  const refreshWithSync = useCallback(async () => {
+    setLoading(true)
+    try {
+      await fetch('/api/calendar/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true }),
+      })
+    } catch (err) {
+      console.warn('[calendar] manual refresh sync failed (continuing):', err)
+    }
+    await fetchAll()
+  }, [fetchAll])
+
   useEffect(() => { fetchAll() }, [fetchAll, refreshKey])
 
   /** workLogs → date 별 단일 row → 어댑트된 (checkIn, checkOut) 쌍. */
@@ -444,7 +462,7 @@ export default function MyHistoryCalendar({
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={fetchAll}>
+          <Button variant="ghost" size="sm" onClick={refreshWithSync} disabled={loading} title="Google 캘린더 sync 후 새로고침">
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden />
             새로고침
           </Button>
