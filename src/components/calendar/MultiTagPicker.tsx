@@ -60,6 +60,15 @@ const ITEM_HEIGHT = 38
 const MAX_POPOVER_HEIGHT = 360
 const VIEWPORT_PADDING = 8
 
+/** 키보드 navigation용 평면 항목 — 본인 한 줄 + 사람들 + 그룹들 */
+type FlatItem =
+  | { type: 'myself' }
+  | { type: 'user'; user: PickerUser }
+  | { type: 'tag';  tag:  PickerTag }
+
+const MAX_USERS_RENDER = 50
+const MAX_TAGS_RENDER = 50
+
 export default function MultiTagPicker({
   users, tags, divisions, myProfile, value, onChange,
   ariaLabel, placeholder = '태그 선택 (이름·그룹·팀)',
@@ -67,10 +76,12 @@ export default function MultiTagPicker({
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const [popoverPos, setPopoverPos] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null)
+  const [highlightedIdx, setHighlightedIdx] = useState(0)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLDivElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
 
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
@@ -129,6 +140,20 @@ export default function MultiTagPicker({
   const isMyselfSelected = useMemo(() => {
     return value.some(v => v.kind === 'user' && v.email.toLowerCase() === (myProfile.email ?? '').toLowerCase())
   }, [value, myProfile.email])
+
+  // 키보드 navigation용 flat list — 본인 + 사람(상위 50) + 그룹(상위 50)
+  const flatList: FlatItem[] = useMemo(() => {
+    const items: FlatItem[] = []
+    if (myProfile.email && myProfile.displayName) items.push({ type: 'myself' })
+    for (const u of filteredUsers.slice(0, MAX_USERS_RENDER)) items.push({ type: 'user', user: u })
+    for (const t of filteredTags.slice(0, MAX_TAGS_RENDER))  items.push({ type: 'tag',  tag: t })
+    return items
+  }, [myProfile.email, myProfile.displayName, filteredUsers, filteredTags])
+
+  // 검색어/리스트 변경 시 highlight reset
+  useEffect(() => {
+    setHighlightedIdx(0)
+  }, [q, flatList.length])
 
   // popover 위치 계산
   useEffect(() => {
@@ -199,6 +224,58 @@ export default function MultiTagPicker({
     onChange(value.filter(v => v.key !== key))
   }
 
+  /** flatList[idx] 항목을 token으로 선택 (toggle). 키보드 Enter, 마우스 click 공용. */
+  const selectFlatItem = (idx: number) => {
+    const item = flatList[idx]
+    if (!item) return
+    if (item.type === 'myself') {
+      addMyself()
+    } else if (item.type === 'user') {
+      const u = item.user
+      addToken({
+        kind: 'user',
+        key: `user:${u.email.toLowerCase()}`,
+        label: u.display_name ?? u.email,
+        email: u.email,
+      })
+    } else {
+      const t = item.tag
+      addToken({ kind: 'tag', key: `tag:${t.id}`, label: t.label, tagId: t.id })
+    }
+  }
+
+  /** 검색 input의 키보드 navigation — ArrowDown/Up Enter Home End */
+  const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      setHighlightedIdx(i => Math.min(Math.max(flatList.length - 1, 0), i + 1))
+      e.preventDefault()
+    } else if (e.key === 'ArrowUp') {
+      setHighlightedIdx(i => Math.max(0, i - 1))
+      e.preventDefault()
+    } else if (e.key === 'Enter') {
+      if (flatList.length > 0) {
+        selectFlatItem(highlightedIdx)
+        e.preventDefault()
+      }
+    } else if (e.key === 'Home') {
+      setHighlightedIdx(0); e.preventDefault()
+    } else if (e.key === 'End') {
+      setHighlightedIdx(Math.max(0, flatList.length - 1)); e.preventDefault()
+    }
+    // Escape는 별도 document keydown 리스너에서 처리
+  }
+
+  // highlightedIdx 변경 시 해당 row가 viewport 안에 보이도록 스크롤
+  useEffect(() => {
+    if (!open || !listRef.current) return
+    const target = listRef.current.querySelector<HTMLElement>(`[data-flat-idx="${highlightedIdx}"]`)
+    if (!target) return
+    const view = listRef.current.getBoundingClientRect()
+    const t = target.getBoundingClientRect()
+    if (t.top < view.top) listRef.current.scrollTop -= (view.top - t.top)
+    else if (t.bottom > view.bottom) listRef.current.scrollTop += (t.bottom - view.bottom)
+  }, [highlightedIdx, open])
+
   // 같은 label tag가 본부마다 있을 때 구분 표기 — "(팀명)" 또는 "(본부 공용)"
   const tagSecondary = (t: PickerTag): string => {
     return divisionNameById.get(t.division_id) ?? ''
@@ -216,7 +293,7 @@ export default function MultiTagPicker({
       }}
       className="z-[200] rounded-[10px] border border-border bg-surface shadow-[var(--shadow-popover)] flex flex-col overflow-hidden"
     >
-      {/* 검색 */}
+      {/* 검색 — 우측 X 버튼, ↑↓ navigation, Enter 선택 */}
       <div className="p-2 border-b border-border flex items-center gap-2">
         <Search className="h-4 w-4 text-text-muted shrink-0" />
         <input
@@ -224,26 +301,46 @@ export default function MultiTagPicker({
           type="text"
           value={q}
           onChange={e => setQ(e.target.value)}
-          placeholder="이름·그룹·팀 검색"
+          onKeyDown={onInputKeyDown}
+          placeholder="이름·그룹·팀 검색 (↑↓ 이동 · Enter 선택)"
           className="flex-1 bg-transparent text-sm outline-none placeholder:text-text-muted"
         />
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {/* 본인 단축 — 항상 최상단 */}
-        {myProfile.email && myProfile.displayName && (
+        {q && (
           <button
             type="button"
-            onClick={addMyself}
-            className={`w-full px-3 py-2 text-left text-sm border-b border-border flex items-center gap-2 ${isMyselfSelected ? 'bg-primary-50 text-primary-700' : 'bg-surface hover:bg-primary-50 hover:text-primary-700'}`}
-            style={{ minHeight: ITEM_HEIGHT }}
+            onClick={() => { setQ(''); inputRef.current?.focus() }}
+            className="shrink-0 inline-flex items-center justify-center h-5 w-5 rounded hover:bg-surface-muted text-text-muted"
+            aria-label="검색어 지우기"
+            title="검색어 지우기"
           >
-            <Star className="h-3.5 w-3.5 shrink-0" />
-            <span className="font-medium">본인</span>
-            <span className="text-text-muted text-xs">— {myProfile.displayName}</span>
-            {isMyselfSelected && <span className="ml-auto text-[10px] text-primary-600">선택됨</span>}
+            <X className="h-3.5 w-3.5" />
           </button>
         )}
+      </div>
+
+      <div ref={listRef} className="flex-1 overflow-y-auto">
+        {/* 본인 단축 — 항상 최상단 */}
+        {myProfile.email && myProfile.displayName && (() => {
+          const flatIdx = 0
+          const isHighlight = highlightedIdx === flatIdx
+          return (
+            <button
+              type="button"
+              data-flat-idx={flatIdx}
+              onMouseEnter={() => setHighlightedIdx(flatIdx)}
+              onClick={() => selectFlatItem(flatIdx)}
+              className={`w-full px-3 py-2 text-left text-sm border-b border-border flex items-center gap-2 ${
+                isHighlight ? 'bg-primary-100 text-primary-700' : isMyselfSelected ? 'bg-primary-50 text-primary-700' : 'bg-surface hover:bg-primary-50 hover:text-primary-700'
+              }`}
+              style={{ minHeight: ITEM_HEIGHT }}
+            >
+              <Star className="h-3.5 w-3.5 shrink-0" />
+              <span className="font-medium">본인</span>
+              <span className="text-text-muted text-xs">— {myProfile.displayName}</span>
+              {isMyselfSelected && <span className="ml-auto text-[10px] text-primary-600">선택됨</span>}
+            </button>
+          )
+        })()}
 
         {/* 사람 섹션 */}
         <div className="px-3 py-1 text-[10px] font-semibold text-text-muted bg-surface-muted/50 sticky top-0 flex items-center gap-1">
@@ -252,16 +349,22 @@ export default function MultiTagPicker({
         {filteredUsers.length === 0 && (
           <div className="px-3 py-2 text-xs text-text-muted">매칭 없음</div>
         )}
-        {filteredUsers.slice(0, 50).map(u => {
+        {filteredUsers.slice(0, MAX_USERS_RENDER).map((u, i) => {
           const key = `user:${u.email.toLowerCase()}`
           const selected = selectedKeys.has(key)
           const displayName = u.display_name ?? u.email
+          const flatIdx = (myProfile.email && myProfile.displayName ? 1 : 0) + i
+          const isHighlight = highlightedIdx === flatIdx
           return (
             <button
               key={key}
               type="button"
-              onClick={() => addToken({ kind: 'user', key, label: displayName, email: u.email })}
-              className={`w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 border-b border-border/60 ${selected ? 'bg-primary-50 text-primary-700' : 'bg-surface hover:bg-primary-50 hover:text-primary-700'}`}
+              data-flat-idx={flatIdx}
+              onMouseEnter={() => setHighlightedIdx(flatIdx)}
+              onClick={() => selectFlatItem(flatIdx)}
+              className={`w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 border-b border-border/60 ${
+                isHighlight ? 'bg-primary-100 text-primary-700' : selected ? 'bg-primary-50 text-primary-700' : 'bg-surface hover:bg-primary-50 hover:text-primary-700'
+              }`}
               style={{ minHeight: ITEM_HEIGHT }}
             >
               <span className="font-medium">{displayName}</span>
@@ -281,15 +384,22 @@ export default function MultiTagPicker({
         {filteredTags.length === 0 && (
           <div className="px-3 py-2 text-xs text-text-muted">매칭 없음</div>
         )}
-        {filteredTags.slice(0, 50).map(t => {
+        {filteredTags.slice(0, MAX_TAGS_RENDER).map((t, i) => {
           const key = `tag:${t.id}`
           const selected = selectedKeys.has(key)
+          const userCount = Math.min(filteredUsers.length, MAX_USERS_RENDER)
+          const flatIdx = (myProfile.email && myProfile.displayName ? 1 : 0) + userCount + i
+          const isHighlight = highlightedIdx === flatIdx
           return (
             <button
               key={key}
               type="button"
-              onClick={() => addToken({ kind: 'tag', key, label: t.label, tagId: t.id })}
-              className={`w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 border-b border-border/60 ${selected ? 'bg-primary-50 text-primary-700' : 'bg-surface hover:bg-primary-50 hover:text-primary-700'}`}
+              data-flat-idx={flatIdx}
+              onMouseEnter={() => setHighlightedIdx(flatIdx)}
+              onClick={() => selectFlatItem(flatIdx)}
+              className={`w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 border-b border-border/60 ${
+                isHighlight ? 'bg-primary-100 text-primary-700' : selected ? 'bg-primary-50 text-primary-700' : 'bg-surface hover:bg-primary-50 hover:text-primary-700'
+              }`}
               style={{ minHeight: ITEM_HEIGHT }}
             >
               <span className="font-medium">{t.label}</span>
