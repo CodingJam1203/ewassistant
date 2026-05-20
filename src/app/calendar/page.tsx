@@ -15,8 +15,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight, Home, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight, Home, RefreshCw, Plus } from 'lucide-react'
 import CustomDropdown from '@/components/ui/CustomDropdown'
+import EventEditModal, { type EventEditInitial } from '@/components/calendar/EventEditModal'
 
 type CalendarType = 'meeting' | 'vacation' | 'birthday' | 'other'
 type RangeView = '1week' | '2weeks' | 'month'
@@ -30,6 +31,7 @@ interface ApiEvent {
   matchedUserEmails: string[]
   inferredType: CalendarType
   calendarType: CalendarType
+  calendarId: string
   divisionId: string
   divisionName: string
   teamId: string | null
@@ -162,12 +164,13 @@ const ALL_TEAMS = '__ALL__'
  * 빈 날(이벤트 0건)은 카드 자체 생략 — 정보 밀도 우선.
  */
 function AgendaView({
-  users, events, days, userEmail,
+  users, events, days, userEmail, onEventClick,
 }: {
   users: ApiUser[]
   events: ApiEvent[]
   days: Date[]
   userEmail: string | null
+  onEventClick: (ev: ApiEvent) => void
 }) {
   const userEmailSet = useMemo(
     () => new Set(users.map(u => u.email.toLowerCase())),
@@ -267,10 +270,15 @@ function AgendaView({
                   <div className="text-[11px] font-semibold text-purple-700 mb-1">본부 일정</div>
                   <div className="space-y-1">
                     {g.divEntries.map((x, i) => (
-                      <div key={i} className={`px-2 py-1 rounded leading-tight ${TYPE_BG[x.entry.ev.inferredType]}`}>
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => onEventClick(x.entry.ev)}
+                        className={`w-full text-left px-2 py-1 rounded leading-tight hover:ring-1 hover:ring-primary-300 ${TYPE_BG[x.entry.ev.inferredType]}`}
+                      >
                         <div className="text-[10px] tabular-nums opacity-80">{x.entry.timeLabel}</div>
                         <div className="text-[13px]">{x.entry.title}</div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </section>
@@ -292,10 +300,15 @@ function AgendaView({
                     </div>
                     <div className="space-y-1">
                       {evs.map((e, i) => (
-                        <div key={i} className={`px-2 py-1 rounded leading-tight ${TYPE_BG[e.ev.inferredType]}`}>
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => onEventClick(e.ev)}
+                          className={`w-full text-left px-2 py-1 rounded leading-tight hover:ring-1 hover:ring-primary-300 ${TYPE_BG[e.ev.inferredType]}`}
+                        >
                           <div className="text-[10px] tabular-nums opacity-80">{e.timeLabel}</div>
                           <div className="text-[13px]">{e.title}</div>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   </section>
@@ -308,10 +321,15 @@ function AgendaView({
                   <div className="text-[11px] font-semibold text-amber-700 mb-1">기타</div>
                   <div className="space-y-1">
                     {g.otherEntries.map((x, i) => (
-                      <div key={i} className={`px-2 py-1 rounded leading-tight ${TYPE_BG[x.entry.ev.inferredType]}`}>
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => onEventClick(x.entry.ev)}
+                        className={`w-full text-left px-2 py-1 rounded leading-tight hover:ring-1 hover:ring-primary-300 ${TYPE_BG[x.entry.ev.inferredType]}`}
+                      >
                         <div className="text-[10px] tabular-nums opacity-80">{x.entry.timeLabel}</div>
                         <div className="text-[13px]">{x.entry.title}</div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </section>
@@ -351,6 +369,13 @@ export default function CalendarMatrixPage() {
   const [syncing, setSyncing] = useState(false)
   // mount 시 silent refresh 1회만 실행하도록 가드
   const didMountSyncRef = useRef(false)
+
+  // Phase 4.3 — 등록/수정 모달
+  const [modalState, setModalState] = useState<
+    | { mode: 'create'; initial: EventEditInitial }
+    | { mode: 'edit'; initial: EventEditInitial }
+    | null
+  >(null)
 
   const days = useMemo(() => {
     const n = RANGE_DAYS[rangeView]
@@ -641,6 +666,48 @@ export default function CalendarMatrixPage() {
   const handleNext = () => setStartDate(d => addDays(d, +RANGE_DAYS[rangeView]))
   const handleToday = () => setStartDate(todayKst())
 
+  /** "+ 일정 등록" 버튼 — 오늘 10:00~11:00 prefill */
+  const handleCreateClick = useCallback(() => {
+    const now = new Date()
+    const baseDate = todayKst()
+    // baseDate는 KST 자정. UI에서 KST 10:00로 설정하기 위해 ISO 변환
+    const [y, m, d] = toKstIsoDate(baseDate).split('-').map(Number)
+    const startIso = new Date(Date.UTC(y, m - 1, d, 1, 0, 0)).toISOString()  // 10:00 KST = 01:00 UTC
+    const endIso   = new Date(Date.UTC(y, m - 1, d, 2, 0, 0)).toISOString()  // 11:00 KST = 02:00 UTC
+    void now
+    setModalState({
+      mode: 'create',
+      initial: {
+        startAt: startIso,
+        endAt: endIso,
+        isAllDay: false,
+        inferredType: 'meeting',
+      },
+    })
+  }, [])
+
+  /** chip(이벤트) 클릭 — 수정 모드. 셀 click(날짜 prefill)은 후속 작업으로 남겨둠. */
+  const handleEventClick = useCallback((ev: ApiEvent) => {
+    setModalState({
+      mode: 'edit',
+      initial: {
+        id: ev.id,
+        title: ev.title,
+        startAt: ev.startAt,
+        endAt: ev.endAt,
+        isAllDay: ev.isAllDay,
+        inferredType: ev.inferredType,
+        calendarId: ev.calendarId,
+      },
+    })
+  }, [])
+
+  /** 모달에서 저장/삭제 성공 시 — 모달 닫고 force refresh */
+  const handleModalSaved = useCallback(() => {
+    setModalState(null)
+    void refresh(true)
+  }, [refresh])
+
   return (
     <div className="max-w-[120rem] mx-auto p-3 sm:p-4 space-y-3">
       <div className="flex items-center gap-3">
@@ -693,6 +760,14 @@ export default function CalendarMatrixPage() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* + 일정 등록 — Phase 4.3 */}
+          <button
+            type="button"
+            onClick={handleCreateClick}
+            className="inline-flex items-center gap-1 h-8 px-3 rounded-[10px] bg-primary-600 text-white text-xs font-medium hover:bg-primary-700"
+          >
+            <Plus className="h-3.5 w-3.5" /> 일정 등록
+          </button>
           {/* sync indicator + 수동 새로고침 — 마지막 동기화 KST HH:mm. force=true로 throttle 우회 */}
           <div className="inline-flex items-center gap-1 text-[11px] text-text-muted">
             {syncing ? (
@@ -769,6 +844,7 @@ export default function CalendarMatrixPage() {
           events={filteredEvents}
           days={days}
           userEmail={userEmail}
+          onEventClick={handleEventClick}
         />
       </div>
 
@@ -820,14 +896,16 @@ export default function CalendarMatrixPage() {
                             <td key={dateIso} className="px-1 py-1 border-r border-border align-top">
                               <div className="space-y-0.5">
                                 {cell.map((e, i) => (
-                                  <div
+                                  <button
                                     key={i}
+                                    type="button"
                                     title={`${e.timeLabel} · ${e.title}`}
-                                    className={`px-1.5 py-1 rounded leading-tight cursor-default ${TYPE_BG[e.ev.inferredType]}`}
+                                    onClick={(ev) => { ev.stopPropagation(); handleEventClick(e.ev) }}
+                                    className={`w-full text-left px-1.5 py-1 rounded leading-tight cursor-pointer hover:ring-1 hover:ring-primary-300 ${TYPE_BG[e.ev.inferredType]}`}
                                   >
                                     <div className="text-[10px] tabular-nums opacity-80 truncate">{e.timeLabel}</div>
                                     <div className="text-xs truncate">{e.title}</div>
-                                  </div>
+                                  </button>
                                 ))}
                               </div>
                             </td>
@@ -935,6 +1013,16 @@ export default function CalendarMatrixPage() {
             <span> (필터링됨, 전체 {users.length}명)</span>
           )}
         </div>
+      )}
+
+      {/* Phase 4.3 등록/수정 모달 */}
+      {modalState && (
+        <EventEditModal
+          isCreate={modalState.mode === 'create'}
+          initial={modalState.initial}
+          onClose={() => setModalState(null)}
+          onSaved={handleModalSaved}
+        />
       )}
     </div>
   )
