@@ -251,3 +251,59 @@ export async function syncLeaveTimelineWithGoogle(args: {
     debug,
   }
 }
+
+/**
+ * Phase 1.5c (2026-05-20) — reverse sync.
+ * Google 캘린더 vacation 이벤트가 삭제된 경우, 해당 `google_event_id` 와 매칭되는
+ * `work_logs.leave_timeline` 항목을 자동 제거.
+ *
+ * 호출 위치: `src/lib/org-calendar/sync.ts` 의 `syncOne` cleanup 블록 — vacation 캘린더의
+ * "Google에 없는 row" 가 확정된 후, 그 google_event_id 목록을 본 함수에 전달.
+ *
+ * 동작:
+ *   - `is_deleted=false` + `leave_timeline IS NOT NULL` 인 work_logs row fetch (range 0~9999)
+ *   - 각 row 의 leave_timeline 에서 `google_event_id ∈ deletedIds` 인 항목 제거
+ *   - 빈 배열이 되면 `null` 로 저장 (jsonb_array_length=0 row 안 만들기)
+ *
+ * 실패는 best-effort — throw 안 하고 결과 객체에 errors 누적.
+ */
+export async function cleanupOrphanedLeaveTimeline(
+  adminClient: SupabaseClient,
+  deletedEventIds: string[],
+): Promise<{ scanned: number; cleaned: number; errors: string[] }> {
+  const out = { scanned: 0, cleaned: 0, errors: [] as string[] }
+  if (deletedEventIds.length === 0) return out
+  const idSet = new Set(deletedEventIds)
+
+  const { data: rows, error: fetchErr } = await adminClient
+    .from('work_logs')
+    .select('id, leave_timeline')
+    .eq('is_deleted', false)
+    .not('leave_timeline', 'is', null)
+    .range(0, 9999)
+    .returns<Array<{ id: string; leave_timeline: LeaveTimeline | null }>>()
+
+  if (fetchErr) {
+    out.errors.push(`fetch: ${fetchErr.message}`)
+    return out
+  }
+  out.scanned = rows?.length ?? 0
+
+  for (const row of rows ?? []) {
+    const lt: LeaveTimeline = Array.isArray(row.leave_timeline) ? row.leave_timeline : []
+    if (lt.length === 0) continue
+    const filtered = lt.filter(it => !it.google_event_id || !idSet.has(it.google_event_id))
+    if (filtered.length === lt.length) continue
+    const next = filtered.length === 0 ? null : filtered
+    const { error: upErr } = await adminClient
+      .from('work_logs')
+      .update({ leave_timeline: next })
+      .eq('id', row.id)
+    if (upErr) {
+      out.errors.push(`update ${row.id}: ${upErr.message}`)
+      continue
+    }
+    out.cleaned++
+  }
+  return out
+}

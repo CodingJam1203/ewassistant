@@ -189,10 +189,12 @@ async function syncOne(
       .returns<Array<{ id: string; google_event_id: string; source: string | null; nclick_pushed_at: string | null }>>()
     if (listErr) throw new Error(`existing list failed: ${listErr.message}`)
     const toDelete: string[] = []
+    const toDeleteEventIds: string[] = []
     for (const row of existing ?? []) {
       if (fetchedSet.has(row.google_event_id)) continue
       if (row.source === 'nclick' && row.nclick_pushed_at && row.nclick_pushed_at > graceCutoff) continue
       toDelete.push(row.id)
+      toDeleteEventIds.push(row.google_event_id)
     }
     const CHUNK = 200
     for (let i = 0; i < toDelete.length; i += CHUNK) {
@@ -202,6 +204,25 @@ async function syncOne(
         .delete()
         .in('id', batch)
       if (delErr) throw new Error(`cleanup delete failed: ${delErr.message}`)
+    }
+
+    // Phase 1.5c — vacation 캘린더면 work_logs.leave_timeline 안 매칭 entry도 자동 정리.
+    // Google 캘린더에서 휴가 이벤트가 삭제됐는데 N-Click leave_timeline 에 남아있으면
+    // 잘못된 휴가 표시·계산이 지속됨. best-effort — 실패해도 sync 자체는 정상 종료.
+    if (cal.calendar_type === 'vacation' && toDeleteEventIds.length > 0) {
+      try {
+        const { cleanupOrphanedLeaveTimeline } = await import('@/lib/google-calendar/vacation-sync')
+        const res = await cleanupOrphanedLeaveTimeline(adminClient, toDeleteEventIds)
+        if (res.cleaned > 0 || res.errors.length > 0) {
+          console.log('[sync] vacation reverse-cleanup', {
+            calendar: cal.label,
+            deletedEventCount: toDeleteEventIds.length,
+            ...res,
+          })
+        }
+      } catch (revErr) {
+        console.error('[sync] vacation reverse-cleanup failed (non-fatal):', revErr)
+      }
     }
   }
   // items.length === 0이면 캘린더 자체가 비었거나 fetch 실패. 보수적 skip.
