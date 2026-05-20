@@ -179,14 +179,10 @@ function parseDateTime(
     return { date: new Date(Date.UTC(y, mo, d, h, mi, se)), isDate: false }
   }
 
-  const tzid = params['TZID']
-  // 한국 회사 캘린더 가정 — TZID 없거나 Asia/Seoul이면 KST(+09:00)
-  if (!tzid || tzid === 'Asia/Seoul') {
-    const utcMs = Date.UTC(y, mo, d, h, mi, se) - 9 * 3600 * 1000
-    return { date: new Date(utcMs), isDate: false }
-  }
-
-  // 그 외 TZ — 일단 local time interpret. 정확도 낮음.
-  // 향후 Intl.DateTimeFormat or temporal API로 정확 처리.
-  return { date: new Date(y, mo, d, h, mi, se), isDate: false }
+  // 한국 회사 캘린더 가정 — TZID 무관하게 KST(+09:00)로 해석.
+  // (Asia/Seoul 외에 "Korean Standard Time" · 사용자 정의 TZID 등이 와도 실제 데이터는
+  //  한국 시각이라 그대로 KST 해석이 정확. 이전엔 `new Date(y, mo, d, h, mi, se)`로
+  //  서버 local time(UTC) 해석되어 9시간 늦게 저장되던 케이스 안전망.)
+  const utcMs = Date.UTC(y, mo, d, h, mi, se) - 9 * 3600 * 1000
+  return { date: new Date(utcMs), isDate: false }
 }

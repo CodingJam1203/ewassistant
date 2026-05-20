@@ -13,7 +13,7 @@
  * 본부 단위 일정(team_id null인 캘린더 — 회의/생일)은 별도 본부 헤더 행에 표시.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight, Home } from 'lucide-react'
 import CustomDropdown from '@/components/ui/CustomDropdown'
@@ -106,7 +106,8 @@ function fmtTime(iso: string): string {
 
 interface EventCellEntry {
   ev: ApiEvent
-  displayText: string  // "<종일> 제목" or "<HH:mm~HH:mm> 제목"
+  timeLabel: string  // "종일" or "HH:mm~HH:mm" — chip 1번째 줄
+  title: string      // 이벤트 제목 — chip 2번째 줄 (truncate 대상)
 }
 
 /** 이벤트가 특정 KST 날짜에 걸치는지 확인 + 표시 텍스트 생성 */
@@ -120,11 +121,12 @@ function eventOnDate(ev: ApiEvent, dateIso: string): EventCellEntry | null {
   // 종일이면 end는 다음 날 자정인 경우 많음 — start ≤ dayEnd && end > dayStart 비교
   if (evStart > dayEnd || evEnd <= dayStart) return null
   const timeLabel = ev.isAllDay
-    ? '<종일>'
-    : `<${fmtTime(ev.startAt)}~${fmtTime(ev.endAt)}>`
+    ? '종일'
+    : `${fmtTime(ev.startAt)}~${fmtTime(ev.endAt)}`
   return {
     ev,
-    displayText: `${timeLabel} ${ev.title}`.trim(),
+    timeLabel,
+    title: ev.title || '(제목 없음)',
   }
 }
 
@@ -149,6 +151,9 @@ export default function CalendarMatrixPage() {
   const [selectedDivisionId, setSelectedDivisionId] = useState<string>('')
   // 팀 dropdown — 단일 선택. ALL_TEAMS 또는 teamId.
   const [selectedTeamId, setSelectedTeamId] = useState<string>(ALL_TEAMS)
+  // 사용자가 직접 팀 dropdown을 변경했는지 추적. true면 자동 default 적용 차단.
+  // (본부가 바뀌면 false로 reset — 새 본부에서는 다시 default 적용)
+  const userTouchedTeamRef = useRef(false)
 
   const days = useMemo(() => {
     const n = RANGE_DAYS[rangeView]
@@ -219,15 +224,16 @@ export default function CalendarMatrixPage() {
     return Array.from(map.entries()).map(([id, name]) => ({ value: id, label: name }))
   }, [divUsers, divEvents])
 
-  // 본부 dropdown 변경 시 — 그 본부에 내 팀이 속해있으면 그걸로, 아니면 '전체' 자동
+  // 본부 dropdown 변경 시 — 그 본부에 내 팀이 속해있으면 그걸로, 아니면 '전체' 자동.
   // (default 정책: 첫 load 시 사용자 본인 본부 + 본인 팀)
+  // userTouchedTeamRef.current === true 면 사용자가 의도적으로 팀을 골랐다는 뜻이라
+  // 자동 reset 건너뜀 — '전체 팀' 선택이 즉시 내 팀으로 되돌아가던 버그 차단.
   useEffect(() => {
+    if (userTouchedTeamRef.current) return
     if (teamOptions.length === 0) {
       setSelectedTeamId(ALL_TEAMS)
       return
     }
-    // 현재 selectedTeamId가 유효(이 본부 안에 있음)이면 유지
-    if (selectedTeamId !== ALL_TEAMS && teamOptions.some(t => t.value === selectedTeamId)) return
     // 내 팀이 이 본부 안에 있으면 자동 선택
     if (myTeamName) {
       const mine = teamOptions.find(t => t.label === myTeamName)
@@ -238,7 +244,7 @@ export default function CalendarMatrixPage() {
     }
     // 그 외엔 전체
     setSelectedTeamId(ALL_TEAMS)
-  }, [teamOptions, myTeamName, selectedTeamId])
+  }, [teamOptions, myTeamName])
 
   // 2차 필터 — selectedTeamId 적용. 본부 단위(team_id null) 이벤트는 항상 포함.
   const filteredUsers = useMemo(() => {
@@ -422,7 +428,11 @@ export default function CalendarMatrixPage() {
             <div className="w-44">
               <CustomDropdown
                 value={selectedDivisionId}
-                onChange={setSelectedDivisionId}
+                onChange={(next) => {
+                  setSelectedDivisionId(next)
+                  // 본부가 바뀌면 팀 default 재적용 가능하도록 ref 초기화
+                  userTouchedTeamRef.current = false
+                }}
                 ariaLabel="본부 선택"
                 placeholder="본부 선택"
                 options={divisions.map(d => ({ value: d.id, label: d.name }))}
@@ -434,7 +444,11 @@ export default function CalendarMatrixPage() {
             <div className="w-44">
               <CustomDropdown
                 value={selectedTeamId}
-                onChange={setSelectedTeamId}
+                onChange={(next) => {
+                  setSelectedTeamId(next)
+                  // 사용자가 직접 골랐다는 신호 — 이후 자동 default 차단
+                  userTouchedTeamRef.current = true
+                }}
                 ariaLabel="팀 선택"
                 placeholder="팀 선택"
                 options={[
@@ -537,10 +551,11 @@ export default function CalendarMatrixPage() {
                                 {cell.map((e, i) => (
                                   <div
                                     key={i}
-                                    title={e.displayText}
-                                    className={`px-1.5 py-0.5 rounded text-xs leading-tight truncate cursor-default ${TYPE_BG[e.ev.inferredType]}`}
+                                    title={`${e.timeLabel} · ${e.title}`}
+                                    className={`px-1.5 py-1 rounded leading-tight cursor-default ${TYPE_BG[e.ev.inferredType]}`}
                                   >
-                                    {e.displayText}
+                                    <div className="text-[10px] tabular-nums opacity-80 truncate">{e.timeLabel}</div>
+                                    <div className="text-xs truncate">{e.title}</div>
                                   </div>
                                 ))}
                               </div>
