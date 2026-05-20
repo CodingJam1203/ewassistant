@@ -368,7 +368,7 @@ export default function MultiTagPicker({
           onChange={e => setQ(e.target.value)}
           onKeyDown={onInputKeyDown}
           placeholder="이름·그룹·팀 검색 (↑↓ 이동 · Enter 선택)"
-          className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-text-muted"
+          className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-text-muted px-2"
         />
         {q && (
           <button

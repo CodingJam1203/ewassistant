@@ -87,18 +87,78 @@ export async function pushEventInsert(
   }
 }
 
+/**
+ * Google API의 `events.update` / `events.delete`는 plain event `id`를 요구.
+ * 우리 DB의 google_event_id는 "iCalUID::startMs" 형식이라 prefix(iCalUID)를 직접 넘기면 404.
+ * 이 helper로 events.list(iCalUID 필터)로 plain id를 lookup. Google source 이벤트도
+ * iCal UID로 식별되어 매칭 가능.
+ */
+async function resolvePlainEventId(
+  cal: ReturnType<typeof getGoogleCalendarClient>,
+  calendarRawId: string,
+  iCalUIDOrId: string,
+): Promise<string | null> {
+  // 1) 그대로 events.get 시도 — plain id면 hit
+  try {
+    const r = await cal.events.get({ calendarId: calendarRawId, eventId: iCalUIDOrId })
+    if (r.data.id) return r.data.id
+  } catch (err: unknown) {
+    const code = (err as { code?: number; status?: number })?.code
+                ?? (err as { code?: number; status?: number })?.status
+    if (code !== 404) throw err
+  }
+  // 2) iCalUID 필터로 events.list
+  const list = await cal.events.list({
+    calendarId: calendarRawId,
+    iCalUID: iCalUIDOrId,
+    maxResults: 1,
+    showDeleted: false,
+  })
+  return list.data.items?.[0]?.id ?? null
+}
+
+function getErrCode(err: unknown): number | null {
+  const e = err as { code?: number; status?: number }
+  return e?.code ?? e?.status ?? null
+}
+
 export async function pushEventUpdate(
   calendarRawId: string,
-  rawEventId: string,
+  rawEventIdOrICalUID: string,
   payload: PushPayload,
 ): Promise<PushResult> {
   const cal = getGoogleCalendarClient()
+  const buildBody = () => buildEventBody(payload)
+
+  // 1차: 그대로 update 시도 (rawEventId면 hit)
+  try {
+    const res = await cal.events.update({
+      calendarId: calendarRawId,
+      eventId: rawEventIdOrICalUID,
+      requestBody: buildBody(),
+    })
+    const rawId   = res.data.id ?? rawEventIdOrICalUID
+    const iCalUID = res.data.iCalUID ?? rawId
+    return {
+      googleEventId: composeGoogleEventId(iCalUID, payload.startAt),
+      rawId,
+      iCalUID,
+    }
+  } catch (err: unknown) {
+    if (getErrCode(err) !== 404) throw err
+  }
+
+  // 2차: iCalUID로 plain id lookup 후 update
+  const realId = await resolvePlainEventId(cal, calendarRawId, rawEventIdOrICalUID)
+  if (!realId) {
+    throw new Error(`Google 이벤트를 찾을 수 없음 (iCalUID lookup 실패): ${rawEventIdOrICalUID}`)
+  }
   const res = await cal.events.update({
     calendarId: calendarRawId,
-    eventId: rawEventId,
-    requestBody: buildEventBody(payload),
+    eventId: realId,
+    requestBody: buildBody(),
   })
-  const rawId   = res.data.id ?? rawEventId
+  const rawId   = res.data.id ?? realId
   const iCalUID = res.data.iCalUID ?? rawId
   return {
     googleEventId: composeGoogleEventId(iCalUID, payload.startAt),
@@ -109,15 +169,27 @@ export async function pushEventUpdate(
 
 export async function pushEventDelete(
   calendarRawId: string,
-  rawEventId: string,
+  rawEventIdOrICalUID: string,
 ): Promise<void> {
   const cal = getGoogleCalendarClient()
+
+  // 1차: 그대로 delete 시도
   try {
-    await cal.events.delete({ calendarId: calendarRawId, eventId: rawEventId })
+    await cal.events.delete({ calendarId: calendarRawId, eventId: rawEventIdOrICalUID })
+    return
   } catch (err: unknown) {
-    // 410 Gone / 404 Not Found — 이미 Google에서 삭제됨. 무시.
-    const code = (err as { code?: number; status?: number })?.code
-                ?? (err as { code?: number; status?: number })?.status
+    const code = getErrCode(err)
+    if (code === 410) return  // 이미 삭제됨
+    if (code !== 404) throw err
+  }
+
+  // 2차: iCalUID로 plain id lookup 후 delete
+  const realId = await resolvePlainEventId(cal, calendarRawId, rawEventIdOrICalUID)
+  if (!realId) return  // 이미 사라진 상태
+  try {
+    await cal.events.delete({ calendarId: calendarRawId, eventId: realId })
+  } catch (err: unknown) {
+    const code = getErrCode(err)
     if (code === 404 || code === 410) return
     throw err
   }

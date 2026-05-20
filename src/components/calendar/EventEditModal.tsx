@@ -519,7 +519,7 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
                       <TimeSelect
                         value={startTime}
                         onChange={setStartTime}
-                        minuteStep={5}
+                        minuteStep={30}
                         ariaLabelHour="시작 시"
                         ariaLabelMinute="시작 분"
                       />
@@ -539,7 +539,7 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
                       <TimeSelect
                         value={endTime}
                         onChange={setEndTime}
-                        minuteStep={5}
+                        minuteStep={30}
                         ariaLabelHour="종료 시"
                         ariaLabelMinute="종료 분"
                       />
