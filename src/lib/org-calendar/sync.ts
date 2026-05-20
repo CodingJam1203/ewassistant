@@ -26,6 +26,7 @@ export interface SyncResult {
 
 interface CalendarRow {
   id: string
+  division_id: string
   google_calendar_id: string
   calendar_type: 'meeting' | 'vacation' | 'birthday' | 'other'
   label: string
@@ -37,7 +38,7 @@ export async function syncAllCalendars(
   // 1) active 캘린더 list
   const { data: calendars, error } = await adminClient
     .from('org_calendars')
-    .select('id, google_calendar_id, calendar_type, label')
+    .select('id, division_id, google_calendar_id, calendar_type, label')
     .eq('is_active', true)
     .returns<CalendarRow[]>()
 
@@ -101,7 +102,10 @@ async function syncOne(
     end_at: ev.endAt.toISOString(),
     is_all_day: ev.isAllDay,
     attendee_emails: ev.attendeeEmails.length > 0 ? ev.attendeeEmails : null,
-    matched_user_emails: matchUsers(ev, lookup),
+    matched_user_emails: matchUsers(
+      { title: ev.title || '', attendeeEmails: ev.attendeeEmails, divisionId: cal.division_id },
+      lookup,
+    ),
     inferred_type: inferEventType(cal.calendar_type, ev.title || ''),
     raw_uid: ev.rawUid,
     synced_at: now,
