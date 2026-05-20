@@ -116,19 +116,30 @@ export default function CalendarDayDetailModal({
 
         {/* 본문 */}
         <div className="px-6 py-5 space-y-4">
-          {/* 휴가 표시 */}
+          {/* 휴가 표시 — 차감 시간(roundedMinutes) 기반 (slot startTime~endTime은 leaveType 표준 슬롯이라 실제 차감과 다를 수 있어 사용자 혼란 — v1.30) */}
           {leaveTimeline.length > 0 && (
             <div className="rounded-[10px] border border-warning-border bg-warning-bg p-3">
               <div className="flex items-center gap-1.5 text-[12px] font-semibold text-warning-text mb-1">
                 <Plane className="h-3.5 w-3.5" aria-hidden /> N-Click 휴가
               </div>
               <ul className="text-sm text-text-primary space-y-0.5">
-                {leaveTimeline.map((it: LeaveTimelineItem, i: number) => (
-                  <li key={i} className="tabular-nums">
-                    <span className="font-medium">{it.label}</span>{' '}
-                    <span className="text-text-secondary">{it.startTime}~{it.endTime}</span>
-                  </li>
-                ))}
+                {leaveTimeline.map((it: LeaveTimelineItem, i: number) => {
+                  const mins = typeof it.roundedMinutes === 'number' && it.roundedMinutes >= 0
+                    ? it.roundedMinutes
+                    : (typeof it.actualMinutes === 'number' && it.actualMinutes >= 0 ? it.actualMinutes : 0)
+                  const h = Math.floor(mins / 60)
+                  const m = mins % 60
+                  const durationLabel =
+                    h > 0 && m > 0 ? `${h}시간 ${m}분`
+                    : h > 0        ? `${h}시간`
+                                   : `${m}분`
+                  return (
+                    <li key={i} className="tabular-nums">
+                      <span className="font-medium">{it.label}</span>{' '}
+                      <span className="text-text-secondary">{durationLabel}</span>
+                    </li>
+                  )
+                })}
               </ul>
             </div>
           )}
