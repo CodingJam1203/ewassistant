@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { X, Loader2, Trash2 } from 'lucide-react'
 import CustomDropdown from '@/components/ui/CustomDropdown'
+import TimeSelect from '@/components/TimeSelect'
 import MultiTagPicker, { buildSuffixCount, userShortLabel, type PickerToken, type PickerUser, type PickerTag } from './MultiTagPicker'
 
 type CalendarType = 'meeting' | 'vacation' | 'birthday' | 'other'
@@ -504,10 +505,10 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
                   종일
                 </label>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <div className="text-[10px] text-text-muted mb-0.5">시작</div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex flex-col gap-1.5">
                     <input
                       type="date"
                       value={startDate}
@@ -515,19 +516,19 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
                       className="block w-full h-9 px-2 rounded-[10px] border border-border-strong bg-surface text-sm"
                     />
                     {!isAllDay && (
-                      <input
-                        type="time"
+                      <TimeSelect
                         value={startTime}
-                        onChange={e => setStartTime(e.target.value)}
-                        step={1800}
-                        className="block w-28 h-9 px-2 rounded-[10px] border border-border-strong bg-surface text-sm tabular-nums"
+                        onChange={setStartTime}
+                        minuteStep={5}
+                        ariaLabelHour="시작 시"
+                        ariaLabelMinute="시작 분"
                       />
                     )}
                   </div>
                 </div>
                 <div>
                   <div className="text-[10px] text-text-muted mb-0.5">종료</div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex flex-col gap-1.5">
                     <input
                       type="date"
                       value={endDate}
@@ -535,12 +536,12 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
                       className="block w-full h-9 px-2 rounded-[10px] border border-border-strong bg-surface text-sm"
                     />
                     {!isAllDay && (
-                      <input
-                        type="time"
+                      <TimeSelect
                         value={endTime}
-                        onChange={e => setEndTime(e.target.value)}
-                        step={1800}
-                        className="block w-28 h-9 px-2 rounded-[10px] border border-border-strong bg-surface text-sm tabular-nums"
+                        onChange={setEndTime}
+                        minuteStep={5}
+                        ariaLabelHour="종료 시"
+                        ariaLabelMinute="종료 분"
                       />
                     )}
                   </div>

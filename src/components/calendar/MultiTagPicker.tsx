@@ -358,8 +358,8 @@ export default function MultiTagPicker({
       }}
       className="z-[200] rounded-[10px] border border-border bg-surface shadow-[var(--shadow-popover)] flex flex-col overflow-hidden"
     >
-      {/* 검색 — 우측 X 버튼, ↑↓ navigation, Enter 선택 */}
-      <div className="p-2 border-b border-border flex items-center gap-2">
+      {/* 검색 — 우측 X 버튼, ↑↓ navigation, Enter 선택. 좌측 padding 여유 */}
+      <div className="px-3 py-2 border-b border-border flex items-center gap-3">
         <Search className="h-4 w-4 text-text-muted shrink-0" />
         <input
           ref={inputRef}
@@ -368,7 +368,7 @@ export default function MultiTagPicker({
           onChange={e => setQ(e.target.value)}
           onKeyDown={onInputKeyDown}
           placeholder="이름·그룹·팀 검색 (↑↓ 이동 · Enter 선택)"
-          className="flex-1 bg-transparent text-sm outline-none placeholder:text-text-muted"
+          className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-text-muted"
         />
         {q && (
           <button
@@ -524,7 +524,18 @@ export default function MultiTagPicker({
             )
           })
         )}
-        <span className="ml-auto inline-flex items-center text-text-muted shrink-0 pr-1">
+        <span className="ml-auto inline-flex items-center gap-1 text-text-muted shrink-0 pr-1">
+          {value.length > 0 && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onChange([]) }}
+              className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-surface-muted hover:text-text-primary"
+              aria-label="태그 모두 지우기"
+              title="태그 모두 지우기"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
           <ChevronDown className="h-4 w-4" />
         </span>
       </div>
