@@ -87,54 +87,195 @@ function toLocalTime(iso: string | undefined): string {
   }).format(d)
 }
 
-// ─── Phase 4.4 반복(RRULE) Simple preset ─────────────────────────────────────
+// ─── Phase 4.4 / Phase 4.4-ext: 반복(RRULE) Google Calendar 패턴 ─────────────
 //
-// 4 preset: 없음 / 매일 / 매주 (시작일 같은 요일) / 매월 (시작일 같은 일자).
-// 더 복잡한 RRULE(UNTIL/COUNT/BYSETPOS 등)은 후속.
-// "custom"은 우리가 만든 게 아니라 외부에서 들어온 복잡한 RRULE — 변경 시 강제 reset 차단을
-// 위해 별도 카테고리로 표시. 사용자가 preset 선택 시 그 RRULE은 덮어쓰임.
+// Google Calendar 단축 7 preset (시작일 의존 동적 label):
+//   - 반복 안 함
+//   - 매일
+//   - 매주 {시작일 요일}            (예: 매주 수요일)
+//   - 매월 {n}번째 {시작일 요일}    (예: 매월 3번째 수요일)
+//   - 매년 {시작일 월}월 {시작일 일}일 (예: 매년 5월 20일)
+//   - 주중 매일 (월-금)
+//   - 맞춤... → CustomRecur 모달/inline form
+//
+// 맞춤 옵션: interval/unit (일/주/월/년), 요일 multi (주만), 종료 (없음/날짜/N회).
 
-type RecurPreset = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom'
+export type RecurPreset =
+  | 'none'
+  | 'daily'
+  | 'weekly_same_dow'
+  | 'monthly_nth_dow'
+  | 'yearly_same_date'
+  | 'weekdays'
+  | 'custom'
+
+export type RecurUnit = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
+export type RecurEnd  = 'never' | 'until' | 'count'
+
+export interface CustomRecur {
+  unit: RecurUnit
+  interval: number              // 1~N
+  byday: string[]               // ['MO','WE','FR'] — unit='WEEKLY'일 때만 의미. 비어있으면 시작일 요일
+  end: RecurEnd
+  until: string                 // YYYY-MM-DD (end='until'일 때)
+  count: number                 // (end='count'일 때)
+}
+
+export const DEFAULT_CUSTOM_RECUR: CustomRecur = {
+  unit: 'WEEKLY', interval: 1, byday: [], end: 'never', until: '', count: 13,
+}
 
 const DOWS_ICAL = ['SU','MO','TU','WE','TH','FR','SA'] as const
 const DOW_KO    = ['일','월','화','수','목','금','토']
+type DowIcal = typeof DOWS_ICAL[number]
 
-function getKstDayParts(date: Date): { day: number; weekday: number } {
+function getKstDayParts(date: Date): { year: number; month: number; day: number; weekday: number; nth: number } {
   const k = new Date(date.getTime() + 9 * 3600 * 1000)
-  return { day: k.getUTCDate(), weekday: k.getUTCDay() }
+  const day = k.getUTCDate()
+  return {
+    year: k.getUTCFullYear(),
+    month: k.getUTCMonth() + 1,
+    day,
+    weekday: k.getUTCDay(),
+    nth: Math.floor((day - 1) / 7) + 1,  // 1~5
+  }
 }
 
-function buildRRule(preset: RecurPreset, startAt: Date): string | null {
-  if (preset === 'none' || preset === 'custom') return null
+/** YYYY-MM-DD KST → UTC ISO 그날 23:59:59 (UNTIL은 inclusive). */
+function untilKstDateToIcal(yyyymmdd: string): string | null {
+  const m = yyyymmdd.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return null
+  const y = +m[1], mo = +m[2] - 1, d = +m[3]
+  // KST 그날 끝(23:59:59) → UTC 14:59:59
+  const ms = Date.UTC(y, mo, d, 23 - 9, 59, 59)
+  const dt = new Date(ms)
+  // iCal UNTIL 형식: YYYYMMDDTHHMMSSZ
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${dt.getUTCFullYear()}${pad(dt.getUTCMonth()+1)}${pad(dt.getUTCDate())}T${pad(dt.getUTCHours())}${pad(dt.getUTCMinutes())}${pad(dt.getUTCSeconds())}Z`
+}
+
+/** iCal UNTIL → KST YYYY-MM-DD */
+function icalUntilToKstDate(until: string): string | null {
+  // YYYYMMDDTHHMMSSZ
+  const m = until.match(/^(\d{4})(\d{2})(\d{2})(T(\d{2})(\d{2})(\d{2})Z)?$/)
+  if (!m) return null
+  const y = +m[1], mo = +m[2] - 1, d = +m[3]
+  const h = m[5] ? +m[5] : 0, mi = m[6] ? +m[6] : 0, s = m[7] ? +m[7] : 0
+  // KST 변환
+  const ms = Date.UTC(y, mo, d, h, mi, s) + 9 * 3600 * 1000
+  const kst = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${kst.getUTCFullYear()}-${pad(kst.getUTCMonth()+1)}-${pad(kst.getUTCDate())}`
+}
+
+export function buildRRule(preset: RecurPreset, startAt: Date, custom?: CustomRecur): string | null {
+  if (preset === 'none') return null
+  const k = getKstDayParts(startAt)
   if (preset === 'daily') return 'FREQ=DAILY'
-  const { day, weekday } = getKstDayParts(startAt)
-  if (preset === 'weekly') return `FREQ=WEEKLY;BYDAY=${DOWS_ICAL[weekday]}`
-  if (preset === 'monthly') return `FREQ=MONTHLY;BYMONTHDAY=${day}`
+  if (preset === 'weekly_same_dow')  return `FREQ=WEEKLY;BYDAY=${DOWS_ICAL[k.weekday]}`
+  if (preset === 'monthly_nth_dow')  return `FREQ=MONTHLY;BYDAY=${k.nth}${DOWS_ICAL[k.weekday]}`
+  if (preset === 'yearly_same_date') return `FREQ=YEARLY;BYMONTH=${k.month};BYMONTHDAY=${k.day}`
+  if (preset === 'weekdays')         return 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR'
+  if (preset === 'custom') {
+    if (!custom) return null
+    const parts: string[] = [`FREQ=${custom.unit}`]
+    if (custom.interval > 1) parts.push(`INTERVAL=${custom.interval}`)
+    if (custom.unit === 'WEEKLY' && custom.byday.length > 0) {
+      parts.push(`BYDAY=${custom.byday.join(',')}`)
+    }
+    if (custom.end === 'until' && custom.until) {
+      const u = untilKstDateToIcal(custom.until)
+      if (u) parts.push(`UNTIL=${u}`)
+    } else if (custom.end === 'count' && custom.count > 0) {
+      parts.push(`COUNT=${custom.count}`)
+    }
+    return parts.join(';')
+  }
   return null
 }
 
-/** DB rrule 본문 → preset 종류 + 자연어 미리보기 */
-function parseRRule(rrule: string | null | undefined, startAt: Date): { preset: RecurPreset; preview: string } {
-  if (!rrule) return { preset: 'none', preview: '반복 없음' }
+/**
+ * DB rrule 본문 → preset 결정 + custom state 복원.
+ * 7 preset의 알려진 패턴이면 그대로, 그 외는 'custom'으로 분류 + custom state도 함께 회수.
+ */
+export function parseRRule(
+  rrule: string | null | undefined,
+  startAt: Date,
+): { preset: RecurPreset; custom: CustomRecur } {
+  const empty: CustomRecur = { ...DEFAULT_CUSTOM_RECUR }
+  if (!rrule) return { preset: 'none', custom: empty }
   const r = rrule.replace(/^RRULE:/i, '').trim()
-  if (r === 'FREQ=DAILY') return { preset: 'daily', preview: '매일' }
-  const w = r.match(/^FREQ=WEEKLY;BYDAY=(SU|MO|TU|WE|TH|FR|SA)$/)
-  if (w) {
-    const idx = DOWS_ICAL.indexOf(w[1] as typeof DOWS_ICAL[number])
-    return { preset: 'weekly', preview: `매주 ${DOW_KO[idx]}요일` }
+  const k = getKstDayParts(startAt)
+
+  if (r === 'FREQ=DAILY') return { preset: 'daily', custom: empty }
+
+  // 매주 같은 요일 (단일 BYDAY = 시작일 요일)
+  const w1 = r.match(/^FREQ=WEEKLY;BYDAY=(SU|MO|TU|WE|TH|FR|SA)$/)
+  if (w1 && w1[1] === DOWS_ICAL[k.weekday]) return { preset: 'weekly_same_dow', custom: empty }
+
+  // 주중 매일
+  if (/^FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR$/.test(r)) return { preset: 'weekdays', custom: empty }
+
+  // 매월 n번째 같은 요일
+  const m1 = r.match(/^FREQ=MONTHLY;BYDAY=(\d)(SU|MO|TU|WE|TH|FR|SA)$/)
+  if (m1) {
+    const nth = +m1[1]
+    const dow = m1[2] as DowIcal
+    if (nth === k.nth && dow === DOWS_ICAL[k.weekday]) {
+      return { preset: 'monthly_nth_dow', custom: empty }
+    }
   }
-  const m = r.match(/^FREQ=MONTHLY;BYMONTHDAY=(\d{1,2})$/)
-  if (m) return { preset: 'monthly', preview: `매월 ${m[1]}일` }
-  // 그 외 — 외부에서 들어온 복잡한 RRULE. 사용자가 preset 바꾸면 단순화됨.
-  return { preset: 'custom', preview: `사용자 정의 (${r})` }
+
+  // 매년 같은 날짜
+  const y1 = r.match(/^FREQ=YEARLY;BYMONTH=(\d{1,2});BYMONTHDAY=(\d{1,2})$/)
+  if (y1 && +y1[1] === k.month && +y1[2] === k.day) {
+    return { preset: 'yearly_same_date', custom: empty }
+  }
+
+  // 그 외 — custom으로 파싱
+  const params = new Map<string, string>()
+  for (const part of r.split(';')) {
+    const eq = part.indexOf('=')
+    if (eq > 0) params.set(part.slice(0, eq).toUpperCase(), part.slice(eq + 1))
+  }
+  const freq = (params.get('FREQ') ?? 'WEEKLY') as RecurUnit
+  const interval = +(params.get('INTERVAL') ?? '1') || 1
+  const byday = (params.get('BYDAY') ?? '').split(',').map(s => s.trim()).filter(Boolean)
+  const until = params.get('UNTIL') ?? ''
+  const count = +(params.get('COUNT') ?? '0') || 0
+  const custom: CustomRecur = {
+    unit: ['DAILY','WEEKLY','MONTHLY','YEARLY'].includes(freq) ? freq : 'WEEKLY',
+    interval,
+    byday,
+    end: until ? 'until' : count ? 'count' : 'never',
+    until: until ? (icalUntilToKstDate(until) ?? '') : '',
+    count: count || 13,
+  }
+  return { preset: 'custom', custom }
 }
 
-function recurPresetPreview(preset: RecurPreset, startAt: Date): string {
-  if (preset === 'none')    return '반복 없음'
+export function recurPresetLabel(preset: RecurPreset, startAt: Date, custom?: CustomRecur): string {
+  if (preset === 'none')    return '반복 안 함'
   if (preset === 'daily')   return '매일'
-  if (preset === 'weekly')  { const { weekday } = getKstDayParts(startAt); return `매주 ${DOW_KO[weekday]}요일` }
-  if (preset === 'monthly') { const { day } = getKstDayParts(startAt); return `매월 ${day}일` }
-  return '사용자 정의'
+  const k = getKstDayParts(startAt)
+  if (preset === 'weekly_same_dow')  return `매주 ${DOW_KO[k.weekday]}요일`
+  if (preset === 'monthly_nth_dow')  return `매월 ${k.nth}번째 ${DOW_KO[k.weekday]}요일`
+  if (preset === 'yearly_same_date') return `매년 ${k.month}월 ${k.day}일`
+  if (preset === 'weekdays')         return '주중 매일(월-금)'
+  if (preset === 'custom') {
+    if (!custom) return '맞춤...'
+    const unit = custom.unit === 'DAILY' ? '일' : custom.unit === 'WEEKLY' ? '주' : custom.unit === 'MONTHLY' ? '개월' : '년'
+    const interval = custom.interval > 1 ? `${custom.interval}` : '매'
+    let s = `${interval}${unit}`
+    if (custom.unit === 'WEEKLY' && custom.byday.length > 0) {
+      const koDays = custom.byday.map(b => DOW_KO[DOWS_ICAL.indexOf(b as DowIcal)]).filter(Boolean).join(',')
+      s += ` ${koDays}요일`
+    }
+    if (custom.end === 'until' && custom.until)        s += ` (${custom.until}까지)`
+    else if (custom.end === 'count' && custom.count)   s += ` (${custom.count}회)`
+    return s
+  }
+  return ''
 }
 
 /** title에서 "[토큰들] 본문" 분리. 토큰들 매핑해서 PickerToken[] 만들기 어려우니 본문만 잘라냄. */
@@ -268,10 +409,21 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
   const [userTouchedCalendar, setUserTouchedCalendar] = useState(false)
   const [description, setDescription] = useState<string>(initial?.description ?? '')
   const [location, setLocation] = useState<string>(initial?.location ?? '')
-  // 반복(RRULE) — 수정 모드면 initial.rrule 파싱해 preset 복원
+  // 반복(RRULE) — 수정 모드면 initial.rrule 파싱해 preset/custom state 복원
   const [recurPreset, setRecurPreset] = useState<RecurPreset>(() => {
     const startGuess = new Date(initial?.startAt ?? Date.now())
     return parseRRule(initial?.rrule ?? null, startGuess).preset
+  })
+  const [customRecur, setCustomRecur] = useState<CustomRecur>(() => {
+    const startGuess = new Date(initial?.startAt ?? Date.now())
+    const parsed = parseRRule(initial?.rrule ?? null, startGuess).custom
+    // weekly + byday 비어있으면 시작일 요일을 default 채움
+    if (parsed.unit === 'WEEKLY' && parsed.byday.length === 0) {
+      const k = new Date(startGuess.getTime() + 9 * 3600 * 1000)
+      const DOWS = ['SU','MO','TU','WE','TH','FR','SA']
+      parsed.byday = [DOWS[k.getUTCDay()]]
+    }
+    return parsed
   })
 
   // picker data fetch
@@ -430,10 +582,9 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
       return setError('시작이 종료보다 빨라야 합니다')
     }
 
-    // RRULE 결정 — 'custom'은 외부에서 들어온 복잡한 RRULE이므로 사용자가 굳이 다시 손대지 않으면
-    // 기존 값 유지. 4 preset은 시작 시각 기반으로 본문 재생성. 'none'은 null.
+    // RRULE 결정 — 'custom'은 customRecur state에서 build, 그 외 preset은 startAt 기반.
     const rrulePayload: string | null = recurPreset === 'custom'
-      ? (initial?.rrule ?? null)
+      ? buildRRule('custom', new Date(startIso), customRecur)
       : buildRRule(recurPreset, new Date(startIso))
 
     setSaving(true)
@@ -627,34 +778,139 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
               </div>
             </div>
 
-            {/* 반복(RRULE) Simple preset */}
+            {/* 반복(RRULE) — Google Calendar 패턴: 7 preset dropdown + 맞춤 inline form */}
             <div>
               <label className="block text-xs font-medium text-text-secondary mb-1">반복</label>
-              <div className="inline-flex flex-wrap items-center rounded-[10px] border border-border-strong bg-surface overflow-hidden">
-                {(['none','daily','weekly','monthly'] as RecurPreset[]).map(p => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setRecurPreset(p)}
-                    className={`h-9 px-3 text-xs font-medium ${recurPreset === p ? 'bg-primary-600 text-white' : 'text-text-secondary hover:bg-surface-muted'}`}
-                  >
-                    {p === 'none' ? '없음' : p === 'daily' ? '매일' : p === 'weekly' ? '매주' : '매월'}
-                  </button>
-                ))}
-                {recurPreset === 'custom' && (
-                  <span className="h-9 inline-flex items-center px-3 text-xs font-medium bg-amber-50 text-amber-800 border-l border-border-strong">
-                    사용자 정의 RRULE
-                  </span>
-                )}
-              </div>
+              {(() => {
+                const startAtForLabel = new Date(startDate ? `${startDate}T00:00:00+09:00` : Date.now())
+                const recurOptions = [
+                  { value: 'none',              label: '반복 안 함' },
+                  { value: 'daily',             label: '매일' },
+                  { value: 'weekly_same_dow',   label: recurPresetLabel('weekly_same_dow',   startAtForLabel) },
+                  { value: 'monthly_nth_dow',   label: recurPresetLabel('monthly_nth_dow',   startAtForLabel) },
+                  { value: 'yearly_same_date',  label: recurPresetLabel('yearly_same_date',  startAtForLabel) },
+                  { value: 'weekdays',          label: '주중 매일(월-금)' },
+                  { value: 'custom',            label: '맞춤...' },
+                ]
+                return (
+                  <CustomDropdown
+                    value={recurPreset}
+                    onChange={(v) => setRecurPreset(v as RecurPreset)}
+                    options={recurOptions}
+                    ariaLabel="반복 설정"
+                    placeholder="반복 안 함"
+                  />
+                )
+              })()}
               <div className="mt-1 text-[10px] text-text-muted">
                 {recurPreset === 'none'
                   ? '한 번만 발생'
-                  : `${recurPresetPreview(recurPreset, new Date(startDate ? `${startDate}T00:00:00+09:00` : Date.now()))} — Google Calendar에 반복 일정으로 등록`}
-                {recurPreset === 'custom' && initial?.rrule && (
-                  <span className="block mt-0.5">원본 RRULE: <code className="text-[10px]">{initial.rrule}</code></span>
-                )}
+                  : `${recurPresetLabel(recurPreset, new Date(startDate ? `${startDate}T00:00:00+09:00` : Date.now()), customRecur)} — Google Calendar에 반복 일정으로 등록`}
               </div>
+
+              {/* "맞춤" inline form */}
+              {recurPreset === 'custom' && (
+                <div className="mt-2 p-3 rounded-[10px] border border-border bg-surface-muted/40 space-y-2">
+                  {/* 반복 주기 */}
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-text-secondary shrink-0">반복 주기</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={99}
+                      value={customRecur.interval}
+                      onChange={e => setCustomRecur({ ...customRecur, interval: Math.max(1, Math.min(99, +e.target.value || 1)) })}
+                      className="w-16 h-9 px-2 rounded-[10px] border border-border-strong bg-surface text-sm tabular-nums"
+                    />
+                    <div className="w-24">
+                      <CustomDropdown
+                        value={customRecur.unit}
+                        onChange={(v) => setCustomRecur({ ...customRecur, unit: v as RecurUnit })}
+                        options={[
+                          { value: 'DAILY', label: '일' },
+                          { value: 'WEEKLY', label: '주' },
+                          { value: 'MONTHLY', label: '개월' },
+                          { value: 'YEARLY', label: '년' },
+                        ]}
+                        ariaLabel="반복 단위"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 주 단위일 때 요일 multi-select */}
+                  {customRecur.unit === 'WEEKLY' && (
+                    <div>
+                      <div className="text-xs text-text-secondary mb-1">반복 요일</div>
+                      <div className="inline-flex gap-1 flex-wrap">
+                        {['SU','MO','TU','WE','TH','FR','SA'].map((d, i) => {
+                          const checked = customRecur.byday.includes(d)
+                          return (
+                            <button
+                              key={d}
+                              type="button"
+                              onClick={() => {
+                                const next = checked
+                                  ? customRecur.byday.filter(x => x !== d)
+                                  : [...customRecur.byday, d]
+                                setCustomRecur({ ...customRecur, byday: next })
+                              }}
+                              className={`h-8 w-8 rounded-full text-xs font-medium border ${checked ? 'bg-primary-600 text-white border-primary-600' : 'bg-surface text-text-secondary border-border-strong hover:bg-surface-muted'}`}
+                            >
+                              {['일','월','화','수','목','금','토'][i]}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 종료 */}
+                  <div>
+                    <div className="text-xs text-text-secondary mb-1">종료</div>
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="radio"
+                          checked={customRecur.end === 'never'}
+                          onChange={() => setCustomRecur({ ...customRecur, end: 'never' })}
+                        />
+                        없음
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="radio"
+                          checked={customRecur.end === 'until'}
+                          onChange={() => setCustomRecur({ ...customRecur, end: 'until' })}
+                        />
+                        <span>날짜:</span>
+                        <input
+                          type="date"
+                          value={customRecur.until}
+                          onChange={e => setCustomRecur({ ...customRecur, end: 'until', until: e.target.value })}
+                          className="h-8 px-2 rounded border border-border-strong bg-surface text-sm"
+                        />
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="radio"
+                          checked={customRecur.end === 'count'}
+                          onChange={() => setCustomRecur({ ...customRecur, end: 'count' })}
+                        />
+                        <span>다음</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={999}
+                          value={customRecur.count}
+                          onChange={e => setCustomRecur({ ...customRecur, end: 'count', count: Math.max(1, +e.target.value || 1) })}
+                          className="w-16 h-8 px-2 rounded border border-border-strong bg-surface text-sm tabular-nums"
+                        />
+                        <span>회 반복</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 위치 / 메모 */}
