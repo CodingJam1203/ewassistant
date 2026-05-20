@@ -339,10 +339,12 @@ export default function MyHistoryCalendar({
     }
 
     // 2) Google 캘린더 일정 (best-effort)
+    // cache: 'no-store' — /api/calendar/range가 Cache-Control max-age=60 응답.
+    // 일정 등록/수정 직후 fetchAll() 호출해도 60s 동안 cached 응답이 와서 변경이 즉시 안 보이는 문제 회피.
     try {
       const res = await fetch(
         `/api/calendar/range?from=${fmtDate(gridStart)}&to=${fmtDate(gridEnd)}`,
-        { credentials: 'same-origin' },
+        { credentials: 'same-origin', cache: 'no-store' },
       )
       if (res.ok) {
         const data = await res.json().catch(() => ({}))

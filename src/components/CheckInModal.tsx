@@ -99,6 +99,12 @@ export default function CheckInModal({
   const [calendarLookup, setCalendarLookup] = useState<UserCalendarLookup | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState<string | null>(null)
+  // Phase 1.5d (CheckInModal 확장 — 2026-05-21):
+  //   종일 휴가 prefill + 근무 의도 신호 동시 입력 시 confirm 모달.
+  //   확인 시 leaveTimeline=[]로 비우고 isAllDayLeave=false로 재제출
+  //   (서버는 Phase 1.5b sync로 Google 휴가 자동 삭제).
+  const [stripLeaveConfirmOpen, setStripLeaveConfirmOpen] = useState(false)
+  const userConfirmedStripLeaveRef = useRef(false)
 
   // 케이스 분기
   const [caseMode, setCaseMode] = useState<CaseMode>('none')
@@ -289,8 +295,27 @@ export default function CheckInModal({
       return setError(validationErrors[0])
     }
 
+    // Phase 1.5d (CheckInModal 확장): 종일 휴가 + 근무 의도 신호 동시 입력 시 명시 확인.
+    // 근무 의도 신호 = 실제 출근시간 직접 입력 OR 근무내용 입력.
+    // (휴가 그대로 두고 휴가만 저장하려는 사용자는 confirm 안 보고 진행)
+    const hasUserIntentWork = !!(
+      actualCheckInTime ||
+      (workContent && workContent.trim().length > 0)
+    )
+    if (isAllDayLeave && hasUserIntentWork && !userConfirmedStripLeaveRef.current) {
+      setStripLeaveConfirmOpen(true)
+      return
+    }
+
     setSaving(true)
     try {
+      // Phase 1.5d — 사용자가 confirm "휴가 삭제하고 진행" 누른 경우 종일 휴가 항목 필터링.
+      // 반차(morning/afternoon_half)는 유지. isAllDayLeave도 effective 기준으로 재계산.
+      const effectiveLeave: LeaveTimeline = userConfirmedStripLeaveRef.current
+        ? leaveTimeline.filter(it => it.leaveType !== 'full_day')
+        : leaveTimeline
+      const effectiveIsAllDay = isFullDayLeave(effectiveLeave)
+
       // 안전망 — caseMode='none' (미보고 첫 작성) + 당일 날짜라면, prefill 누락/race로
       // actualCheckInTime이 비어있어도 NOW로 채워 보냄. 그래야 서버가 checked_in_at을
       // 세팅하고 상태가 A → C로 바로 진행 (B 상태 노출 방지).
@@ -305,7 +330,7 @@ export default function CheckInModal({
         caseMode === 'future'
           ? ''  // 미래 일자 — 실제 출근시간 안 보냄, 서버가 팀 설정에 따라 처리
           : actualCheckInTime ||
-            (caseMode === 'none' && isTodaySubmission && !isAllDayLeave
+            (caseMode === 'none' && isTodaySubmission && !effectiveIsAllDay
               ? nowKstHHmmFloor() : '')
 
       // case A 분기:
@@ -317,15 +342,15 @@ export default function CheckInModal({
         ? (plannedStartUnreported
             ? (safeActualCheckIn || '09:00')
             : startTime)
-        : (isAllDayLeave ? null : startTime)
+        : (effectiveIsAllDay ? null : startTime)
 
       // C2 정책: 사용자가 N-Click에서 시간을 명시 입력했으면 Google 캘린더 자동 매핑된
       // leave_timeline(source='calendar')을 제거 — N-Click 입력이 우선.
       // 사용자가 LeaveTimelineInput에서 직접 추가한 항목(source !== 'calendar')은 유지.
       const hasUserTimeInput = !!(startTime || endTime || safeActualCheckIn)
       const finalLeaveTimeline = hasUserTimeInput
-        ? leaveTimeline.filter(item => item?.source !== 'calendar')
-        : leaveTimeline
+        ? effectiveLeave.filter(item => item?.source !== 'calendar')
+        : effectiveLeave
 
       const res = await fetch('/api/team-status/check-in', {
         method: 'POST',
@@ -333,9 +358,9 @@ export default function CheckInModal({
         body: JSON.stringify({
           date,
           name: name.trim(),
-          plannedWorkLocations: isAllDayLeave ? [] : locations,
+          plannedWorkLocations: effectiveIsAllDay ? [] : locations,
           start_time: submitStartTime,
-          end_time:   isAllDayLeave ? null : endTime,
+          end_time:   effectiveIsAllDay ? null : endTime,
           actualCheckInTime: safeActualCheckIn || null,
           // Stage 2: true면 서버가 planned_start_time = NULL로 저장 (미보고 SoT)
           plannedStartTimeUnreported: planned_start_time_unreported,
@@ -354,7 +379,20 @@ export default function CheckInModal({
       setError('네트워크 오류가 발생했습니다.')
     } finally {
       setSaving(false)
+      // Phase 1.5d — 한 submit 사이클 끝나면 confirm flag 리셋
+      userConfirmedStripLeaveRef.current = false
     }
+  }
+
+  // Phase 1.5d — confirm 핸들러: 휴가 삭제하고 진행 → handleSubmit 재호출 (synthetic event)
+  const handleConfirmStripLeave = () => {
+    setStripLeaveConfirmOpen(false)
+    userConfirmedStripLeaveRef.current = true
+    handleSubmit({ preventDefault: () => {} } as unknown as React.FormEvent)
+  }
+  const handleCancelStripLeave = () => {
+    setStripLeaveConfirmOpen(false)
+    userConfirmedStripLeaveRef.current = false
   }
 
   // 헤더 제목 — 케이스별
@@ -380,6 +418,35 @@ export default function CheckInModal({
     : '출근보고 작성'
 
   return (
+    <>
+    {/* Phase 1.5d — 종일 휴가 prefill + 근무 의도 동시 입력 시 명시 확인 */}
+    {stripLeaveConfirmOpen && (
+      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4">
+        <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-sm p-6">
+          <h3 className="text-lg font-semibold text-text-primary mb-2">휴가가 등록되어 있습니다</h3>
+          <p className="text-sm text-text-secondary mb-5">
+            해당 일자에 종일 휴가가 등록되어 있습니다. 이대로 진행하면 <strong className="text-text-primary">휴가가 자동 삭제</strong>되고 근무로 저장됩니다. 정말 진행하시겠습니까?
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleCancelStripLeave}
+              className="px-4 py-2 rounded-[10px] border border-border text-text-primary hover:bg-surface-muted text-sm"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmStripLeave}
+              className="px-4 py-2 rounded-[10px] bg-primary-600 text-white hover:bg-primary-700 text-sm font-medium"
+            >
+              휴가 삭제하고 진행
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto py-6 px-4">
       <div className="bg-surface rounded-[20px] shadow-[var(--shadow-popover)] w-full max-w-md">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
@@ -684,5 +751,6 @@ export default function CheckInModal({
         </form>
       </div>
     </div>
+    </>
   )
 }
