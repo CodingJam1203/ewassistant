@@ -152,6 +152,7 @@ export default function CalendarDayDetailModal({
             }
           >
             <KvRow label="출근예정" value={trimToHHmm(ci?.expected_work_time ?? ci?.start_time)} />
+            <KvRow label="퇴근예정" value={trimToHHmm(ci?.end_time)} />
             <KvRow
               label="예정 장소"
               value={(() => {
