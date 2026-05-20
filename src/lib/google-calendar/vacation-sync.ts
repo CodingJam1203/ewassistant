@@ -90,48 +90,37 @@ function addDaysToKstDate(yyyymmdd: string, n: number): string {
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`
 }
 
+/** actualMinutes → 캘린더 타이틀용 시간 표기 ("3H" / "0.5H" / "8H") */
+function formatHoursLabel(minutes: number): string {
+  const hours = minutes / 60
+  return Number.isInteger(hours) ? `${hours}H` : `${hours.toFixed(1)}H`
+}
+
 /** entry → Google event requestBody
  *
- *  부분 휴가의 시작 시각 결정:
- *    1) plannedStartTime 인자가 있으면 그것 우선 (그 사용자의 그날 출근예정 시각)
- *    2) 없으면 entry.startTime fallback (LEAVE_TYPE_DEFINITIONS의 fixed = 보통 09:00)
- *  종일(full_day)은 date 형식 — 시작 시각 무관.
+ *  정책 (2026-05-20 사용자 결정): 부분/종일 구분 없이 모두 종일 이벤트로 push.
+ *  타이틀에 휴가시간을 텍스트로 명시 — 예 "[홍길동] 3H 휴가" / "[홍길동] 8H 휴가".
+ *  사유: 캘린더에 시간블록으로 박히면 회의실/일정 충돌 처럼 보여 잘못 해석됨.
+ *       종일 + 텍스트 시간이 사용자/팀에 가장 명확.
  */
 function buildVacationEventBody(
   leaveDate: string,
   userDisplayName: string,
   entry: LeaveTimelineItem,
-  plannedStartTime: string | null,
 ): import('googleapis').calendar_v3.Schema$Event {
-  const title = `[${userDisplayName}] ${entry.label}`
-  if (entry.leaveType === 'full_day') {
-    return {
-      summary: title,
-      start: { date: leaveDate },
-      end:   { date: addDaysToKstDate(leaveDate, 1) },  // exclusive
-    }
-  }
-  // 부분 휴가 — plannedStartTime(또는 entry.startTime fallback)부터 actualMinutes 만큼
-  const startStr = (plannedStartTime ?? entry.startTime ?? '09:00').slice(0, 5)  // 'HH:mm:ss' → 'HH:mm'
-  const [hh, mm] = startStr.split(':').map(Number)
-  const totalEndMin = hh * 60 + mm + entry.actualMinutes
-  const eh = Math.floor(totalEndMin / 60)
-  const em = totalEndMin % 60
-  const pad = (n: number) => String(n).padStart(2, '0')
+  const title = `[${userDisplayName}] ${formatHoursLabel(entry.actualMinutes)} 휴가`
   return {
     summary: title,
-    start: { dateTime: `${leaveDate}T${pad(hh)}:${pad(mm)}:00+09:00`, timeZone: 'Asia/Seoul' },
-    end:   { dateTime: `${leaveDate}T${pad(eh)}:${pad(em)}:00+09:00`, timeZone: 'Asia/Seoul' },
+    start: { date: leaveDate },
+    end:   { date: addDaysToKstDate(leaveDate, 1) },  // exclusive
   }
 }
 
-/** 두 entry가 Google 측 변경을 요구하는지 (내용 diff) */
+/** 두 entry가 Google 측 변경을 요구하는지 (내용 diff)
+ *  종일 이벤트 + "NH 휴가" 타이틀만 사용하므로 actualMinutes 변화만 영향.
+ */
 function entryChanged(a: LeaveTimelineItem, b: LeaveTimelineItem): boolean {
-  return a.label !== b.label
-      || a.leaveType !== b.leaveType
-      || a.startTime !== b.startTime
-      || a.endTime !== b.endTime
-      || a.actualMinutes !== b.actualMinutes
+  return a.actualMinutes !== b.actualMinutes
 }
 
 export interface SyncVacationResult {
@@ -169,10 +158,8 @@ export async function syncLeaveTimelineWithGoogle(args: {
   leaveDate: string  // 'YYYY-MM-DD'
   prev: LeaveTimeline
   next: LeaveTimeline
-  /** 그날 출근예정 시각 'HH:mm[:ss]' — 부분 휴가 시작 시각 결정에 사용 */
-  plannedStartTime: string | null
 }): Promise<SyncVacationResult> {
-  const { adminClient, userEmail, userDisplayName, leaveDate, prev, next, plannedStartTime } = args
+  const { adminClient, userEmail, userDisplayName, leaveDate, prev, next } = args
   const debug: NonNullable<SyncVacationResult['debug']> = {
     calendarMatched: false, inserted: 0, updated: 0, deleted: 0, errors: [],
   }
@@ -219,7 +206,7 @@ export async function syncLeaveTimelineWithGoogle(args: {
   for (const entry of next) {
     if (!entry.google_event_id) {
       try {
-        const body = buildVacationEventBody(leaveDate, userDisplayName, entry, plannedStartTime)
+        const body = buildVacationEventBody(leaveDate, userDisplayName, entry)
         const ins = await cal.events.insert({ calendarId: vacationCal.rawCalId, requestBody: body })
         const newId = ins.data.id ?? null
         if (newId) {
@@ -239,7 +226,7 @@ export async function syncLeaveTimelineWithGoogle(args: {
       const prevEntry = prevById.get(entry.google_event_id)
       if (prevEntry && entryChanged(prevEntry, entry)) {
         try {
-          const body = buildVacationEventBody(leaveDate, userDisplayName, entry, plannedStartTime)
+          const body = buildVacationEventBody(leaveDate, userDisplayName, entry)
           await cal.events.update({
             calendarId: vacationCal.rawCalId,
             eventId: entry.google_event_id,

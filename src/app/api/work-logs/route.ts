@@ -274,11 +274,10 @@ export async function POST(request: Request) {
     // Phase 1.5b — prev leave_timeline을 같이 받아 Google sync diff 산출에 사용
     let workLogId: string | null = null
     let dDayPrevLeaveTimeline: import('@/types/leave-timeline').LeaveTimeline = []
-    let dDayExistingPlannedStart: string | null = null
     {
       const { data: existing } = await adminClient
         .from('work_logs')
-        .select('id, leave_timeline, planned_start_time')
+        .select('id, leave_timeline')
         .eq('user_email', user.email!)
         .eq('leave_date', body.leaveDate)
         .eq('is_deleted', false)
@@ -288,7 +287,6 @@ export async function POST(request: Request) {
       workLogId = existing?.id ?? null
       const prevLt = (existing as { leave_timeline?: import('@/types/leave-timeline').LeaveTimeline } | null)?.leave_timeline
       dDayPrevLeaveTimeline = Array.isArray(prevLt) ? prevLt : []
-      dDayExistingPlannedStart = (existing as { planned_start_time?: string | null } | null)?.planned_start_time ?? null
     }
 
     const dDayData: Record<string, unknown> = {
@@ -388,7 +386,6 @@ export async function POST(request: Request) {
     let vacationSyncDDay: unknown = null
     try {
       const { syncLeaveTimelineWithGoogle } = await import('@/lib/google-calendar/vacation-sync')
-      const dDayPlannedStart = dDayExistingPlannedStart ?? body.startTime ?? finalStartTime
       const result = await syncLeaveTimelineWithGoogle({
         adminClient,
         userEmail: user.email!,
@@ -396,7 +393,6 @@ export async function POST(request: Request) {
         leaveDate: body.leaveDate,
         prev: dDayPrevLeaveTimeline,
         next: leaveTimeline ?? [],
-        plannedStartTime: dDayPlannedStart,
       })
       vacationSyncDDay = result
       if (result.changed && result.updatedTimeline && workLogId) {
@@ -560,7 +556,6 @@ export async function POST(request: Request) {
           leaveDate: nextDate,
           prev: dPlus1PrevLeaveTimeline,
           next: expectedLeaveTimeline ?? [],
-          plannedStartTime: dPlus1PlannedStart,
         })
         vacationSyncDPlus1 = result
         if (result.changed && result.updatedTimeline) {
