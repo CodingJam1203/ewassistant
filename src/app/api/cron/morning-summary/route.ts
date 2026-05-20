@@ -147,20 +147,29 @@ export async function GET(request: Request) {
     }
   }
 
-  // ─── 어제 퇴근보고 — 메시지 하단 표시용 (기존 유지) ───────────────────────
+  // ─── 어제 퇴근보고 — 메시지 하단 표시용 ─────────────────────────────────
+  // 정책서 §2 시간 4종 분리 — 표시·야근 판정의 SoT는 actual_start_time/actual_end_time.
+  // legacy start_time/end_time(=출근예정/퇴근예정)은 actual_*가 NULL일 때만 fallback (구 row 보호).
   const { data: workLogs } = await adminClient
     .from('work_logs')
-    .select('user_email, start_time, end_time, break_time, work_location, work_type_code, created_at')
+    .select('user_email, start_time, end_time, actual_start_time, actual_end_time, break_time, work_location, work_type_code, created_at')
     .eq('leave_date', yesterdayDate)
     .eq('is_deleted', false)
     .order('created_at', { ascending: false })
 
-  const workLogMap = new Map<string, { start_time: string; end_time: string; break_time: string; work_location: string; work_type_code: number | null }>()
+  // 'HH:mm:ss' → 'HH:mm:ss' 또는 NULL 정규화 (DB time 컬럼은 'HH:mm:ss' 문자열로 반환됨)
+  const pickActualTime = (actual: string | null, legacy: string | null): string | null => {
+    if (actual && actual.length >= 4) return actual
+    if (legacy && legacy.length >= 4) return legacy
+    return null
+  }
+
+  const workLogMap = new Map<string, { start_time: string | null; end_time: string | null; break_time: string; work_location: string; work_type_code: number | null }>()
   for (const w of workLogs ?? []) {
     if (!workLogMap.has(w.user_email)) {
       workLogMap.set(w.user_email, {
-        start_time:    w.start_time,
-        end_time:      w.end_time,
+        start_time:    pickActualTime(w.actual_start_time as string | null, w.start_time as string | null),
+        end_time:      pickActualTime(w.actual_end_time   as string | null, w.end_time   as string | null),
         break_time:    w.break_time,
         work_location: w.work_location,
         work_type_code: typeof w.work_type_code === 'number' ? w.work_type_code : null,

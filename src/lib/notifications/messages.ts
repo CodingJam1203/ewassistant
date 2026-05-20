@@ -261,11 +261,12 @@ export function formatMorningCheckinStatus(
   return `${loc} ${st}~`
 }
 
-/** Morning summary worklog status */
+/** Morning summary worklog status — 정책서 §2 SoT(actual_*) 우선, NULL이면 ❌ */
 export function formatMorningWorklogStatus(
-  log: { start_time: string; end_time: string; break_time: string; work_location: string } | undefined
+  log: { start_time: string | null; end_time: string | null; break_time: string; work_location: string } | undefined
 ): string {
   if (!log) return '❌'
+  if (!log.start_time || !log.end_time) return '❌'
   const start    = fmtTime(log.start_time)
   const end      = fmtTime(log.end_time)
   const breakStr = fmtBreak(log.break_time)
