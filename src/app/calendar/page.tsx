@@ -134,6 +134,178 @@ interface ApiDivision { id: string; name: string; sortOrder: number }
 
 const ALL_TEAMS = '__ALL__'
 
+/**
+ * 모바일 default 뷰 — Agenda(날짜별 그룹 → 사용자별 events).
+ * 매트릭스의 "여러 사람 + 여러 날" 본질 중 모바일은 "여러 사람" 우선.
+ * 가로 스크롤 없이 vertical scroll만으로 훑어보기 가능.
+ *
+ * 데이터: 부모(CalendarMatrixPage)가 본부/팀 필터까지 적용한 users·events·days를 그대로 전달.
+ * 정렬: 데스크탑 매트릭스와 동일 (divisionSort → teamSort → displayOrder → name).
+ * 빈 날(이벤트 0건)은 카드 자체 생략 — 정보 밀도 우선.
+ */
+function AgendaView({
+  users, events, days, userEmail,
+}: {
+  users: ApiUser[]
+  events: ApiEvent[]
+  days: Date[]
+  userEmail: string | null
+}) {
+  const userEmailSet = useMemo(
+    () => new Set(users.map(u => u.email.toLowerCase())),
+    [users],
+  )
+  const usersByEmail = useMemo(() => {
+    const m = new Map<string, ApiUser>()
+    for (const u of users) m.set(u.email.toLowerCase(), u)
+    return m
+  }, [users])
+
+  // 날짜별 그룹: 본부 일정 / 사용자별 events / 기타(매칭 안 된 팀 events)
+  const dayGroups = useMemo(() => {
+    return days.map(day => {
+      const dateIso = toKstIsoDate(day)
+      const hdr = fmtDayHeader(day)
+
+      // 이 날 걸치는 events
+      const dayEntries: Array<{ ev: ApiEvent; entry: EventCellEntry }> = []
+      for (const ev of events) {
+        const entry = eventOnDate(ev, dateIso)
+        if (entry) dayEntries.push({ ev, entry })
+      }
+
+      const divEntries = dayEntries.filter(x => x.ev.teamId === null)
+
+      const userMap = new Map<string, EventCellEntry[]>()
+      for (const x of dayEntries) {
+        if (x.ev.teamId === null) continue
+        for (const em of x.ev.matchedUserEmails) {
+          const k = em.toLowerCase()
+          if (!userEmailSet.has(k)) continue
+          const list = userMap.get(k) ?? []
+          list.push(x.entry)
+          userMap.set(k, list)
+        }
+      }
+
+      const otherEntries = dayEntries.filter(x =>
+        x.ev.teamId !== null &&
+        !x.ev.matchedUserEmails.some(em => userEmailSet.has(em.toLowerCase())),
+      )
+
+      // userMap key를 매트릭스 정렬 정책으로 정렬
+      const sortedUserEmails = Array.from(userMap.keys())
+        .map(em => usersByEmail.get(em))
+        .filter((u): u is ApiUser => !!u)
+        .sort((a, b) => {
+          if (a.divisionSort !== b.divisionSort) return a.divisionSort - b.divisionSort
+          if (a.teamSort !== b.teamSort) return a.teamSort - b.teamSort
+          if (a.displayOrder !== b.displayOrder) return a.displayOrder - b.displayOrder
+          return a.displayName.localeCompare(b.displayName, 'ko')
+        })
+        .map(u => u.email.toLowerCase())
+
+      return {
+        day,
+        dateIso,
+        hdr,
+        divEntries,
+        userMap,
+        sortedUserEmails,
+        otherEntries,
+        total: dayEntries.length,
+      }
+    })
+  }, [events, days, userEmailSet, usersByEmail])
+
+  const allEmpty = dayGroups.every(g => g.total === 0)
+
+  return (
+    <div className="space-y-3">
+      {allEmpty && (
+        <div className="rounded-[10px] border border-border bg-surface p-8 text-center text-sm text-text-muted">
+          기간 내 일정이 없습니다.
+        </div>
+      )}
+      {dayGroups.map(g => {
+        if (g.total === 0) return null
+        return (
+          <div key={g.dateIso} className="rounded-[10px] border border-border bg-surface overflow-hidden">
+            {/* 날짜 헤더 */}
+            <div className={`px-3 py-2 text-sm font-semibold border-b border-border flex items-center gap-2 ${
+              g.hdr.isToday  ? 'bg-primary-50 text-primary-700' :
+              g.hdr.isSunday ? 'bg-surface-muted text-danger-text' :
+              g.hdr.isWeekend? 'bg-surface-muted text-text-secondary' :
+                               'bg-surface-muted text-text-primary'
+            }`}>
+              <span>{g.hdr.date} ({g.hdr.dow})</span>
+              {g.hdr.isToday && <span className="text-[10px] font-medium">오늘</span>}
+            </div>
+
+            <div className="p-3 space-y-3">
+              {/* 본부 일정 */}
+              {g.divEntries.length > 0 && (
+                <section>
+                  <div className="text-[11px] font-semibold text-purple-700 mb-1">본부 일정</div>
+                  <div className="space-y-1">
+                    {g.divEntries.map((x, i) => (
+                      <div key={i} className={`px-2 py-1 rounded leading-tight ${TYPE_BG[x.entry.ev.inferredType]}`}>
+                        <div className="text-[10px] tabular-nums opacity-80">{x.entry.timeLabel}</div>
+                        <div className="text-[13px]">{x.entry.title}</div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* 사용자별 events */}
+              {g.sortedUserEmails.map(em => {
+                const u = usersByEmail.get(em)
+                if (!u) return null
+                const evs = g.userMap.get(em) ?? []
+                if (evs.length === 0) return null
+                const isMe = userEmail && em === userEmail.toLowerCase()
+                return (
+                  <section key={em}>
+                    <div className={`text-[12px] mb-1 flex items-center gap-1.5 ${isMe ? 'font-bold text-primary-700' : 'font-medium text-text-primary'}`}>
+                      <span>{u.displayName}</span>
+                      {isMe && <span className="text-[10px] text-primary-600">(나)</span>}
+                      <span className="text-[10px] text-text-muted">· {u.teamName ?? u.divisionName}</span>
+                    </div>
+                    <div className="space-y-1">
+                      {evs.map((e, i) => (
+                        <div key={i} className={`px-2 py-1 rounded leading-tight ${TYPE_BG[e.ev.inferredType]}`}>
+                          <div className="text-[10px] tabular-nums opacity-80">{e.timeLabel}</div>
+                          <div className="text-[13px]">{e.title}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )
+              })}
+
+              {/* 기타 — 사용자 매칭 안 된 팀 events */}
+              {g.otherEntries.length > 0 && (
+                <section>
+                  <div className="text-[11px] font-semibold text-amber-700 mb-1">기타</div>
+                  <div className="space-y-1">
+                    {g.otherEntries.map((x, i) => (
+                      <div key={i} className={`px-2 py-1 rounded leading-tight ${TYPE_BG[x.entry.ev.inferredType]}`}>
+                        <div className="text-[10px] tabular-nums opacity-80">{x.entry.timeLabel}</div>
+                        <div className="text-[13px]">{x.entry.title}</div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function CalendarMatrixPage() {
   const [users, setUsers] = useState<ApiUser[]>([])
   const [divisions, setDivisions] = useState<ApiDivision[]>([])
@@ -505,10 +677,21 @@ export default function CalendarMatrixPage() {
           불러오는 중…
         </div>
       ) : (
-        // sticky thead가 동작하려면 외곽 컨테이너가 양방향 overflow-auto + 고정 max-height여야 함.
-        // 기존 outer(overflow-hidden) + inner(overflow-x-auto) 구조는 sticky containing block이
-        // inner div가 되어, body 스크롤 시 inner 전체가 viewport 밖으로 빠지면 sticky도 같이 사라짐.
-        // 단일 wrapper의 viewport 내에서 양방향 스크롤하도록 통합.
+      <>
+      {/* 모바일 default — Agenda(날짜별 그룹). sm 이상에서는 숨김 */}
+      <div className="block sm:hidden">
+        <AgendaView
+          users={filteredUsers}
+          events={filteredEvents}
+          days={days}
+          userEmail={userEmail}
+        />
+      </div>
+
+      {/* sm 이상 default — 매트릭스. sticky thead가 동작하려면 외곽 컨테이너가 양방향
+          overflow-auto + 고정 max-height여야 함. inner div(overflow-x-auto) 분리 구조는
+          sticky containing block이 body 스크롤 시 함께 빠지므로 단일 wrapper로 통합. */}
+      <div className="hidden sm:block">
         <div
           className="bg-surface border border-border rounded-[10px] overflow-auto"
           style={{ maxHeight: 'calc(100vh - 200px)', minHeight: '400px' }}
@@ -647,6 +830,8 @@ export default function CalendarMatrixPage() {
               </tbody>
             </table>
         </div>
+      </div>
+      </>
       )}
 
       {/* 범례 */}
