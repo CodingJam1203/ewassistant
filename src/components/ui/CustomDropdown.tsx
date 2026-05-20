@@ -129,9 +129,16 @@ export default function CustomDropdown({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // popover 마운트 후 스크롤 위치 보정 (선택값 위에서 3번째)
+  // popover 마운트 후 스크롤 위치 보정 — 열릴 때 1회만.
+  // popoverPos는 scroll/resize 시(특히 외부 capture=true) 매번 새 객체로 set되어
+  // 이전엔 그때마다 scrollTop이 selectedIdx 위치로 강제 되돌아가 사용자가 안 스크롤되던 버그.
+  // didInitScrollRef로 open false→true 사이클당 1회만 reset, 이후 사용자 휠은 자유.
+  const didInitScrollRef = useRef(false)
   useLayoutEffect(() => {
-    if (!open || !listRef.current) return
+    if (!open) { didInitScrollRef.current = false; return }
+    if (!popoverPos || !listRef.current) return
+    if (didInitScrollRef.current) return
+    didInitScrollRef.current = true
     const targetIdx = selectedIdx >= 0 ? selectedIdx : 0
     const scrollIdx = Math.max(0, targetIdx - SCROLL_OFFSET_ITEMS)
     listRef.current.scrollTop = scrollIdx * ITEM_HEIGHT

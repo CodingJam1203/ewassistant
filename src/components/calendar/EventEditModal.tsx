@@ -19,7 +19,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { X, Loader2, Trash2 } from 'lucide-react'
 import CustomDropdown from '@/components/ui/CustomDropdown'
-import MultiTagPicker, { type PickerToken, type PickerUser, type PickerTag } from './MultiTagPicker'
+import MultiTagPicker, { buildSuffixCount, userShortLabel, type PickerToken, type PickerUser, type PickerTag } from './MultiTagPicker'
 
 type CalendarType = 'meeting' | 'vacation' | 'birthday' | 'other'
 
@@ -120,12 +120,13 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const json = await res.json() as PickerData
         setData(json)
-        // 초기 본인 토큰: 생성 모드에서 toekns 비어있으면 본인 default
+        // 초기 본인 토큰: 생성 모드에서 tokens 비어있으면 본인 default (suffix unique 시 짧은 label).
         if (isCreate && tokens.length === 0 && json.myProfile.email && json.myProfile.displayName) {
+          const sfxCount = buildSuffixCount(json.users)
           setTokens([{
             kind: 'user',
             key: `user:${json.myProfile.email.toLowerCase()}`,
-            label: json.myProfile.displayName,
+            label: userShortLabel(json.myProfile.displayName, json.myProfile.email, sfxCount),
             email: json.myProfile.email,
           }])
         }
@@ -301,7 +302,13 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
                 users={data.users}
                 tags={data.tags}
                 divisions={data.divisions}
-                myProfile={data.myProfile}
+                myProfile={{
+                  email: data.myProfile.email,
+                  displayName: data.myProfile.displayName,
+                  divisionId: data.myProfile.divisionId,
+                  teamId: data.myProfile.teamId,
+                  teamName: data.teams.find(t => t.id === data.myProfile.teamId)?.name ?? null,
+                }}
                 value={tokens}
                 onChange={setTokens}
               />

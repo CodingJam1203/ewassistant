@@ -47,6 +47,10 @@ interface MultiTagPickerProps {
     email: string | null
     displayName: string | null
     divisionId: string | null
+    /** Phase 4.3 후속: 본인 팀 이름 — 본인 팀 멤버 우선 정렬에 사용 */
+    teamName: string | null
+    /** 본인 팀 id — 그룹 정렬에 사용 */
+    teamId: string | null
   }
   /** 현재 선택 토큰 */
   value: PickerToken[]
@@ -68,6 +72,41 @@ type FlatItem =
 
 const MAX_USERS_RENDER = 50
 const MAX_TAGS_RENDER = 50
+
+/**
+ * 활성 사용자 list에서 마지막 2글자 suffix 빈도 Map 생성.
+ * 사람 token label 자동 축약 시 동명이인 fallback 판정에 사용.
+ */
+export function buildSuffixCount(users: PickerUser[]): Map<string, number> {
+  const c = new Map<string, number>()
+  for (const u of users) {
+    const name = (u.display_name ?? '').trim()
+    if (name.length >= 2) {
+      const sfx = name.slice(-2)
+      c.set(sfx, (c.get(sfx) ?? 0) + 1)
+    }
+  }
+  return c
+}
+
+/**
+ * 사람 token label 자동 축약.
+ * - 풀네임 3글자 이상이고 suffix가 활성 사용자 사이에서 unique이면 "재민" 형태 짧은 label
+ * - 충돌(동명이인 suffix)이거나 짧은 이름이면 풀네임 유지
+ * - 풀네임 비어있으면 email fallback
+ */
+export function userShortLabel(
+  displayName: string | null,
+  fallbackEmail: string,
+  suffixCount: Map<string, number>,
+): string {
+  const name = (displayName ?? '').trim()
+  if (name.length >= 3) {
+    const sfx = name.slice(-2)
+    if ((suffixCount.get(sfx) ?? 0) === 1) return sfx
+  }
+  return name || fallbackEmail
+}
 
 export default function MultiTagPicker({
   users, tags, divisions, myProfile, value, onChange,
@@ -95,10 +134,10 @@ export default function MultiTagPicker({
   // 본인 본부 안 사용자/그룹 우선 정렬을 위해 본부 이름 필요
   const myDivisionName = myProfile.divisionId ? (divisionNameById.get(myProfile.divisionId) ?? null) : null
 
-  // 검색·정렬된 사용자 리스트 — display_name null인 active 사용자도 안전하게 처리
+  // 검색·정렬된 사용자 리스트 — 본인 팀 → 본인 본부 → 그 외 본부 → 가나다 순.
+  // display_name null인 active 사용자는 picker에서 제외 (사람 식별 불가).
   const filteredUsers = useMemo(() => {
     const query = q.trim().toLowerCase()
-    // display_name 없는 row는 picker에서 제외 — 사람으로 식별 불가
     let arr = users.filter(u => (u.display_name ?? '').trim().length > 0)
     if (query) {
       arr = arr.filter(u =>
@@ -109,15 +148,25 @@ export default function MultiTagPicker({
       )
     }
     arr.sort((a, b) => {
-      const aIn = a.division === myDivisionName ? 0 : 1
-      const bIn = b.division === myDivisionName ? 0 : 1
-      if (aIn !== bIn) return aIn - bIn
+      // 1) 본인 팀 우선
+      const aT = myProfile.teamName && a.team === myProfile.teamName ? 0 : 1
+      const bT = myProfile.teamName && b.team === myProfile.teamName ? 0 : 1
+      if (aT !== bT) return aT - bT
+      // 2) 본인 본부 우선
+      const aD = a.division === myDivisionName ? 0 : 1
+      const bD = b.division === myDivisionName ? 0 : 1
+      if (aD !== bD) return aD - bD
+      // 3) 가나다
       return (a.display_name ?? '').localeCompare(b.display_name ?? '', 'ko')
     })
     return arr
-  }, [users, q, myDivisionName])
+  }, [users, q, myDivisionName, myProfile.teamName])
 
-  // 검색·정렬된 그룹 리스트
+  // 활성 사용자 suffix 빈도 — 토큰 label 자동 축약 시 동명이인 fallback 판정용 (export 함수 사용).
+  const suffixCount = useMemo(() => buildSuffixCount(users), [users])
+  const makeUserShortLabel = (dn: string | null, em: string) => userShortLabel(dn, em, suffixCount)
+
+  // 검색·정렬된 그룹 리스트 — 본인 팀 → 본인 본부 → 그 외 → 가나다.
   const filteredTags = useMemo(() => {
     const query = q.trim().toLowerCase()
     let arr = tags.slice()
@@ -128,13 +177,19 @@ export default function MultiTagPicker({
       )
     }
     arr.sort((a, b) => {
-      const aIn = a.division_id === myProfile.divisionId ? 0 : 1
-      const bIn = b.division_id === myProfile.divisionId ? 0 : 1
-      if (aIn !== bIn) return aIn - bIn
+      // 1) 본인 팀 우선 (team_id 일치)
+      const aT = myProfile.teamId && a.team_id === myProfile.teamId ? 0 : 1
+      const bT = myProfile.teamId && b.team_id === myProfile.teamId ? 0 : 1
+      if (aT !== bT) return aT - bT
+      // 2) 본인 본부 우선
+      const aD = a.division_id === myProfile.divisionId ? 0 : 1
+      const bD = b.division_id === myProfile.divisionId ? 0 : 1
+      if (aD !== bD) return aD - bD
+      // 3) 가나다
       return a.label.localeCompare(b.label, 'ko')
     })
     return arr
-  }, [tags, q, myProfile.divisionId])
+  }, [tags, q, myProfile.divisionId, myProfile.teamId])
 
   const selectedKeys = useMemo(() => new Set(value.map(v => v.key)), [value])
   const isMyselfSelected = useMemo(() => {
@@ -215,7 +270,7 @@ export default function MultiTagPicker({
     addToken({
       kind: 'user',
       key: `user:${myProfile.email.toLowerCase()}`,
-      label: myProfile.displayName,
+      label: makeUserShortLabel(myProfile.displayName, myProfile.email),
       email: myProfile.email,
     })
   }
@@ -235,7 +290,7 @@ export default function MultiTagPicker({
       addToken({
         kind: 'user',
         key: `user:${u.email.toLowerCase()}`,
-        label: u.display_name ?? u.email,
+        label: makeUserShortLabel(u.display_name, u.email),
         email: u.email,
       })
     } else {
@@ -243,6 +298,16 @@ export default function MultiTagPicker({
       addToken({ kind: 'tag', key: `tag:${t.id}`, label: t.label, tagId: t.id })
     }
   }
+
+  // 풀네임 lookup — chip hover tooltip 표시용. PickerToken.label은 축약일 수 있어 풀네임 보조 표시.
+  const fullNameByEmail = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const u of users) {
+      const name = (u.display_name ?? '').trim()
+      if (name) m.set(u.email.toLowerCase(), name)
+    }
+    return m
+  }, [users])
 
   /** 검색 input의 키보드 navigation — ArrowDown/Up Enter Home End */
   const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -434,23 +499,30 @@ export default function MultiTagPicker({
         {value.length === 0 ? (
           <span className="text-text-muted text-sm pl-1">{placeholder}</span>
         ) : (
-          value.map(t => (
-            <span
-              key={t.key}
-              className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border ${t.kind === 'user' ? 'bg-primary-50 text-primary-700 border-primary-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}
-            >
-              {t.kind === 'user' ? <UserIcon className="h-3 w-3" /> : <TagIcon className="h-3 w-3" />}
-              {t.label}
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); removeToken(t.key) }}
-                className="hover:opacity-80"
-                aria-label="제거"
+          value.map(t => {
+            // chip label이 축약(예: "재민")일 때 hover 시 풀네임("김재민") tooltip
+            const tooltip = t.kind === 'user'
+              ? (fullNameByEmail.get(t.email.toLowerCase()) ?? t.label)
+              : t.label
+            return (
+              <span
+                key={t.key}
+                title={tooltip}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border ${t.kind === 'user' ? 'bg-primary-50 text-primary-700 border-primary-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}
               >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))
+                {t.kind === 'user' ? <UserIcon className="h-3 w-3" /> : <TagIcon className="h-3 w-3" />}
+                {t.label}
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); removeToken(t.key) }}
+                  className="hover:opacity-80"
+                  aria-label="제거"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )
+          })
         )}
         <span className="ml-auto inline-flex items-center text-text-muted shrink-0 pr-1">
           <ChevronDown className="h-4 w-4" />
