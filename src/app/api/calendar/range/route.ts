@@ -47,6 +47,21 @@ function toKstDateString(d: Date): string {
   }).format(d)
 }
 
+/**
+ * 본인 이름 prefix 제거. MY PAGE 캘린더는 본인 일정만 보여주므로 `[재민] 휴가` 같은 본인 표시는 노이즈.
+ * 다중 인원 prefix는 본인만 제거하고 나머지 유지: `[재민,승현] 잠패스` → `[승현] 잠패스`.
+ * 본인 이름 매칭은 full display_name + 끝 2글자(예 "김재민"→"재민") 둘 다 인정.
+ */
+function stripMyNamePrefix(title: string, userNames: Set<string>): string {
+  if (!title || userNames.size === 0) return title
+  return title.replace(/^\[([^\]]+)\]\s*/, (_m, inside: string) => {
+    const names = String(inside).split(/[,，·/]/).map(s => s.trim()).filter(Boolean)
+    const filtered = names.filter(n => !userNames.has(n))
+    if (filtered.length === 0) return ''
+    return `[${filtered.join(',')}] `
+  })
+}
+
 /** vacation 이벤트의 시간 범위 → LeaveType 분류 */
 function decideLeaveType(startMs: number, endMs: number, isAllDay: boolean): LeaveType {
   if (isAllDay) return 'full_day'
@@ -100,6 +115,17 @@ export async function GET(request: Request) {
 
     // org_calendar_events에서 본인 매칭 이벤트 조회 (Phase 4.7 sync 결과)
     const adminClient = createAdminClient()
+
+    // 본인 이름 prefix 제거용 — display_name(예 "김재민") + 끝 2글자 short name(예 "재민") 모두 매칭
+    const { data: meProfile } = await adminClient
+      .from('user_profiles')
+      .select('display_name')
+      .eq('id', user.id)
+      .maybeSingle()
+    const fullName = (meProfile as { display_name?: string | null } | null)?.display_name?.trim() ?? ''
+    const shortName = fullName.length > 2 ? fullName.slice(-2) : fullName
+    const userNames = new Set<string>([fullName, shortName].filter(Boolean))
+
     const fromIso = new Date(`${from}T00:00:00+09:00`).toISOString()
     const toIso   = new Date(`${to}T23:59:59+09:00`).toISOString()
 
@@ -167,20 +193,23 @@ export async function GET(request: Request) {
         })
       }
 
+      // 본인 이름 prefix 제거된 표시 라벨 (MY PAGE 캘린더는 본인 일정만 보여주므로)
+      const cleanedTitle = stripMyNamePrefix(r.title ?? '', userNames)
+
       for (const dateIso of matchingDates) {
         const lookup = byDate[dateIso]
         if (isVacation) {
           // 첫 vacation 만 leaveType으로 (multi-vacation 1일은 비표준 — 첫 것 채택)
           if (lookup.leaveType === null) {
             lookup.leaveType = decideLeaveType(evStartMs, evEndMs, r.is_all_day)
-            lookup.leaveLabel = r.title ?? '휴가'
-            lookup.raw = r.title ?? null
+            lookup.leaveLabel = cleanedTitle || '휴가'
+            lookup.raw = cleanedTitle || null
           }
         } else {
           const chunk: CalendarEventChunk = {
             startTime: r.is_all_day ? null : toKstTime(r.start_at),
             endTime:   r.is_all_day ? null : toKstTime(r.end_at),
-            title:     r.title ?? '',
+            title:     cleanedTitle,
           }
           lookup.events.push(chunk)
         }
