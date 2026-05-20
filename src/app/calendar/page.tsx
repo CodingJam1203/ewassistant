@@ -597,10 +597,11 @@ export default function CalendarMatrixPage() {
                                         {cell.map((e, i) => (
                                           <div
                                             key={i}
-                                            title={e.displayText}
-                                            className={`px-1.5 py-0.5 rounded text-xs leading-tight truncate cursor-default ${TYPE_BG[e.ev.inferredType]}`}
+                                            title={`${e.timeLabel} · ${e.title}`}
+                                            className={`px-1.5 py-1 rounded leading-tight cursor-default ${TYPE_BG[e.ev.inferredType]}`}
                                           >
-                                            {e.displayText}
+                                            <div className="text-[10px] tabular-nums opacity-80 truncate">{e.timeLabel}</div>
+                                            <div className="text-xs truncate">{e.title}</div>
                                           </div>
                                         ))}
                                       </div>
@@ -625,10 +626,11 @@ export default function CalendarMatrixPage() {
                                       {cell.map((e, i) => (
                                         <div
                                           key={i}
-                                          title={e.displayText}
-                                          className={`px-1.5 py-0.5 rounded text-xs leading-tight truncate cursor-default ${TYPE_BG[e.ev.inferredType]}`}
+                                          title={`${e.timeLabel} · ${e.title}`}
+                                          className={`px-1.5 py-1 rounded leading-tight cursor-default ${TYPE_BG[e.ev.inferredType]}`}
                                         >
-                                          {e.displayText}
+                                          <div className="text-[10px] tabular-nums opacity-80 truncate">{e.timeLabel}</div>
+                                          <div className="text-xs truncate">{e.title}</div>
                                         </div>
                                       ))}
                                     </div>
