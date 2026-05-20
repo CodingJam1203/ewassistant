@@ -662,8 +662,8 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3" onClick={onClose}>
-      <div className="relative bg-surface rounded-[10px] shadow-xl max-w-2xl w-full max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3">
+      <div className="relative bg-surface rounded-[10px] shadow-xl max-w-2xl w-full max-h-[92vh] flex flex-col">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
           <h2 className="text-base font-semibold text-text-primary">
             {isCreate ? '새 일정 등록' : '일정 수정'}

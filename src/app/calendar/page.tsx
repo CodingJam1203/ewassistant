@@ -55,7 +55,7 @@ interface ApiUser {
 
 const TYPE_BG: Record<CalendarType, string> = {
   meeting:  'bg-primary-50 text-primary-700 border-l-2 border-primary-500',
-  vacation: 'bg-indigo-50 text-indigo-700 border-l-2 border-indigo-500',
+  vacation: 'bg-warning-bg text-warning-text border-l-2 border-warning-border',
   birthday: 'bg-pink-50 text-pink-700 border-l-2 border-pink-500',
   other:    'bg-surface-muted text-text-secondary border-l-2 border-text-muted',
 }
@@ -1023,7 +1023,7 @@ export default function CalendarMatrixPage() {
       <div className="flex flex-wrap items-center gap-3 text-[11px] text-text-secondary px-1">
         <span className="font-semibold">범례:</span>
         <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-primary-50 border-l-2 border-primary-500" />회의</span>
-        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-indigo-50 border-l-2 border-indigo-500" />휴가</span>
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-warning-bg border-l-2 border-warning-border" />휴가</span>
         <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-pink-50 border-l-2 border-pink-500" />생일·기념일</span>
         <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-surface-muted border-l-2 border-text-muted" />기타</span>
         <span className="ml-2 text-text-muted">· 오늘 컬럼은 파란 헤더 · 본부 일정은 별도 보라 행 · 셀 호버 시 전체 텍스트</span>
