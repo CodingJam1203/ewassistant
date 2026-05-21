@@ -22,9 +22,8 @@
 import { Plane } from 'lucide-react'
 import {
   type LeaveTimeline,
-  type LeaveType,
 } from '@/types/leave-timeline'
-import { buildLeaveItem } from '@/lib/leave-timeline'
+import { buildLeaveItem, minutesToLeaveType, LEAVE_TIME_OPTIONS } from '@/lib/leave-timeline'
 import CustomDropdown from '@/components/ui/CustomDropdown'
 
 interface LeaveTimelineInputProps {
@@ -33,28 +32,8 @@ interface LeaveTimelineInputProps {
   disabled?: boolean
 }
 
-/** 시간 select 옵션 — 30분 단위, 00:30 ~ 08:00 (16개) + '없음' */
-const TIME_OPTIONS: { minutes: number; label: string }[] = (() => {
-  const opts: { minutes: number; label: string }[] = [{ minutes: 0, label: '휴가 없음' }]
-  for (let m = 30; m <= 8 * 60; m += 30) {
-    const h = Math.floor(m / 60)
-    const mm = m % 60
-    opts.push({
-      minutes: m,
-      label: `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`,
-    })
-  }
-  return opts
-})()
-
-/** 휴가 시간(분) → leaveType 자동 매핑.
- *  정규 근무 길이(480min = 8h)일 때만 full_day. 그 외는 morning_half로 둬서
- *  차감 시간이 EW 계산에 정확히 반영되게 한다. */
-function minutesToLeaveType(minutes: number): LeaveType | null {
-  if (minutes <= 0) return null
-  if (minutes >= 480) return 'full_day'
-  return 'morning_half'
-}
+/** 시간 select 옵션 — 30분 단위, '휴가 없음' + 00:30 ~ 08:00 (lib 공용) */
+const TIME_OPTIONS = LEAVE_TIME_OPTIONS
 
 function timelineToMinutes(timeline: LeaveTimeline): number {
   if (!Array.isArray(timeline) || timeline.length === 0) return 0

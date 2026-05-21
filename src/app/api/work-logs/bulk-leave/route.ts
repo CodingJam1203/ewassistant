@@ -35,7 +35,7 @@ import { z } from 'zod'
 import { requireActiveUser } from '@/lib/admin-check'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateEw } from '@/lib/ew-calculator'
-import { buildLeaveItem } from '@/lib/leave-timeline'
+import { buildLeaveItem, minutesToLeaveType } from '@/lib/leave-timeline'
 import { recordSubmission } from '@/lib/submission-log'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
@@ -50,9 +50,14 @@ const MAX_DAYS = 60
 const bodySchema = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '시작일 형식이 올바르지 않습니다.'),
   endDate:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '종료일 형식이 올바르지 않습니다.'),
-  leaveType: z.enum(['full_day', 'morning_half', 'afternoon_half']),
+  // 30분 단위 휴가 시간(분). 30~480. 480=종일, 그 외=부분 휴가.
+  // 하위호환: 옛 leaveType(enum)도 허용 — 들어오면 분으로 환산.
+  leaveMinutes: z.number().int().min(30).max(480).multipleOf(30).optional(),
+  leaveType: z.enum(['full_day', 'morning_half', 'afternoon_half']).optional(),
   excludeWeekends: z.boolean().optional(),
   note: z.string().max(200).optional(),
+}).refine(d => d.leaveMinutes != null || d.leaveType != null, {
+  message: '휴가 시간을 선택해주세요.',
 })
 
 export async function POST(request: Request) {
@@ -68,7 +73,14 @@ export async function POST(request: Request) {
       const first = parsed.error.issues[0]
       return NextResponse.json({ error: first?.message ?? '입력값이 올바르지 않습니다.' }, { status: 400 })
     }
-    const { startDate, endDate, leaveType, excludeWeekends = true, note } = parsed.data
+    const { startDate, endDate, excludeWeekends = true, note } = parsed.data
+    // 휴가 시간(분) 결정 — leaveMinutes 우선, 없으면 옛 leaveType을 분으로 환산 (하위호환).
+    const leaveMinutes: number = parsed.data.leaveMinutes
+      ?? (parsed.data.leaveType === 'full_day' ? 480 : 240)
+    const leaveType = minutesToLeaveType(leaveMinutes)  // 480→full_day, 그 외→morning_half
+    if (!leaveType) {
+      return NextResponse.json({ error: '휴가 시간이 올바르지 않습니다.' }, { status: 400 })
+    }
 
     if (startDate > endDate) {
       return NextResponse.json({ error: '시작일이 종료일보다 늦습니다.' }, { status: 400 })
@@ -128,9 +140,9 @@ export async function POST(request: Request) {
         continue
       }
 
-      const leaveItem = buildLeaveItem(leaveType)
+      // 선택한 휴가 시간(분)을 차감 분으로 그대로 사용 (LeaveTimelineInput과 동일 정책)
+      const leaveItem = buildLeaveItem(leaveType, '휴가', 'manual', leaveMinutes)
       const leaveTimeline: LeaveTimeline = [leaveItem]
-      const leaveMinutes = leaveItem.roundedMinutes
 
       const workLocationTimeline: WorkLocationTimeline | null = isFullDay
         ? null

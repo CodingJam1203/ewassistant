@@ -18,8 +18,10 @@
  */
 
 import { useState } from 'react'
-import { X, Loader2, Plane } from 'lucide-react'
-import { Button, Field, Input, Select, DateInputWithDow } from '@/components/ui'
+import { X, Plane } from 'lucide-react'
+import { Button, Field, Input, DateInputWithDow } from '@/components/ui'
+import CustomDropdown from '@/components/ui/CustomDropdown'
+import { LEAVE_TIME_OPTIONS } from '@/lib/leave-timeline'
 import { cn } from '@/lib/utils/cn'
 import { useRegisterModalOpen } from '@/contexts/ModalOpenContext'
 
@@ -39,11 +41,10 @@ interface BulkLeaveResult {
   skippedDates: string[]
 }
 
-const LEAVE_TYPE_OPTIONS = [
-  { value: 'full_day',       label: '종일 휴가 (8h)' },
-  { value: 'morning_half',   label: '오전반차 (4h)' },
-  { value: 'afternoon_half', label: '오후반차 (4h)' },
-] as const
+// 30분 단위 휴가 시간 옵션 ('휴가 없음'(0) 제외 — 등록 모달은 최소 30분)
+const VACATION_TIME_OPTIONS = LEAVE_TIME_OPTIONS
+  .filter(o => o.minutes > 0)
+  .map(o => ({ value: String(o.minutes), label: o.minutes === 480 ? `${o.label} (종일)` : o.label }))
 
 export default function VacationRegisterModal({
   initialStartDate,
@@ -56,8 +57,8 @@ export default function VacationRegisterModal({
   const today = new Date().toISOString().slice(0, 10)
   const [startDate, setStartDate] = useState(initialStartDate ?? today)
   const [endDate, setEndDate]     = useState(initialEndDate ?? initialStartDate ?? today)
-  const [leaveType, setLeaveType] =
-    useState<'full_day' | 'morning_half' | 'afternoon_half'>('full_day')
+  // 휴가 시간(분) — default 480(종일). 30분 단위.
+  const [leaveMinutes, setLeaveMinutes] = useState<number>(480)
   const [excludeWeekends, setExcludeWeekends] = useState(true)
   const [note, setNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -79,7 +80,7 @@ export default function VacationRegisterModal({
         body: JSON.stringify({
           startDate,
           endDate,
-          leaveType,
+          leaveMinutes,
           excludeWeekends,
           note: note.trim() || undefined,
         }),
@@ -155,15 +156,14 @@ export default function VacationRegisterModal({
               </Field>
             </div>
 
-            <Field label="휴가 유형" required>
-              <Select
-                value={leaveType}
-                onChange={e => setLeaveType(e.target.value as typeof leaveType)}
-              >
-                {LEAVE_TYPE_OPTIONS.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </Select>
+            <Field label="휴가 시간" required hint="30분 단위로 선택. 8:00은 종일 휴가입니다.">
+              <CustomDropdown
+                value={String(leaveMinutes)}
+                onChange={v => setLeaveMinutes(parseInt(v, 10))}
+                options={VACATION_TIME_OPTIONS}
+                ariaLabel="휴가 시간"
+                className="w-full"
+              />
             </Field>
 
             <Field label="옵션">
@@ -196,7 +196,7 @@ export default function VacationRegisterModal({
             >
               💡 이미 보고가 있는 날짜는 건너뜁니다 — 캘린더에서 확인 후 직접 수정해주세요.
               <br />
-              반차의 경우 출퇴근 시각은 09:00~18:00로 임시 채워지며, 후속 출퇴근보고에서 조정할 수 있습니다.
+              종일(8:00) 외 부분 휴가는 출퇴근 시각이 09:00~18:00로 임시 채워지며, 후속 출퇴근보고에서 조정할 수 있습니다.
             </div>
 
             {error && (

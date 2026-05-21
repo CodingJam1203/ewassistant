@@ -14,6 +14,33 @@ import {
   type LeaveType,
 } from '@/types/leave-timeline'
 
+// ─── 휴가: 시간(분) ↔ 유형 매핑 ──────────────────────────────────────────────
+
+/**
+ * 휴가 시간(분) → leaveType 자동 매핑.
+ * 정규 근무 길이(480min = 8h)일 때만 full_day. 그 외(30~450min)는 morning_half로 둬서
+ * 차감 시간이 EW 계산에 정확히 반영되게 한다. (LeaveTimelineInput·VacationRegisterModal 공용)
+ */
+export function minutesToLeaveType(minutes: number): LeaveType | null {
+  if (minutes <= 0) return null
+  if (minutes >= 480) return 'full_day'
+  return 'morning_half'
+}
+
+/** 30분 단위 휴가 시간 옵션 — '휴가 없음'(0) + 00:30 ~ 08:00 (16개). */
+export const LEAVE_TIME_OPTIONS: { minutes: number; label: string }[] = (() => {
+  const opts: { minutes: number; label: string }[] = [{ minutes: 0, label: '휴가 없음' }]
+  for (let m = 30; m <= 8 * 60; m += 30) {
+    const h = Math.floor(m / 60)
+    const mm = m % 60
+    opts.push({
+      minutes: m,
+      label: `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`,
+    })
+  }
+  return opts
+})()
+
 // ─── 휴가: 파싱 / 빌드 ────────────────────────────────────────────────────────
 
 /**
