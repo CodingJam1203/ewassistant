@@ -265,3 +265,104 @@ label[for] {
   color: var(--color-text-disabled);
   cursor: not-allowed;
 }
+
+/* ---------------------------------------------------------------------------
+ * react-big-calendar — N-Click 디자인 오버라이드 (월 그리드 뷰)
+ *
+ * 라이브러리 기본 CSS의 폰트 미스매치 / 들쭉날쭉한 글씨크기 / 과한 회색을
+ * 디자인 토큰에 맞춰 보정. .nclick-rbc 래퍼로 스코프해 전역 영향 차단.
+ * --------------------------------------------------------------------------- */
+.nclick-rbc .rbc-calendar {
+  font-family: var(--font-sans);
+  letter-spacing: -0.02em;
+  color: var(--color-text-primary);
+}
+
+/* Toolbar — 라벨/버튼 글씨크기 통일 */
+.nclick-rbc .rbc-toolbar { margin-bottom: 12px; gap: 8px; }
+.nclick-rbc .rbc-toolbar-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.nclick-rbc .rbc-toolbar button {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: 6px 12px;
+  background: var(--color-surface);
+  transition: background-color .15s, color .15s, border-color .15s;
+}
+.nclick-rbc .rbc-toolbar button:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-text-primary);
+}
+.nclick-rbc .rbc-toolbar button:active,
+.nclick-rbc .rbc-toolbar button.rbc-active,
+.nclick-rbc .rbc-toolbar button.rbc-active:hover,
+.nclick-rbc .rbc-toolbar button.rbc-active:focus {
+  background: var(--color-primary-600);
+  color: #fff;
+  border-color: var(--color-primary-600);
+}
+
+/* 그리드 외곽/구분선 — 토큰 border 색으로 통일 */
+.nclick-rbc .rbc-month-view {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.nclick-rbc .rbc-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--color-border);
+}
+.nclick-rbc .rbc-header + .rbc-header { border-left: 1px solid var(--color-border); }
+.nclick-rbc .rbc-month-row + .rbc-month-row { border-top: 1px solid var(--color-border); }
+.nclick-rbc .rbc-day-bg + .rbc-day-bg { border-left: 1px solid var(--color-border); }
+
+/* 날짜 숫자 */
+.nclick-rbc .rbc-date-cell {
+  font-size: 12px;
+  padding: 4px 6px;
+  color: var(--color-text-secondary);
+}
+.nclick-rbc .rbc-button-link { color: inherit; }
+
+/* 회색 과다 제거 — 다른 달(off-range) 칸 배경은 흰색, 숫자만 흐릿하게 */
+.nclick-rbc .rbc-off-range-bg { background: var(--color-surface); }
+.nclick-rbc .rbc-off-range { color: var(--color-text-disabled); }
+
+/* 오늘 — primary-50 배경 (회색 대신 옅은 파랑) */
+.nclick-rbc .rbc-today { background: var(--color-primary-50); }
+
+/* 이벤트 칩 — 글씨크기 통일 (색은 컴포넌트 eventPropGetter가 담당) */
+.nclick-rbc .rbc-event { font-size: 12px; padding: 1px 4px; }
+.nclick-rbc .rbc-event:focus { outline: none; }
+.nclick-rbc .rbc-event.rbc-selected { outline: 2px solid var(--color-primary-200); }
+
+/* "+N개 더보기" — primary 링크 스타일 */
+.nclick-rbc .rbc-show-more {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-primary-600);
+  background: transparent;
+}
+.nclick-rbc .rbc-show-more:hover { color: var(--color-primary-700); text-decoration: underline; }
+
+/* 더보기 팝업 */
+.nclick-rbc .rbc-overlay {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+}
+.nclick-rbc .rbc-overlay-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-border);
+}

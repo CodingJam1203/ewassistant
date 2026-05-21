@@ -90,7 +90,7 @@ export default function MonthGridView<T extends MonthGridEvent>({
   const rbcEvents = useMemo(() => events.map(toRbcEvent), [events])
 
   return (
-    <div className="bg-surface border border-border rounded-[10px] p-2 sm:p-3" style={{ height: 'calc(100vh - 220px)', minHeight: 480 }}>
+    <div className="nclick-rbc bg-surface border border-border rounded-[10px] p-2 sm:p-3" style={{ height: 'calc(100vh - 220px)', minHeight: 480 }}>
       <Calendar<RbcEvent<T>>
         localizer={localizer}
         culture="ko"
