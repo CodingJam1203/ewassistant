@@ -184,7 +184,7 @@ export type EventClassification = 'by_type' | 'by_title'
 export type InferredType = 'meeting' | 'vacation' | 'birthday' | 'other'
 
 /** 휴가로 인식할 제목 텍스트. 본부 제목 컨벤션에 맞춰 확장 가능. */
-const VACATION_KEYWORDS = /휴가|연차|반차|오전반차|오후반차|월차|반반차|오프|연월차|공가/
+const VACATION_KEYWORDS = /휴가|연차|반차|오전반차|오후반차|월차|반반차|오프|연월차|공가|안식월/
 
 function normalizeNclickType(raw: string | null | undefined): InferredType | null {
   if (raw === 'meeting' || raw === 'vacation' || raw === 'birthday' || raw === 'other') return raw
