@@ -294,7 +294,7 @@ export default function CalendarDayDetailModal({
               </Button>
             )}
             {onCreateEvent && (
-              <Button variant="ghost" size="sm" onClick={onCreateEvent}>
+              <Button variant="secondary" size="sm" onClick={onCreateEvent}>
                 <CalendarPlus className="h-4 w-4" aria-hidden />
                 일정 등록
               </Button>
