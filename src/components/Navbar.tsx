@@ -45,7 +45,7 @@ export default async function Navbar() {
   const navLinks = [
     { href: '/home',     label: 'MY PAGE' },
     { href: '/team',     label: '둘러보기' },
-    { href: '/history',  label: '제출 내역' },
+    { href: '/history',  label: '제출내역' },
     { href: '/calendar', label: '일정관리' },
     ...((isAdmin || isLeader) ? [{ href: '/work-hours', label: '근로시간 관리' }] : []),
     ...(isAdmin ? [{ href: '/admin', label: '관리자' }] : []),
