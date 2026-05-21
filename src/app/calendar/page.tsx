@@ -353,7 +353,14 @@ function AgendaView({
   )
 }
 
-export default function CalendarMatrixPage() {
+/**
+ * 매트릭스 캘린더 뷰 본체.
+ *
+ * - default export `CalendarMatrixPage`는 /calendar 라우트 진입점 (직접 접근).
+ * - named export `CalendarMatrixView`는 다른 페이지(예: /home '일정관리' 탭)에서
+ *   동일 매트릭스를 임베드할 때 사용. `embedded=true`면 상단 "← 홈" 링크 hide.
+ */
+export function CalendarMatrixView({ embedded = false }: { embedded?: boolean } = {}) {
   const [users, setUsers] = useState<ApiUser[]>([])
   const [divisions, setDivisions] = useState<ApiDivision[]>([])
   const [events, setEvents] = useState<ApiEvent[]>([])
@@ -723,19 +730,26 @@ export default function CalendarMatrixPage() {
 
   return (
     <div className="max-w-[120rem] mx-auto p-3 sm:p-4 space-y-3">
-      <div className="flex items-center gap-3">
-        <Link href="/home" className="inline-flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary">
-          <ArrowLeft className="h-4 w-4" />
-          홈
-        </Link>
-      </div>
+      {!embedded && (
+        <div className="flex items-center gap-3">
+          <Link href="/home" className="inline-flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary">
+            <ArrowLeft className="h-4 w-4" />
+            홈
+          </Link>
+        </div>
+      )}
 
       {/* 헤더 + 범위 컨트롤 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold text-text-primary flex items-center gap-2">
-            <CalendarIcon className="h-5 w-5" /> 본부 캘린더
-          </h1>
+          <div>
+            <h1 className="text-xl font-semibold text-text-primary flex items-center gap-2">
+              <CalendarIcon className="h-5 w-5" /> 일정관리
+            </h1>
+            <p className="mt-0.5 text-[11px] text-text-muted">
+              해당 캘린더는 구글캘린더와 실시간 양방향 동기화 됩니다
+            </p>
+          </div>
           {/* 본부 dropdown — 1본부만 선택. default = 사용자 본부 */}
           {divisions.length > 0 && (
             <div className="w-44">
@@ -1049,4 +1063,8 @@ export default function CalendarMatrixPage() {
       )}
     </div>
   )
+}
+
+export default function CalendarMatrixPage() {
+  return <CalendarMatrixView />
 }
