@@ -108,10 +108,13 @@ export async function PATCH(
   const requestedMode: RecurrenceMode = (body.recurrenceMode === 'instance' || body.recurrenceMode === 'following') ? body.recurrenceMode : 'all'
   const effectiveMode: RecurrenceMode = isInstance ? requestedMode : 'all'
 
+  // 사용자가 고른(또는 기존) 속성 — push extendedProperties + syncMasterById 신뢰용
+  const nclickTypeForPush = (next.inferredType ?? undefined) as ('meeting' | 'vacation' | 'birthday' | 'other' | undefined)
   const payload = {
     title: next.title, description: next.description, location: next.location,
     startAt: next.startAt, endAt: next.endAt, isAllDay: next.isAllDay,
     rrule: next.rrule,
+    nclickType: nclickTypeForPush,
   }
 
   let updated: Record<string, unknown> | null = null
@@ -159,6 +162,7 @@ export async function PATCH(
         iCalUID: oldMasterICalUID,
         rrule: null,  // 기존 master rrule은 truncated. syncMasterById가 events.list로 재조회하니 master rrule 자동 반영 X (rrule 컬럼 인자만 인스턴스 보존용). 일관성을 위해 null 전달.
         userId: user.id, matchUsersForTitle: matchFn, inferType: inferEventType,
+        nclickType: nclickTypeForPush,
       })
       const newMasterSync = await syncMasterById({
         adminClient: admin, rawCalId,
@@ -166,6 +170,7 @@ export async function PATCH(
         iCalUID: newMaster.iCalUID,
         rrule: next.rrule,
         userId: user.id, matchUsersForTitle: matchFn, inferType: inferEventType,
+        nclickType: nclickTypeForPush,
       })
       updated = newMasterSync.primaryRow ?? ev as Record<string, unknown>
     } else {
@@ -178,6 +183,7 @@ export async function PATCH(
         iCalUID: pushed.iCalUID,
         rrule: next.rrule,
         userId: user.id, matchUsersForTitle: matchFn, inferType: inferEventType,
+        nclickType: nclickTypeForPush,
       })
       updated = result.primaryRow ?? ev as Record<string, unknown>
     }

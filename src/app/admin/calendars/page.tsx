@@ -22,12 +22,15 @@ import { ArrowLeft, RefreshCw, Loader2, Calendar as CalendarIcon, CheckCircle2, 
 
 type CalendarType = 'meeting' | 'vacation' | 'birthday' | 'other'
 
+type EventClassification = 'by_type' | 'by_title'
+
 interface CalendarRow {
   id: string
   googleCalendarId: string
   calendarType: CalendarType
   label: string
   isActive: boolean
+  eventClassification: EventClassification
   createdAt: string
   updatedAt: string
   division: { id: string; name: string; sort_order: number } | null
@@ -56,6 +59,7 @@ interface FormState {
   label: string
   google_calendar_id: string
   is_active: boolean
+  event_classification: EventClassification
 }
 
 const EMPTY_FORM: FormState = {
@@ -65,6 +69,12 @@ const EMPTY_FORM: FormState = {
   label: '',
   google_calendar_id: '',
   is_active: true,
+  event_classification: 'by_type',
+}
+
+const CLASSIFICATION_LABEL: Record<EventClassification, string> = {
+  by_type:  '분리형 (캘린더 유형 그대로)',
+  by_title: '통합형 (제목으로 휴가 판단)',
 }
 
 interface SyncResult {
@@ -150,6 +160,7 @@ export default function AdminCalendarsPage() {
       label: r.label,
       google_calendar_id: r.googleCalendarId,
       is_active: r.isActive,
+      event_classification: r.eventClassification ?? 'by_type',
     })
     setFormError(null)
     setFormOpen(true)
@@ -169,6 +180,7 @@ export default function AdminCalendarsPage() {
         division_id: form.division_id,
         team_id: form.team_id || null,
         is_active: form.is_active,
+        event_classification: form.event_classification,
       }
       const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const data = await res.json().catch(() => ({}))
@@ -358,6 +370,7 @@ export default function AdminCalendarsPage() {
                   <th className="px-3 py-2 text-left font-medium">라벨</th>
                   <th className="px-3 py-2 text-left font-medium">본부 / 팀</th>
                   <th className="px-3 py-2 text-left font-medium">유형</th>
+                  <th className="px-3 py-2 text-left font-medium">분류</th>
                   <th className="px-3 py-2 text-left font-medium">활성</th>
                   <th className="px-3 py-2 text-right font-medium tabular-nums">이벤트</th>
                   <th className="px-3 py-2 text-left font-medium">마지막 동기화</th>
@@ -377,6 +390,9 @@ export default function AdminCalendarsPage() {
                       <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${CALENDAR_TYPE_COLOR[r.calendarType]}`}>
                         {CALENDAR_TYPE_LABEL[r.calendarType]}
                       </span>
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-text-secondary">
+                      {r.eventClassification === 'by_title' ? '통합형(제목)' : '분리형(유형)'}
                     </td>
                     <td className="px-3 py-2">
                       <button
@@ -498,6 +514,23 @@ export default function AdminCalendarsPage() {
                 </div>
               </label>
             </div>
+
+            <label className="block">
+              <span className="text-[12px] font-medium text-text-secondary">이벤트 분류 방식 *</span>
+              <select
+                value={form.event_classification}
+                onChange={e => setForm(f => ({ ...f, event_classification: e.target.value as EventClassification }))}
+                className="mt-1 w-full h-10 px-3 rounded-[10px] border border-border bg-surface text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="by_type">{CLASSIFICATION_LABEL.by_type}</option>
+                <option value="by_title">{CLASSIFICATION_LABEL.by_title}</option>
+              </select>
+              <span className="mt-1 block text-[11px] text-text-muted">
+                분리형 — 휴가/미팅을 캘린더별로 나눠 쓰는 경우 (이 캘린더 유형 그대로 분류).
+                통합형 — 한 캘린더에 휴가·미팅을 섞어 쓰는 경우 (제목에 "휴가/연차/반차" 있을 때만 휴가로).
+                ※ N-Click에서 등록한 일정은 분류 방식과 무관하게 등록 시 고른 속성을 그대로 따릅니다.
+              </span>
+            </label>
 
             <label className="block">
               <span className="text-[12px] font-medium text-text-secondary">라벨 * <span className="text-text-muted font-normal">(예 — "마이스팀 회의", "본부 공용 휴가")</span></span>

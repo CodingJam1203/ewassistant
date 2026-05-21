@@ -198,6 +198,7 @@ export async function POST(request: Request) {
       title, description, location,
       startAt, endAt, isAllDay,
       rrule,
+      nclickType: inferredType,  // 사용자가 고른 속성 박제 → sync가 제목 추측 없이 신뢰
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
@@ -222,6 +223,7 @@ export async function POST(request: Request) {
       iCalUID: pushed.iCalUID,
       rrule,
       userId: user.id,
+      nclickType: inferredType,  // 사용자가 고른 속성 — occurrence 전부 이 type으로 신뢰
       matchUsersForTitle: (t, attendees) => matchUsers(
         { title: t, attendeeEmails: attendees, divisionId: calendar.division_id, teamId: calendar.team_id },
         lookup,

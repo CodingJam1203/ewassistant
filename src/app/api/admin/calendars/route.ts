@@ -27,7 +27,7 @@ export async function GET() {
     client
       .from('org_calendars')
       .select(`
-        id, google_calendar_id, calendar_type, label, is_active,
+        id, google_calendar_id, calendar_type, label, is_active, event_classification,
         created_at, updated_at,
         division:org_divisions(id, name, sort_order),
         team:org_teams(id, name, sort_order)
@@ -81,6 +81,7 @@ export async function GET() {
       calendarType: c.calendar_type,
       label: c.label,
       isActive: c.is_active,
+      eventClassification: c.event_classification,
       createdAt: c.created_at,
       updatedAt: c.updated_at,
       division: c.division,
@@ -114,6 +115,7 @@ export async function POST(request: Request) {
   const division_id = typeof body.division_id === 'string' ? body.division_id.trim() : ''
   const team_id = typeof body.team_id === 'string' && body.team_id.trim() ? body.team_id.trim() : null
   const is_active = body.is_active === false ? false : true
+  const event_classification = body.event_classification === 'by_title' ? 'by_title' : 'by_type'
 
   if (!google_calendar_id) return NextResponse.json({ error: 'Google Calendar ID를 입력해주세요.' }, { status: 400 })
   if (!label)              return NextResponse.json({ error: '라벨을 입력해주세요.' }, { status: 400 })
@@ -125,7 +127,7 @@ export async function POST(request: Request) {
   const client = createAdminClient()
   const { data, error } = await client
     .from('org_calendars')
-    .insert({ google_calendar_id, calendar_type, label, division_id, team_id, is_active })
+    .insert({ google_calendar_id, calendar_type, label, division_id, team_id, is_active, event_classification })
     .select()
     .single()
 

@@ -23,6 +23,8 @@ export interface PushPayload {
   endAt: Date              // 시각: absolute. 종일: exclusive 다음날 KST 자정.
   isAllDay: boolean
   rrule: string | null     // 'FREQ=WEEKLY;BYDAY=MO' 등 RRULE 본문 (null이면 단일 이벤트)
+  /** N-Click 등록 시 사용자가 고른 속성. extendedProperties로 박제 → sync가 제목 추측 없이 신뢰. */
+  nclickType?: 'meeting' | 'vacation' | 'birthday' | 'other'
 }
 
 export interface PushResult {
@@ -57,6 +59,10 @@ function buildEventBody(p: PushPayload): calendar_v3.Schema$Event {
   if (p.rrule) {
     const trimmed = p.rrule.replace(/^RRULE:/i, '').trim()
     if (trimmed) body.recurrence = [`RRULE:${trimmed}`]
+  }
+  // N-Click 속성 박제 — sync 시 inferEventType이 최우선 신뢰 (제목 추측 불필요)
+  if (p.nclickType) {
+    body.extendedProperties = { private: { nclickType: p.nclickType } }
   }
   return body
 }
@@ -345,10 +351,12 @@ export async function syncMasterById(args: {
   userId: string
   /** matched_user_emails 산출용 — 호출자가 미리 loadUserLookup 한 결과 전달 */
   matchUsersForTitle: (title: string, attendeeEmails: string[]) => string[]
-  /** inferred_type 결정 helper */
+  /** inferred_type 결정 helper (fallback — nclickType 없을 때만) */
   inferType: (calendarType: 'meeting' | 'vacation' | 'birthday' | 'other', title: string) => 'meeting' | 'vacation' | 'birthday' | 'other'
+  /** N-Click 등록 속성. 있으면 occurrence 전부 이 type으로 신뢰 (제목 추측 X) */
+  nclickType?: 'meeting' | 'vacation' | 'birthday' | 'other'
 }): Promise<SyncMasterByIdResult> {
-  const { adminClient, rawCalId, calendar, iCalUID, rrule, userId, matchUsersForTitle, inferType } = args
+  const { adminClient, rawCalId, calendar, iCalUID, rrule, userId, matchUsersForTitle, inferType, nclickType } = args
 
   const cal = getGoogleCalendarClient()
   const now = Date.now()
@@ -402,7 +410,7 @@ export async function syncMasterById(args: {
       is_all_day: isAllDay,
       attendee_emails: attendeeEmails.length > 0 ? attendeeEmails : null,
       matched_user_emails: matchUsersForTitle(title, attendeeEmails),
-      inferred_type: inferType(calendar.calendar_type, title),
+      inferred_type: nclickType ?? inferType(calendar.calendar_type, title),
       raw_uid: it.iCalUID ?? null,
       recurring_event_id: recurringEventId,
       rrule: recurringEventId ? rrule : null,

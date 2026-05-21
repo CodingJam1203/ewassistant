@@ -113,6 +113,8 @@ function buildVacationEventBody(
     summary: title,
     start: { date: leaveDate },
     end:   { date: addDaysToKstDate(leaveDate, 1) },  // exclusive
+    // N-Click이 만든 휴가임을 박제 — sync 시 inferEventType이 제목 추측 없이 vacation으로 신뢰.
+    extendedProperties: { private: { nclickType: 'vacation' } },
   }
 }
 

@@ -180,18 +180,56 @@ export function matchUsers(ev: MatchInput, lookup: UserLookup): string[] {
   return Array.from(matched).sort()
 }
 
+export type EventClassification = 'by_type' | 'by_title'
+export type InferredType = 'meeting' | 'vacation' | 'birthday' | 'other'
+
+/** 휴가로 인식할 제목 텍스트. 본부 제목 컨벤션에 맞춰 확장 가능. */
+const VACATION_KEYWORDS = /휴가|연차|반차|오전반차|오후반차|월차|반반차|오프|연월차|공가/
+
+function normalizeNclickType(raw: string | null | undefined): InferredType | null {
+  if (raw === 'meeting' || raw === 'vacation' || raw === 'birthday' || raw === 'other') return raw
+  return null
+}
+
 /**
- * 이벤트 inferred_type 결정.
- *   - calendar_type이 'vacation'·'birthday'면 그대로
- *   - 'meeting'이지만 title에 "휴가/연차/반차" 포함 → 'vacation'
- *   - 'other'는 title parse fallback
+ * 이벤트 inferred_type 결정 (2026-05-21 — 캘린더별 분류 정책 + N-Click 속성 신뢰).
+ *
+ * 우선순위:
+ *   1. N-Click이 등록 시 심은 속성(extendedProperties.nclickType) — 어느 모드든 최우선 신뢰.
+ *      제목 추측 없이 사용자가 고른 속성 그대로.
+ *   2. 생일 캘린더 → birthday.
+ *   3. 분류 모드(event_classification):
+ *      - 'by_type'  (분리 운영, 기본): 제목에 휴가 텍스트 있으면 vacation(meeting 캘린더의 휴가도 잡음),
+ *        없으면 calendar_type 그대로. → 기존 동작 보존, 분리 본부 영향 0.
+ *      - 'by_title' (통합 운영): 제목에 휴가 텍스트 있을 때만 vacation, 없으면 meeting/other.
+ *        한 캘린더에 휴가·미팅 섞어 쓰는 팀.
  */
 export function inferEventType(
-  calendarType: 'meeting' | 'vacation' | 'birthday' | 'other',
+  calendarType: InferredType,
   title: string,
-): 'meeting' | 'vacation' | 'birthday' | 'other' {
-  if (calendarType === 'vacation' || calendarType === 'birthday') return calendarType
-  if (/휴가|연차|반차|오전반차|오후반차/.test(title)) return 'vacation'
+  classification: EventClassification = 'by_type',
+  nclickType?: string | null,
+): InferredType {
+  // 1) N-Click 속성 최우선
+  const nt = normalizeNclickType(nclickType)
+  if (nt) return nt
+
+  // 2) 생일 캘린더
+  if (calendarType === 'birthday') return 'birthday'
+
+  const t = title ?? ''
+  const hasVacationText = VACATION_KEYWORDS.test(t)
+
+  // 3) 분류 모드
+  if (classification === 'by_title') {
+    // 통합 운영 — 제목에 휴가 텍스트 있을 때만 휴가. 없으면 회의성으로.
+    if (hasVacationText) return 'vacation'
+    return calendarType === 'other' ? 'other' : 'meeting'
+  }
+
+  // by_type (분리 운영, 기본)
+  if (hasVacationText) return 'vacation'  // meeting/other 캘린더에 섞인 휴가 잡기
+  if (calendarType === 'vacation') return 'vacation'
   if (calendarType === 'meeting') return 'meeting'
   return 'other'
 }

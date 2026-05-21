@@ -53,6 +53,9 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   if (typeof body.is_active === 'boolean') {
     update.is_active = body.is_active
   }
+  if (body.event_classification === 'by_type' || body.event_classification === 'by_title') {
+    update.event_classification = body.event_classification
+  }
 
   // updated_at 외 변경 사항이 1개도 없으면 400 (의도 없는 update 차단)
   if (Object.keys(update).length <= 1) {

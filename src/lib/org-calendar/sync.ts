@@ -40,6 +40,7 @@ interface CalendarRow {
   google_calendar_id: string
   calendar_type: 'meeting' | 'vacation' | 'birthday' | 'other'
   label: string
+  event_classification: 'by_type' | 'by_title'
 }
 
 export async function syncAllCalendars(
@@ -47,7 +48,7 @@ export async function syncAllCalendars(
 ): Promise<SyncResult> {
   const { data: calendars, error } = await adminClient
     .from('org_calendars')
-    .select('id, division_id, team_id, google_calendar_id, calendar_type, label')
+    .select('id, division_id, team_id, google_calendar_id, calendar_type, label, event_classification')
     .eq('is_active', true)
     .returns<CalendarRow[]>()
 
@@ -265,6 +266,9 @@ function buildPayloadValid(
   const recurringEventId = item.recurringEventId ?? null
   const rrule = recurringEventId ? (rruleByMaster.get(recurringEventId) ?? null) : null
 
+  // N-Click이 push 시 심은 속성 (extendedProperties.private.nclickType) — sync가 최우선 신뢰
+  const nclickType = item.extendedProperties?.private?.nclickType ?? null
+
   return {
     org_calendar_id: cal.id,
     google_event_id: item.id ?? '',
@@ -279,7 +283,7 @@ function buildPayloadValid(
       { title, attendeeEmails, divisionId: cal.division_id, teamId: cal.team_id },
       lookup,
     ),
-    inferred_type: inferEventType(cal.calendar_type, title),
+    inferred_type: inferEventType(cal.calendar_type, title, cal.event_classification, nclickType),
     raw_uid: item.iCalUID ?? null,
     recurring_event_id: recurringEventId,
     rrule,
