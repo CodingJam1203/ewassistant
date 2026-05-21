@@ -222,6 +222,19 @@ export async function POST(request: Request) {
 
     const willCreateNewLog = !workLogId
 
+    // Phase 1.5b 확장 (2026-05-21) — Google 휴가 sync diff용 prev leave_timeline.
+    // update 케이스에서 기존 값을 덮어쓰기 전에 확보 (신규는 []).
+    let prevLeaveTimeline: LeaveTimeline = []
+    if (workLogId) {
+      const { data: prevLtRow } = await adminClient
+        .from('work_logs')
+        .select('leave_timeline')
+        .eq('id', workLogId)
+        .maybeSingle()
+      const plt = (prevLtRow as { leave_timeline?: LeaveTimeline } | null)?.leave_timeline
+      prevLeaveTimeline = Array.isArray(plt) ? plt : []
+    }
+
     // Stage 2: 미보고 SoT — true면 planned_start_time을 NULL로 저장.
     // legacy start_time은 NOT NULL이라 그대로 startTime 값 유지 (호환).
     const plannedStartUnreported = body.plannedStartTimeUnreported === true
@@ -290,6 +303,29 @@ export async function POST(request: Request) {
         .single()
       if (insErr) throw insErr
       workLogId = newLog.id
+    }
+
+    // ─── Phase 1.5b 확장 — 출근보고 휴가도 Google 캘린더에 push ────────────────
+    // 종전엔 /api/work-logs POST + bulk-leave에만 push가 있어, 출근보고(사전 휴가 등록 포함)로
+    // 넣은 휴가가 Google·일정관리 뷰에 반영 안 되던 버그. best-effort.
+    try {
+      const { syncLeaveTimelineWithGoogle } = await import('@/lib/google-calendar/vacation-sync')
+      const syncResult = await syncLeaveTimelineWithGoogle({
+        adminClient,
+        userEmail: user.email!,
+        userDisplayName: name || user.email!,
+        leaveDate: date,
+        prev: prevLeaveTimeline,
+        next: leaveTimeline ?? [],
+      })
+      if (syncResult.changed && syncResult.updatedTimeline && workLogId) {
+        await adminClient
+          .from('work_logs')
+          .update({ leave_timeline: syncResult.updatedTimeline })
+          .eq('id', workLogId)
+      }
+    } catch (syncErr) {
+      console.error('[check-in] vacation sync failed (non-fatal):', syncErr)
     }
 
     // ─── 변경 필드 분석 (report_type 분기 + RAW 기록용) ──────────────────────
