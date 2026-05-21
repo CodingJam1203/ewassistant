@@ -444,6 +444,7 @@ export default function HomePage() {
           date={today}
           userName={userName}
           mode={checkInMode}
+          useCheckInComplete={myCard?.use_check_in_complete ?? true}
           onClose={() => { setShowCheckIn(false); setCheckInMode(undefined) }}
           onSuccess={() => { setShowCheckIn(false); setCheckInMode(undefined); fetchMyCard(); setCalendarRefreshTick(t => t + 1) }}
         />
@@ -476,6 +477,7 @@ export default function HomePage() {
         <CheckInModal
           date={calendarCheckInDate}
           userName={userName}
+          useCheckInComplete={myCard?.use_check_in_complete ?? true}
           onClose={() => setCalendarCheckInDate(null)}
           onSuccess={() => { setCalendarCheckInDate(null); fetchMyCard(); setCalendarRefreshTick(t => t + 1) }}
         />

@@ -44,6 +44,12 @@ interface CheckInModalProps {
   initialStartTime?: string
   /** props.mode는 호환용. 케이스는 서버 응답으로 자동 판별. */
   mode?: 'create' | 'edit' | 'complete'
+  /**
+   * 사용자 팀의 출근완료 단계 사용 여부 (org_teams.use_check_in_complete).
+   * 미보고 첫출근(caseMode='none') 모달에서 출근예정 영역 숨김 판단에 사용 (v1.36).
+   * 미지정 시 true(출근완료 사용)로 간주.
+   */
+  useCheckInComplete?: boolean
   onClose: () => void
   onSuccess: () => void
 }
@@ -89,7 +95,7 @@ function nowKstHHmmCeil(): string {
 }
 
 export default function CheckInModal({
-  date: initialDate, userName, initialStartTime, onClose, onSuccess,
+  date: initialDate, userName, initialStartTime, useCheckInComplete = true, onClose, onSuccess,
 }: CheckInModalProps) {
   // Stage 4: 글로벌 모달 카운터에 등록 — 열려있는 동안 autoRefetch polling 일시 정지
   useRegisterModalOpen()
@@ -444,6 +450,12 @@ export default function CheckInModal({
     : caseMode === 'future' ? '사전 출근보고 등록'
     : '출근보고 작성'
 
+  // v1.36 — 출근예정시간 영역 숨김.
+  //   - 출근완료(prior): 항상 숨김 (실출근 | 퇴근예정만). startTime은 prefill값 그대로 submit.
+  //   - 미보고 첫출근(none): 출근완료 사용 팀만 숨김. plannedStartUnreported=true 유지 → NULL 저장.
+  //   - today(수정)·future(사전)는 노출 유지.
+  const hideExpectedStart = caseMode === 'prior' || (caseMode === 'none' && useCheckInComplete)
+
   return (
     <>
     {/* Phase 1.5d — 종일 휴가 prefill + 근무 의도 동시 입력 시 명시 확인 */}
@@ -581,15 +593,17 @@ export default function CheckInModal({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">출근예정시간 *</label>
-                      <HalfHourTimeSelect
-                        value={startTime}
-                        onChange={setStartTime}
-                        ariaLabel="출근예정시간"
-                      />
-                    </div>
+                  <div className={hideExpectedStart ? '' : 'grid grid-cols-2 gap-3'}>
+                    {!hideExpectedStart && (
+                      <div>
+                        <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">출근예정시간 *</label>
+                        <HalfHourTimeSelect
+                          value={startTime}
+                          onChange={setStartTime}
+                          ariaLabel="출근예정시간"
+                        />
+                      </div>
+                    )}
                     <div>
                       <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">퇴근예정시간 *</label>
                       <HalfHourTimeSelect
@@ -626,7 +640,8 @@ export default function CheckInModal({
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className={hideExpectedStart ? '' : 'grid grid-cols-2 gap-3'}>
+                    {!hideExpectedStart && (
                     <div>
                       <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
                         출근예정시간{!plannedStartUnreported && ' *'}
@@ -664,6 +679,7 @@ export default function CheckInModal({
                         </div>
                       )}
                     </div>
+                    )}
                     <div>
                       <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">퇴근예정시간 *</label>
                       <HalfHourTimeSelect
@@ -674,7 +690,7 @@ export default function CheckInModal({
                       />
                     </div>
                   </div>
-                  {!plannedStartUnreported && (
+                  {!hideExpectedStart && !plannedStartUnreported && (
                     <p className="text-[11px] text-info-text -mt-2">
                       출근예정시간을 입력하시면 미보고 상태가 해제되어 일반 출근보고로 등록됩니다.
                     </p>
