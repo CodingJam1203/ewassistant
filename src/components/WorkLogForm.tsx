@@ -122,6 +122,7 @@ const formSchema = z.object({
   expectedStartDate: z.string().optional(),
   expectedStartTime: z.string().optional(),
   expectedEndTime: z.string().optional(),
+  expectedWorkContent: z.string().optional(),
   plannedWorkLocations: z.array(chipZ).optional(),
   expectedLeaveTimeline: z.array(leaveItemZ).optional(),
 
@@ -228,6 +229,8 @@ interface WorkLogFormProps {
   initialStartTime?: string
   /** Legacy fallback: timeline 없을 때 사용할 퇴근시각 ('HH:mm') */
   initialEndTime?: string
+  /** 신규 퇴근보고 작성 시 그날 아침 출근 메모(work_content) prefill — 출근 메모 이어쓰기(덮어쓰기 완화) */
+  initialWorkContent?: string | null
   /** 신규 작성 모드에서 leaveDate 초기값 ('YYYY-MM-DD'). 캘린더에서 특정 일자 클릭 시 사용. 없으면 오늘. */
   initialLeaveDate?: string
   resubmitLogId?: string | null
@@ -317,6 +320,7 @@ export default function WorkLogForm({
   initialBreakAutoActualMinutes,
   initialStartTime,
   initialEndTime,
+  initialWorkContent,
   initialLeaveDate,
   resubmitLogId,
   editingLog,
@@ -518,12 +522,14 @@ export default function WorkLogForm({
           actualWorkLocationsTouched: false,
           leaveTimeline: (initialLeaveTimeline ?? []) as LeaveTimeline,
           breakTime: defaultBreakHHmm,
-          workContent: '',
+          // 신규 퇴근보고: 그날 아침 출근 메모를 prefill해 이어쓰기 (덮어쓰기 완화). 없으면 빈 값.
+          workContent: initialWorkContent ?? '',
           lateOrAttendanceStatus: '아니오',
           attendanceRecordType: '출근보고 진행 (주말출근, 휴가 포함)',
           expectedStartDate: toKstDateString(addDays(new Date(), 1)),
           expectedStartTime: '09:00',
           expectedEndTime: '18:00',
+          expectedWorkContent: '',
           plannedWorkLocations: defaultPlannedLocations,
           expectedLeaveTimeline: [] as LeaveTimeline,
           sendTeams: true,
@@ -1443,6 +1449,17 @@ export default function WorkLogForm({
                 <LeaveTimelineInput
                   value={(formValues.expectedLeaveTimeline ?? []) as LeaveTimeline}
                   onChange={next => setValue('expectedLeaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-text-secondary mb-1">메모</label>
+                <textarea
+                  value={formValues.expectedWorkContent ?? ''}
+                  onChange={e => setValue('expectedWorkContent', e.target.value, { shouldDirty: true })}
+                  rows={2}
+                  placeholder="다음 출근일 메모 (선택)"
+                  className="w-full rounded-[10px] border border-border-strong bg-surface text-sm px-3 py-2 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 resize-none"
                 />
               </div>
             </div>

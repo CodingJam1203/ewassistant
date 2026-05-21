@@ -129,6 +129,8 @@ export interface CheckinNotifyPayload {
   expectedStartTime?: string | null
   /** 퇴근예정시간 'HH:mm' / 'HH:mm:ss' — 메시지 헤드라인 'start~end' 표시용 (없으면 표시 생략) */
   expectedEndTime?: string | null
+  /** 출근보고/완료/수정 시 입력한 메모(work_content) — 알림 본문에 표시 (근무 케이스만) */
+  workContent?: string | null
   division?: string | null
   team?: string | null
 }

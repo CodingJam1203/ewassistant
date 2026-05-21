@@ -25,6 +25,8 @@ interface WorkLogModalProps {
   initialBreakAutoActualMinutes?: number | null
   initialStartTime?: string
   initialEndTime?: string
+  /** 신규 퇴근보고에 그날 아침 출근 메모(work_content) prefill */
+  initialWorkContent?: string | null
   resubmitWorkLogId?: string | null
   editingLog?: WorkLog | null
   editScope?: 'check_in' | 'check_out'
@@ -42,6 +44,7 @@ export default function WorkLogModal({
   initialBreakAutoActualMinutes,
   initialStartTime,
   initialEndTime,
+  initialWorkContent,
   resubmitWorkLogId,
   editingLog,
   editScope,
@@ -166,6 +169,7 @@ export default function WorkLogModal({
                 initialBreakAutoActualMinutes={initialBreakAutoActualMinutes}
                 initialStartTime={initialStartTime}
                 initialEndTime={initialEndTime}
+                initialWorkContent={initialWorkContent}
                 initialLeaveDate={date}
                 resubmitLogId={resubmitWorkLogId}
                 editingLog={editingLog}
@@ -188,6 +192,7 @@ export default function WorkLogModal({
                   initialBreakAutoActualMinutes={initialBreakAutoActualMinutes}
                   initialStartTime={initialStartTime}
                   initialEndTime={initialEndTime}
+                  initialWorkContent={initialWorkContent}
                   initialLeaveDate={date}
                   resubmitLogId={resubmitWorkLogId}
                   editingLog={editingLog}

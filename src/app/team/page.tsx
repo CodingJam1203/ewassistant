@@ -165,6 +165,14 @@ const MemberCard = memo(function MemberCard({
         )}
       </div>
 
+      {/* 메모 (work_content) */}
+      {card.work_content && (
+        <div className="rounded-[10px] bg-surface-muted px-2.5 py-2">
+          <div className="text-[10px] font-semibold text-text-muted mb-0.5">메모</div>
+          <p className="text-[12px] text-text-primary whitespace-pre-wrap break-words">{card.work_content}</p>
+        </div>
+      )}
+
       {/* 캘린더 오늘 일정 */}
       {!card.calendar_leave_type && card.calendar_events && card.calendar_events.length > 0 && (
         <div className="rounded-[10px] bg-info-bg border border-info-border px-2.5 py-2">

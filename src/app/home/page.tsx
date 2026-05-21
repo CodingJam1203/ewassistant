@@ -466,6 +466,7 @@ export default function HomePage() {
               : trimToHHmm(checkOutTarget.start_time) || undefined
           }
           initialEndTime={trimToHHmm(checkOutTarget.end_time) || undefined}
+          initialWorkContent={checkOutTarget.work_content ?? null}
           resubmitWorkLogId={checkOutTarget.work_log_id ?? null}
           onClose={() => setCheckOutTarget(null)}
           onSuccess={() => { setCheckOutTarget(null); fetchMyCard(); setCalendarRefreshTick(t => t + 1) }}

@@ -376,6 +376,7 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       const endStr   = p.expectedEndTime   ? fmtTime(p.expectedEndTime)   : ''
       const timeStr  = endStr ? `근무시작 ${startStr}~${endStr}` : `${startStr} 출근`
       lines.push(`${p.name} : ${shortKoreanDate(p.date)} ${timeStr}`)
+      if (p.workContent && p.workContent.trim()) lines.push(`🔹메모 : ${p.workContent.trim()}`)
       if (leaveLines.length > 0) {
         lines.push(...(leaveLines.length === 1
             ? [`🔹휴가/반차 : ${leaveLines[0]}`]
@@ -405,7 +406,8 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       const startStrFb = p.checkedInAt ? kstHHmm(p.checkedInAt) : (p.expectedStartTime ? fmtTime(p.expectedStartTime) : '')
       const endStrFb   = p.expectedEndTime   ? fmtTime(p.expectedEndTime)   : ''
       const timeStrFb  = endStrFb ? `근무시작 ${startStrFb}~${endStrFb}` : `${startStrFb} 출근`
-      return `${p.name} : ${shortKoreanDate(p.date)} ${timeStrFb} ${p.workLocation || '미입력'}`
+      const memoFb = p.workContent && p.workContent.trim() ? `\n🔹메모 : ${p.workContent.trim()}` : ''
+      return `${p.name} : ${shortKoreanDate(p.date)} ${timeStrFb} ${p.workLocation || '미입력'}${memoFb}`
     }
 
     case 'location_changed': {

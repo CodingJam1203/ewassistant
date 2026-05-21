@@ -477,6 +477,8 @@ export async function POST(request: Request) {
         planned_work_locations: plannedWorkLocations,
         actual_work_locations: null,  // 아직 미정
         leave_timeline: expectedLeaveTimeline,
+        // D+1 출근보고 메모 — 그 일자 row의 work_content에 함께 기록 (다음날 퇴근보고 시 prefill되어 이어쓰기)
+        work_content: (typeof body.expectedWorkContent === 'string' ? body.expectedWorkContent.trim() : '') || null,
         attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
         // 본문 영역은 비움 (실제 근무는 그날에 채움)
         // expected_*는 더 이상 사용 안 함
