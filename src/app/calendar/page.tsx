@@ -353,14 +353,7 @@ function AgendaView({
   )
 }
 
-/**
- * 매트릭스 캘린더 뷰 본체.
- *
- * - default export `CalendarMatrixPage`는 /calendar 라우트 진입점 (직접 접근).
- * - named export `CalendarMatrixView`는 다른 페이지(예: /home '일정관리' 탭)에서
- *   동일 매트릭스를 임베드할 때 사용. `embedded=true`면 상단 "← 홈" 링크 hide.
- */
-export function CalendarMatrixView({ embedded = false }: { embedded?: boolean } = {}) {
+export default function CalendarMatrixPage() {
   const [users, setUsers] = useState<ApiUser[]>([])
   const [divisions, setDivisions] = useState<ApiDivision[]>([])
   const [events, setEvents] = useState<ApiEvent[]>([])
@@ -730,14 +723,12 @@ export function CalendarMatrixView({ embedded = false }: { embedded?: boolean } 
 
   return (
     <div className="max-w-[120rem] mx-auto p-3 sm:p-4 space-y-3">
-      {!embedded && (
-        <div className="flex items-center gap-3">
-          <Link href="/home" className="inline-flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary">
-            <ArrowLeft className="h-4 w-4" />
-            홈
-          </Link>
-        </div>
-      )}
+      <div className="flex items-center gap-3">
+        <Link href="/home" className="inline-flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary">
+          <ArrowLeft className="h-4 w-4" />
+          홈
+        </Link>
+      </div>
 
       {/* 헤더 + 범위 컨트롤 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1063,8 +1054,4 @@ export function CalendarMatrixView({ embedded = false }: { embedded?: boolean } 
       )}
     </div>
   )
-}
-
-export default function CalendarMatrixPage() {
-  return <CalendarMatrixView />
 }

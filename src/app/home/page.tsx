@@ -45,22 +45,13 @@ const MyHistoryCalendar = dynamic(() => import('@/components/MyHistoryCalendar')
     <div className="py-16 text-center text-sm text-text-muted">캘린더 불러오는 중…</div>
   ),
 })
-// 일정관리 탭 — /calendar 매트릭스 뷰를 임베드. 탭 클릭 시점에만 무거운 매트릭스 번들 로드.
-const CalendarMatrixView = dynamic(
-  () => import('@/app/calendar/page').then(m => m.CalendarMatrixView),
-  {
-    loading: () => (
-      <div className="py-16 text-center text-sm text-text-muted">일정관리 불러오는 중…</div>
-    ),
-  },
-)
 
 /**
  * 내 제출 내역 위계
  *   - 메인 탭(2단): 'final' (정제된 최종 상태) / 'raw' (이벤트 원본 스트림)
  *   - 'final' 안의 보기 토글: 'list' (일자별) / 'calendar' (월간)
  */
-type TabKey = 'final' | 'raw' | 'schedule'
+type TabKey = 'final' | 'raw'
 type FinalView = 'list' | 'calendar'
 
 /**
@@ -856,9 +847,8 @@ export default function HomePage() {
       <div className="border-b border-border">
         <nav className="-mb-px flex gap-6" aria-label="탭">
           {[
-            { key: 'final'    as TabKey, label: '최종 보고' },
-            { key: 'raw'      as TabKey, label: 'RAW 제출 내역' },
-            { key: 'schedule' as TabKey, label: '일정관리' },
+            { key: 'final' as TabKey, label: '최종 보고' },
+            { key: 'raw'   as TabKey, label: 'RAW 제출 내역' },
           ].map(t => (
             <button
               key={t.key}
@@ -946,13 +936,6 @@ export default function HomePage() {
           mine mode="raw"
           onEditWorkLog={openEditByWorkLogId}
         />
-      )}
-
-      {/* 일정관리 — /calendar 매트릭스 뷰 임베드 (← 홈 링크 hide) */}
-      {tab === 'schedule' && (
-        <div className="-mx-3 sm:-mx-4">
-          <CalendarMatrixView embedded />
-        </div>
       )}
     </div>
   )
