@@ -40,6 +40,11 @@ import { recordSubmission } from '@/lib/submission-log'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+// 여러 날 × Google events.insert (Phase 1.5b push) — 날짜 수만큼 직렬 호출되므로 여유.
+export const maxDuration = 60
+
 const MAX_DAYS = 60
 
 const bodySchema = z.object({
@@ -195,6 +200,29 @@ export async function POST(request: Request) {
       }
 
       createdDates.push(date)
+
+      // Phase 1.5b 확장 (2026-05-21) — bulk-leave도 Google 휴가 캘린더에 push.
+      // 종전엔 /api/work-logs POST hook에만 push가 있어 VacationRegisterModal(bulk-leave)로
+      // 등록한 휴가가 Google·일정관리 뷰에 반영 안 되던 버그 (5/28·5/29 QA 보고). best-effort.
+      try {
+        const { syncLeaveTimelineWithGoogle } = await import('@/lib/google-calendar/vacation-sync')
+        const syncResult = await syncLeaveTimelineWithGoogle({
+          adminClient,
+          userEmail: user.email!,
+          userDisplayName: displayName,
+          leaveDate: date,
+          prev: [],
+          next: leaveTimeline,
+        })
+        if (syncResult.changed && syncResult.updatedTimeline && created?.id) {
+          await adminClient
+            .from('work_logs')
+            .update({ leave_timeline: syncResult.updatedTimeline })
+            .eq('id', created.id)
+        }
+      } catch (syncErr) {
+        console.error('[bulk-leave] vacation sync failed (non-fatal):', date, syncErr)
+      }
 
       // submission 로그 기록 (퇴근보고 family로 기록 — 휴가는 퇴근 family에 매칭)
       await recordSubmission({
