@@ -85,6 +85,19 @@ export async function syncAllCalendars(
     })
   }
 
+  // Phase 1.5c fix — 전체 sync 후 reconcile 1회: org_calendar_events에서 이미 사라진(타이밍 놓침)
+  // vacation 이벤트의 google_event_id가 work_logs.leave_timeline에 orphan으로 남은 것을 정리.
+  // per-calendar cleanup(deletedIds)이 못 잡는 케이스 보정. best-effort.
+  try {
+    const { reconcileOrphanedLeaveTimeline } = await import('@/lib/google-calendar/vacation-sync')
+    const rec = await reconcileOrphanedLeaveTimeline(adminClient)
+    if (rec.cleaned > 0 || rec.errors.length > 0) {
+      console.log('[sync] reconcileOrphanedLeaveTimeline', rec)
+    }
+  } catch (recErr) {
+    console.error('[sync] reconcileOrphanedLeaveTimeline failed (non-fatal):', recErr)
+  }
+
   return result
 }
 

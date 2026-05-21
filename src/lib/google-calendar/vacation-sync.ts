@@ -307,3 +307,87 @@ export async function cleanupOrphanedLeaveTimeline(
   }
   return out
 }
+
+/**
+ * Phase 1.5c fix (2026-05-21) — reconcile (전체 보정).
+ *
+ * `cleanupOrphanedLeaveTimeline`은 "이번 sync에서 새로 삭제된 google_event_id"만 처리하므로,
+ * org_calendar_events에서 이미 사라진 뒤(타이밍 놓침)엔 work_logs.leave_timeline에 orphan으로
+ * 영구 잔존하는 결함이 있었다. 이 함수는 deletedIds 타이밍에 의존하지 않고,
+ * 현재 vacation 캘린더(org_calendar_events)에 살아있는 google_event_id 집합과 대조해
+ * "push됐었지만(google_event_id 있음) 지금 캘린더에 없는" leave_timeline 항목을 일괄 정리한다.
+ *
+ * 호출 위치: syncAllCalendars 끝 (모든 캘린더 sync 후 1회). cron·admin·refresh 모두 자동 보정.
+ *
+ * 주의:
+ *   - google_event_id 없는 항목(수동 휴가, push 안 됨)은 절대 건드리지 않음 — 항상 유지.
+ *   - liveIds에 있으면 유지. 없으면 제거.
+ *
+ * best-effort — throw 안 하고 결과 객체에 errors 누적.
+ */
+export async function reconcileOrphanedLeaveTimeline(
+  adminClient: SupabaseClient,
+): Promise<{ scanned: number; cleaned: number; errors: string[] }> {
+  const out = { scanned: 0, cleaned: 0, errors: [] as string[] }
+
+  // 1) 활성 vacation 캘린더 id
+  const { data: vacCals, error: calErr } = await adminClient
+    .from('org_calendars')
+    .select('id')
+    .eq('calendar_type', 'vacation')
+    .eq('is_active', true)
+    .returns<Array<{ id: string }>>()
+  if (calErr) {
+    out.errors.push(`vacation calendars: ${calErr.message}`)
+    return out
+  }
+  const vacCalIds = (vacCals ?? []).map(c => c.id)
+  if (vacCalIds.length === 0) return out  // vacation 캘린더 없으면 정리 대상 없음
+
+  // 2) 현재 캘린더에 살아있는 google_event_id 집합
+  const liveIds = new Set<string>()
+  const { data: evs, error: evErr } = await adminClient
+    .from('org_calendar_events')
+    .select('google_event_id')
+    .in('org_calendar_id', vacCalIds)
+    .range(0, 9999)
+    .returns<Array<{ google_event_id: string }>>()
+  if (evErr) {
+    out.errors.push(`calendar events: ${evErr.message}`)
+    return out
+  }
+  for (const e of evs ?? []) if (e.google_event_id) liveIds.add(e.google_event_id)
+
+  // 3) work_logs.leave_timeline 중 push됐는데(google_event_id 있음) liveIds에 없는 항목 제거
+  const { data: rows, error: fetchErr } = await adminClient
+    .from('work_logs')
+    .select('id, leave_timeline')
+    .eq('is_deleted', false)
+    .not('leave_timeline', 'is', null)
+    .range(0, 9999)
+    .returns<Array<{ id: string; leave_timeline: LeaveTimeline | null }>>()
+  if (fetchErr) {
+    out.errors.push(`work_logs: ${fetchErr.message}`)
+    return out
+  }
+  out.scanned = rows?.length ?? 0
+
+  for (const row of rows ?? []) {
+    const lt: LeaveTimeline = Array.isArray(row.leave_timeline) ? row.leave_timeline : []
+    if (lt.length === 0) continue
+    // google_event_id가 없으면(수동 휴가) 유지. 있으면 liveIds에 있을 때만 유지.
+    const filtered = lt.filter(it => !it.google_event_id || liveIds.has(it.google_event_id))
+    if (filtered.length === lt.length) continue
+    const next = filtered.length === 0 ? null : filtered
+    const { error: upErr } = await adminClient
+      .from('work_logs')
+      .update({ leave_timeline: next })
+      .eq('id', row.id)
+    if (upErr) {
+      out.errors.push(`update ${row.id}: ${upErr.message}`)
+      continue
+    }
+    out.cleaned++
+  }
+  return out
+}
