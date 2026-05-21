@@ -845,6 +845,24 @@ export default function AdminPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
           <Link
+            href="/calendar"
+            className="inline-flex items-center gap-1.5 h-10 px-4 text-sm font-medium rounded-[10px] bg-surface text-text-primary border border-border-strong hover:bg-surface-muted transition-colors"
+          >
+            일정관리 (캘린더)
+          </Link>
+          <Link
+            href="/admin/calendars"
+            className="inline-flex items-center gap-1.5 h-10 px-4 text-sm font-medium rounded-[10px] bg-surface text-text-primary border border-border-strong hover:bg-surface-muted transition-colors"
+          >
+            본부 캘린더 관리
+          </Link>
+          <Link
+            href="/admin/tags"
+            className="inline-flex items-center gap-1.5 h-10 px-4 text-sm font-medium rounded-[10px] bg-surface text-text-primary border border-border-strong hover:bg-surface-muted transition-colors"
+          >
+            태그 관리
+          </Link>
+          <Link
             href="/admin/teams-routing"
             className="inline-flex items-center gap-1.5 h-10 px-4 text-sm font-medium rounded-[10px] bg-surface text-text-primary border border-border-strong hover:bg-surface-muted transition-colors"
           >
