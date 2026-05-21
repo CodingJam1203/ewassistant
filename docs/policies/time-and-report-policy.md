@@ -54,8 +54,8 @@ N-Click의 시간 데이터(출근예정·퇴근예정·실제출근·실제퇴�
 | 케이스 | 정책 | 구현 위치 | 상태 |
 |---|---|---|---|
 | 수정 모달 진입 | 해당 일자 기존 row 값 prefill | `src/app/api/work-logs/[id]/route.ts:114` + `CheckInModal.tsx`, `WorkLogForm.tsx` (`editingLog` prop) | ✅ |
-| 신규 출근보고 (보고 상태) | 출퇴근예정 = 기존값, 실제출근 = **현재 시간 30분 절삭** | `src/components/CheckInModal.tsx:59-81` `normalizeStartTimeTo30` | 🔀 — **코드는 30분 반올림(round). 정책은 절삭(floor).** (§12) |
-| 신규 출근보고 (미보고 상태) | 출근예정 "미보고" 잠금 + 토글 / 퇴근예정 18:00 / 실제출근 = 현재 30분 절삭 | `src/components/CheckInModal.tsx:104-107` (`plannedStartUnreported` state) | ⚠️ — 30분 절삭 동일 discrepancy |
+| 신규 출근보고 (보고 상태) | 출퇴근예정 = 기존값, 실제출근 = **현재 시각 30분 올림(ceil)** | `src/components/CheckInModal.tsx` `nowKstHHmmCeil` | ✅ — 정책=코드 올림(ceil) 일치 (2026-05-21 v1.35, 종전 floor에서 변경). 출근예정 prefill(`normalizeStartTimeTo30`)·시각 표시·기타는 floor 유지 |
+| 신규 출근보고 (미보고 상태) | 출근예정 "미보고" 잠금 + 토글 / 퇴근예정 18:00 / 실제출근 = 현재 시각 30분 **올림(ceil)** | `src/components/CheckInModal.tsx` `nowKstHHmmCeil` | ✅ (2026-05-21 v1.35) |
 | 신규 퇴근보고 (미보고, 출근 무시) | 실제출근 09:00, 실제퇴근 18:00 | `src/components/WorkLogForm.tsx` 신규 분기 | ⚠️ — WorkLogForm 전체 검증 미완 |
 | 신규 퇴근보고 (보고 상태) | 실제출근 = 출근예정값 (또는 기존 actual), 실제퇴근 = 퇴근예정값 | `src/app/api/work-logs/route.ts:222-227` | ✅ |
 | 명일 출근/퇴근예정 default | 09:00 / 18:00 | `src/app/api/work-logs/route.ts:379-394` | ✅ |
@@ -208,7 +208,7 @@ work_logs UPSERT 시 leave_timeline 변경분을 사용자 본부의 vacation �
 |---|---|---|---|---|
 | 출근예정 | "미보고" 잠금 (placeholder) | 토글 풀어야 입력 가능 | `CheckInModal.tsx:104-107` | ✅ |
 | 퇴근예정 | `18:00` | 사용자 변경 가능 | `CheckInModal.tsx` default | ✅ |
-| 실제출근 | 현재 시간 30분 처리 | (정책: 절삭 / 코드: 반올림 — §12 discrepancy) | `CheckInModal.tsx:59-81` | 🔀 |
+| 실제출근 | 현재 시각 30분 **올림(ceil)** | 정책=코드 일치 (2026-05-21 v1.35, floor→ceil) | `CheckInModal.tsx` `nowKstHHmmCeil` | ✅ |
 | 근무장소 | "사무실" | 변경 가능 | `route.ts:379-394` | ✅ |
 | 메모 | 빈 값 | — | 동일 | ✅ |
 | 미보고 토글 안 풀고 제출 | `planned_start_time = NULL` | 본인 미보고 상태 유지 | `team-status/check-in/route.ts` (NULL 핸들링 검증 필요) | ⚠️ |
@@ -219,7 +219,7 @@ work_logs UPSERT 시 leave_timeline 변경분을 사용자 본부의 vacation �
 |---|---|---|---|
 | 출근예정 | 기존 `planned_start_time` | `api/work-logs/[id]/route.ts:114` GET | ✅ |
 | 퇴근예정 | 기존 `planned_end_time` | 동일 | ✅ |
-| 실제출근 | 현재 시간 30분 처리 | 🔀 — 반올림 vs 절삭 (§12) | ⚠️ |
+| 실제출근 | 현재 시각 30분 **올림(ceil)** | ✅ (2026-05-21 v1.35, floor→ceil) | ✅ |
 | 근무장소 | 기존값 | — | ✅ |
 | 메모 | 기존값 | — | ✅ |
 
@@ -306,7 +306,7 @@ work_logs UPSERT 시 leave_timeline 변경분을 사용자 본부의 vacation �
 | 3 | 동시 제출 시 알림 | **퇴근보고 채널만 1건**. 명일 출근 채널 별도 발송 X. | `teams.ts:271-289`, `:551-556` |
 | 4 | 과거 출근보고 수정 정책 | **일반 출근보고 수정과 동일 정책**. 단 퇴근보고 데이터 영향 X (필드 가드). | `route.ts:392-416` |
 | 5 | 자동 새로고침 | **클라이언트 polling**. 60초 기본 / planned ±10분 범위 30초. `document.hidden` 또는 모달 열림 시 정지. | `CheckInModal.tsx:86-87` modal context. polling interval 코드 §12 |
-| 6 | 30분 단위 변환 | **floor (절삭)**. 0~29분 → 00, 30~59분 → 30. (코드 확인 완료) | `CheckInModal.tsx:59-81` |
+| 6 | 30분 단위 변환 | **현재시각→실제출근 prefill = 올림(ceil)** (2026-05-21 v1.35, 09:11→09:30). 그 외(출근예정 prefill·시각 표시·이벤트 기록·입력 snapping)는 **floor**. | `CheckInModal.tsx` `nowKstHHmmCeil` (ceil) / `floorToHalfHour`·`floor30`·`nowKstHHmmFloor` (floor) |
 | 7 | DB 단일 row 보장 | **partial unique index** — `(user_email, leave_date) WHERE is_deleted=false`. | `supabase/migrations/025_work_logs_user_date_unique.sql` |
 | 8 | 일자별 최종 산출 구조 | **현재 분담 구조 유지**. `unified-times.ts` + `MyHistoryCalendar.tsx` + `submission-status` 가 협업. | finalize-by-day.ts 통합 리팩터 불필요 |
 
@@ -425,10 +425,10 @@ N-Click에는 성격이 다른 캘린더 뷰가 3종 존재한다. 코드·UI·�
 
 ## 12. Discrepancy & 검증 필요 항목 (회귀 테스트 + 보강 대상)
 
-✅ **D1. 30분 절삭(floor) — 정책과 코드 일치 확인됨 (2026-05-17)**
-- **정책** — 신규 출근보고 실제출근 = 현재 시간 **절삭(floor)**.
-- **코드** — `CheckInModal.tsx:65` — `const flooredMm = mm < 30 ? '00' : '30'`. `nowKstHHmmFloor` 도 동일.
-- **결론** — 0~29분 → 00, 30~59분 → 30. **floor 동작 맞음.** 초기 조사에서 함수명을 round로 오판했던 부분 정정.
+✅ **D1. 신규 출근보고 실제출근 현재시각 prefill — 올림(ceil)으로 정책 변경 (2026-05-21 v1.35, 종전 floor)**
+- **정책** — 신규 출근보고 **실제출근** prefill은 현재 KST 시각을 **30분 단위 올림(ceil)**. 예: 09:11 → 09:30, 09:00 → 09:00, 09:31 → 10:00. (사용자 결정 2026-05-21 — 출근 직후 보고 시 "이미 지난 시각"이 아니라 "다가오는 정각/반"으로 채워지도록.)
+- **코드** — `CheckInModal.tsx` `nowKstHHmmCeil` (현재시각 실제출근 prefill 3곳: today / none·prior / 출근완료). `Math.ceil((h*60+m)/30)*30` + 24h wrap.
+- **범위** — 이번 변경은 **현재시각→실제출근 prefill 한정**. 출근예정 prefill(`normalizeStartTimeTo30`, `initialStartTime` floor), 둘러보기·MY PAGE 시각 표시(`floor30`/`fmtHHmm`), 근무지 변경 이벤트 기록(`nowKstHHmmFloor` lib, location route), 입력 snapping(`floorToHalfHour`)은 **floor 유지**.
 
 ✅ **D2. DB UNIQUE 제약 추가됨 (2026-05-17, 마이그레이션 025 + PROD 적용 완료)**
 - **정책** — `(user_email, leave_date)` 단일 row 보장.
@@ -604,6 +604,7 @@ N-Click에는 성격이 다른 캘린더 뷰가 3종 존재한다. 코드·UI·�
 | 2026-05-18 | v1.27 | **운영 규칙 변경 — STG 환경 영구 미사용** (시간/보고 정책 자체 변경 없음, Task Board 머신 운영 결정). 사용자 명시: "STG는 사용 안 하는 거로 하자. 앞으로 stg 배포는 스킵해 크레딧 아깝다. 삭제하진 말고 그냥 방치." 배포 흐름은 **dev → main fast-forward 직진**이 default. stg 브랜치는 방치(merge·삭제 X). CLAUDE.md / AGENTS.md Task Board 상태 머신 §A·§C STG 행에 🚫 표식 + §E 첫 단축이 default로 박제. memory `feedback-skip-stg` 영구 기록. §E 필수 가드(PROD DB 마이그레이션 사전 점검 등)는 그대로 살아있음 — DEV에서만 검증되고 바로 PROD로 가므로 더더욱 중요. | Claude |
 | 2026-05-18 | v1.26 | **야근 임계 정의 명확화 — ≥ 480분 → > 480분** — 사용자 명시: "8시간 이상이 아니라 초과로 가자". 정확히 8시간 근무(예: 9:00~18:00 + 점심 60분 = 실근무 480분)는 야근 표식 제외. 조치 — ① `morning-summary/route.ts:301` 비교 연산자 `>=` → `>`. ② `route.ts:196`/`types.ts:229`/`messages.ts:583` JSDoc·inline 주석 일괄 갱신. ③ 본 정책서·PRD "아침 요약 발송" 페이지 규칙·정책 섹션 야근 판정식 갱신. 임계값 480 자체는 동일. §E 단축 트리거 검토 별도. | Claude |
 | 2026-05-18 | v1.25 | **morning-summary 야근 판정·표시 SoT 정정** — 사용자 보고: 아침 워크플로 카드의 "어제 퇴근 보고"에서 ⚠️ 야근 표식 및 "9:30~18:30 (00:00)" 형식의 시각 표시가 출근예정/퇴근예정 기반으로 계산됨. 근본 원인: 정책서 §2 시간 4종 분리(`actual_start_time`/`actual_end_time` = 실제 SoT) 이후에도 `/api/cron/morning-summary` 라우트가 legacy `start_time`/`end_time` 컬럼만 SELECT. `src/app/api/work-logs/route.ts:339-343` UPDATE 분기에서 legacy 컬럼이 보존(=출근예정/퇴근예정 의미)되므로 퇴근보고 수정 케이스에서 데이터 소스가 어긋남. 조치 — ① `morning-summary/route.ts:153` SELECT에 `actual_start_time, actual_end_time` 추가 + `pickActualTime()` helper로 actual 우선·legacy fallback. ② `messages.ts` `formatMorningWorklogStatus` 시그니처를 `string \| null` 허용 + 둘 다 NULL이면 `❌` 표시. ③ `computeActualMinutes` 호출 인자가 actual 기반으로 자동 교체. 정책 자체 변경 없음 — 야근 임계 8h(480분) 유지. 구현 보강. | Claude |
+| 2026-05-21 | v1.35 | **신규 출근보고 실제출근 현재시각 prefill — 30분 절삭(floor) → 올림(ceil)** — 사용자 결정. ASIS: 09:11 출근 시 09:00으로 절삭 prefill. TOBE: 09:11 → **09:30 올림(ceil)** prefill (출근 직후 보고 시 "이미 지난 시각"이 아닌 "다가오는 정각/반"으로). 적용 범위 — **현재시각→실제출근 prefill 한정** (기존에 절삭하던 곳들만): `CheckInModal.tsx`의 현재시각 prefill 3곳(today / none·prior / 출근완료). 조치 — 로컬 `nowKstHHmmFloor` → `nowKstHHmmCeil`(`Math.ceil((h*60+m)/30)*30` + 24h wrap)으로 교체. **미변경(floor 유지)** — 출근예정 prefill(`normalizeStartTimeTo30`, `initialStartTime` floor), 둘러보기·MY PAGE 시각 표시(`floor30`/`fmtHHmm`), 근무지 변경 이벤트 기록(lib `nowKstHHmmFloor`, location route), 입력 snapping(`floorToHalfHour`). §2.3·§5.1·§5.2·§12 D1·§13#6 갱신. DB 변경 없음. | Claude |
 | 2026-05-21 | v1.34 | **야간 근무(자정 넘김) 퇴근보고 500 핫픽스 — daily_work_status checked_out_at Invalid Date** — 이정영 5/20 퇴근보고(07:00~27:00, 실근무 18h, L9) "서버 에러가 발생했습니다." 보고. 근본원인: `work-logs` POST 라우트의 daily_work_status 동기화 블록(try/catch 밖)이 `new Date(\`${leaveDate}T${finalEndTime}:00+09:00\`)`로 timestamp 생성 — `finalEndTime='27:00'`(24h 초과 야간 표현)이 **Invalid Date**가 되어 `.toISOString()`에서 RangeError throw → 외부 catch가 500 반환. work_logs UPDATE는 이미 성공(보고 자체는 저장됨)했고 notify·recordSubmission(둘 다 방탄 try/catch) 전에 throw → check_out submission 로그 누락. 조치 — ① `src/lib/utils/kst-datetime.ts` `kstHHmmToIso(date, hhmm)` 신설: 시각을 분으로 환산해 KST 자정 timestamp에 가산, 24h 초과를 안전하게 다음 날로 변환. ② `work-logs` POST(daily upsert) + `work-logs/[id]` PATCH(daily sync, 이쪽은 try/catch 안이라 500 아닌 checked_out_at 미동기화 버그) 두 경로 교체. `team-status/check-in`의 actualCheckInTime은 출근시각이라 24h 초과 비현실적 → 미변경. 정책 자체 변경 없음(야간 27:00 표현·실근무 계산 동일) — 구현 버그 fix. DB 변경 없음. PROD_HOTFIX. | Claude |
 | 2026-05-21 | v1.33 | **캘린더 뷰 3종 명칭 표준화 + 상단 Navbar "일정관리" 탭 신설** — 사용자 즉석 지시: ① 구글캘린더 연동뷰(/calendar)를 상단 Navbar "제출내역" 다음에 "일정관리" 탭으로 추가 (일반 구성원 진입점) ② /calendar 헤더 "본부 캘린더" → "일정관리" + 안내 문구 "해당 캘린더는 구글캘린더와 실시간 양방향 동기화 됩니다" ③ 캘린더 뷰 3종(MY PAGE 캘린더뷰 / 구글캘린더 연동뷰 /calendar / 구글캘린더 연동 어드민뷰 /admin/calendars) 명칭·경로·정의 정책 박제. 조치 — `src/components/Navbar.tsx` navLinks에 `{ href: '/calendar', label: '일정관리' }` 추가('/history' 다음). `src/app/calendar/page.tsx` 헤더 h1 "일정관리" + subtitle 안내 문구. 정책서 §11.6 신설. 초안에서 MY PAGE 내부 탭 임베드로 만들었다가 사용자 피드백으로 상단 Navbar 탭으로 정정(home page.tsx 변경 롤백). DB 변경 없음. STG 영구 스킵 default. | Claude |
 | 2026-05-21 | v1.32 | **출근완료/출근수정 알림 헤드라인 — 출근예정 → 실제출근 기반으로 변경** — 사용자 즉석 지시: "출근완료 혹은 출근 수정으로 알림이 발송될 때, 실제출근시간이 있다면 실제출근시간 → 퇴근예정시간으로 알림이 발송되게 해줘 (기존에는 출근예정시간 → 퇴근예정시간)". v1.28에서 `checkin_submitted` 헤드라인을 `근무시작 {출근예정}~{퇴근예정}`로 통일했으나, 실제출근 시각이 예정과 다를 때(지각/조기출근) 헤드라인이 예정값을 보여 혼란. 조치 — `messages.ts` `checkin_submitted` 빌더(v2 chips 경로 line 373 + legacy fallback line 403)의 start 우선순위를 `expectedStartTime → checkedInAt fallback`에서 **`checkedInAt(실제출근) 우선 → expectedStartTime fallback`**으로 뒤집음. 이 알림은 `/api/team-status/check-in`이 `checkedInAtIso`가 있을 때만 발송하므로 실제출근시간은 항상 존재 → 헤드라인 `근무시작 {실제출근}~{퇴근예정}`. end는 종전대로 `expectedEndTime`. `types.ts` `CheckinNotifyPayload.expectedStartTime` JSDoc 갱신. **morning-summary / 22시·20시 리마인더는 영향 없음** — 발송 시점에 실제출근이 없거나 예정 안내 목적이라 출근예정~퇴근예정 유지. DB 변경 없음. STG 영구 스킵 default. | Claude |

@@ -66,7 +66,13 @@ function normalizeStartTimeTo30(input: string | undefined, fallback: string): st
   return `${hh}:${flooredMm}`
 }
 
-function nowKstHHmmFloor(): string {
+/**
+ * 현재 KST 시각을 HH:mm으로, 30분 단위 올림(ceil).
+ * 예: 09:11 → 09:30, 09:00 → 09:00, 09:31 → 10:00. (정책서 §12 D1 / v1.35)
+ * 신규 출근보고 실제출근 prefill 전용 — 출근 직후 보고 시 "이미 지난 시각"이 아니라
+ * "다가오는 정각/반"으로 채워지도록 floor → ceil 변경.
+ */
+function nowKstHHmmCeil(): string {
   const fmt = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Seoul',
     hour12: false,
@@ -76,8 +82,10 @@ function nowKstHHmmFloor(): string {
   const parts = fmt.formatToParts(new Date())
   const h = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10) % 24
   const m = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10)
-  const flooredM = m < 30 ? 0 : 30
-  return `${String(h).padStart(2, '0')}:${String(flooredM).padStart(2, '0')}`
+  const ceiledTotal = Math.ceil((h * 60 + m) / 30) * 30
+  const hh = Math.floor(ceiledTotal / 60) % 24
+  const mm = ceiledTotal % 60
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
 }
 
 export default function CheckInModal({
@@ -216,13 +224,13 @@ export default function CheckInModal({
         if (mode === 'today') {
           // today 모드 — 기존 daily.checked_in_at 값. 없으면 현재 시각 floor로 prefill
           // (출근완료 안 한 상태에서 수정 모달 진입 → 그대로 제출 시 출근완료 처리).
-          setActualCheckInTime(data.checkedInAt || nowKstHHmmFloor())
+          setActualCheckInTime(data.checkedInAt || nowKstHHmmCeil())
         } else if (mode === 'future') {
           // future 모드 — 실제 출근시간 입력 안 받음. 빈 값으로 둠.
           setActualCheckInTime('')
         } else {
           // none/prior — 자동 prefill: 현재 시각 floor (사용자가 그대로 제출 = 출근 완료)
-          setActualCheckInTime(nowKstHHmmFloor())
+          setActualCheckInTime(nowKstHHmmCeil())
         }
 
         // 휴가 — 응답 우선, 없으면 reset (이전 날짜의 휴가가 끌려가지 않게).
@@ -350,7 +358,7 @@ export default function CheckInModal({
           ? ''  // 미래 일자 — 실제 출근시간 안 보냄, 서버가 팀 설정에 따라 처리
           : actualCheckInTime ||
             (caseMode === 'none' && isTodaySubmission && !effectiveIsAllDay
-              ? nowKstHHmmFloor() : '')
+              ? nowKstHHmmCeil() : '')
 
       // case A 분기:
       //   - plannedStartUnreported=true (미보고 유지): start_time은 legacy NOT NULL 만족용으로
