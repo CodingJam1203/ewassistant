@@ -18,7 +18,7 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyMorningSummary } from '@/lib/notifications/teams'
 import { formatMorningWorklogStatus, formatMorningCheckinStatus } from '@/lib/notifications/messages'
-import { forceRefreshCalendar, getDepartmentDailyParsed } from '@/lib/leave-calendar'
+import { fetchOrgCalendarLookup } from '@/lib/org-calendar/lookup'
 import { parseLeaveLabel } from '@/lib/leave-timeline'
 import type { LeaveType, LeaveTimeline } from '@/types/leave-timeline'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
@@ -198,25 +198,16 @@ export async function GET(request: Request) {
   }
   const OVERTIME_THRESHOLD_MIN = 480  // EW 실근무가 8h(=480분)를 초과하면 야근 (정확히 480분은 야근 아님)
 
-  // ─── 외부 캘린더 강제 갱신 + 본부별 휴가자 조회 ───────────────────────────
-  await forceRefreshCalendar(todayDate)
-
-  // 본부별 캘린더 entries 캐시 (아래에서 user 매칭에 사용)
-  const calendarByDeptUser = new Map<string, { leaveType: LeaveType | null; leaveLabel: string | null }>()
-  // department -> already fetched
-  const fetchedDepts = new Set<string>()
-  async function ensureDepartmentLoaded(dept: string) {
-    if (fetchedDepts.has(dept)) return
-    fetchedDepts.add(dept)
-    const result = await getDepartmentDailyParsed({ date: todayDate, department: dept })
-    if (!result.enabled || result.fetchFailed) return
-    for (const entry of result.entries) {
-      calendarByDeptUser.set(`${dept}||${entry.name}`, {
-        leaveType: entry.leaveType,
-        leaveLabel: entry.leaveLabel,
-      })
-    }
-  }
+  // ─── 외부 캘린더(Google Calendar) 휴가 조회 — email 기반 ────────────────────
+  // Phase 1.5f: Sheets(Apps Script) → org_calendar_events. 매칭 안 된 이벤트는 제외.
+  const calLookup = await fetchOrgCalendarLookup({
+    adminClient,
+    emails: users.map(u => u.email),
+    dates: [todayDate],
+  }).catch(err => {
+    console.warn('[morning-summary] calendar lookup failed:', err)
+    return null
+  })
 
   // ─── 팀별 그루핑 ────────────────────────────────────────────────────────────
   const teamGroups = new Map<string, { division: string; team: string; users: UserRow[] }>()
@@ -227,12 +218,6 @@ export async function GET(request: Request) {
       teamGroups.set(key, { division: u.division, team: u.team, users: [] })
     }
     teamGroups.get(key)!.users.push(u)
-  }
-
-  // 본부별 캘린더 사전 로드
-  const allDepts = Array.from(new Set(Array.from(teamGroups.values()).map(g => g.division)))
-  for (const dept of allDepts) {
-    await ensureDepartmentLoaded(dept)
   }
 
   // ─── 팀별 사용자 분류 + 발송 ───────────────────────────────────────────────
@@ -255,7 +240,10 @@ export async function GET(request: Request) {
       let leaveLabel: string | null = null
       const todayLeave = todayInfo?.leave_timeline?.[0]
       const expectedLeave = checkinInfo?.expected_leave_timeline?.[0]
-      const calendarHit = u.division ? calendarByDeptUser.get(`${u.division}||${name}`) : null
+      const calDay = calLookup?.byEmail.get(u.email.toLowerCase())?.[todayDate]
+      const calendarHit = calDay?.leaveType
+        ? { leaveType: calDay.leaveType, leaveLabel: calDay.leaveLabel }
+        : null
 
       if (todayLeave) {
         leaveType = todayLeave.leaveType

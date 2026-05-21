@@ -2,12 +2,12 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
-import { getCalendarForDate, parseCell, isCalendarEnabled } from '@/lib/leave-calendar'
+import { fetchOrgCalendarLookup, type OrgCalendarLookupResult } from '@/lib/org-calendar/lookup'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { WorkLocations } from '@/types/work-locations-v2'
 import { normalizeWorkLocations } from '@/lib/work-locations-v2'
 import type { LeaveTimeline, LeaveType } from '@/types/leave-timeline'
-import type { CalendarBatchResponse, CalendarEventChunk } from '@/types/leave-calendar'
+import type { CalendarEventChunk } from '@/types/leave-calendar'
 import { computeEffectiveActualStart } from '@/lib/work-log-state'
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
@@ -265,12 +265,10 @@ export async function GET(request: Request) {
         .in('user_email', emails)
         .eq('work_date', dateParam)
         .order('event_at', { ascending: false }),
-      isCalendarEnabled()
-        ? getCalendarForDate(dateParam).catch(err => {
-            console.warn('[team-status] calendar fetch failed:', err)
-            return null as CalendarBatchResponse | null
-          })
-        : Promise.resolve(null as CalendarBatchResponse | null),
+      fetchOrgCalendarLookup({ adminClient, emails, dates: [dateParam] }).catch(err => {
+        console.warn('[team-status] calendar lookup failed:', err)
+        return null as OrgCalendarLookupResult | null
+      }),
       adminClient.from('org_teams').select('division_id, name, use_check_in_complete, sort_order'),
       adminClient.from('org_divisions').select('id, name, sort_order'),
     ])
@@ -297,7 +295,7 @@ export async function GET(request: Request) {
     const workLogsExpected = workLogsExpectedRes.data
     const dailyStatuses    = dailyStatusesRes.data
     const lastEvents       = lastEventsRes.data
-    const calendarBatch    = calendarBatchRes
+    const calendarLookup   = calendarBatchRes
 
     // email → work_log 매핑. (A) 우선. (B)인 경우 _expectedOnly=true 표식.
     const workLogByEmail = new Map<string, Record<string, unknown> & { _expectedOnly?: boolean }>()
@@ -324,23 +322,21 @@ export async function GET(request: Request) {
       }
     }
 
-    /** 사용자 이름 + 본부로 캘린더 셀 조회 → 휴가/일반일정 파싱 (events 포함) */
-    function lookupCalendar(division: string | null, displayName: string | null): {
+    /** 사용자 email로 org_calendar_events lookup → 휴가/일반일정 (Google Calendar, dateParam 당일) */
+    function lookupCalendar(email: string | null): {
       leaveType: LeaveType | null
       label: string | null
       events: CalendarEventChunk[]
     } {
-      if (!calendarBatch || !division || !displayName) {
+      if (!calendarLookup || !email) {
         return { leaveType: null, label: null, events: [] }
       }
-      const entries = calendarBatch.departments?.[division] ?? []
-      const target = entries.find(e => e.name?.trim() === displayName.trim())
-      if (!target) return { leaveType: null, label: null, events: [] }
-      const parsed = parseCell(target.cellValue)
+      const day = calendarLookup.byEmail.get(email.toLowerCase())?.[dateParam]
+      if (!day) return { leaveType: null, label: null, events: [] }
       return {
-        leaveType: parsed.leaveType,
-        label: parsed.leaveType ? target.cellValue.trim() : null,
-        events: parsed.events ?? [],
+        leaveType: day.leaveType,
+        label: day.leaveLabel,
+        events: day.events ?? [],
       }
     }
 
@@ -352,7 +348,7 @@ export async function GET(request: Request) {
 
       const division = (profile.division as string | null) ?? null
       const displayName = (profile.display_name as string | null) ?? null
-      const calLeave = lookupCalendar(division, displayName)
+      const calLeave = lookupCalendar(email)
 
       const { color, status_text, status } = computeStatus(workLog, daily, calLeave.leaveType)
 

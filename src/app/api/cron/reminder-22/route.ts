@@ -8,7 +8,7 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyDailyCheckinReminder } from '@/lib/notifications/teams'
 import { formatNightlyCheckinStatus } from '@/lib/notifications/messages'
-import { getDepartmentDailyParsed } from '@/lib/leave-calendar'
+import { fetchOrgCalendarLookup } from '@/lib/org-calendar/lookup'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import type { WorkLocations } from '@/types/work-locations-v2'
 
@@ -106,27 +106,16 @@ export async function GET(request: Request) {
     teamGroups.get(key)!.users.push(u)
   }
 
-  // 본부별 내일자 캘린더 일정 미리 로드 (휴가 제외, 일반 events만)
-  const allDepts = Array.from(new Set(Array.from(teamGroups.values()).map(g => g.division)))
-  const calendarByDept = new Map<
-    string,
-    Map<string, Array<{ startTime: string | null; endTime: string | null; title: string }>>
-  >()
-  for (const dept of allDepts) {
-    try {
-      const result = await getDepartmentDailyParsed({ date: targetDate, department: dept })
-      if (!result.enabled || result.fetchFailed) continue
-      const byUser = new Map<string, Array<{ startTime: string | null; endTime: string | null; title: string }>>()
-      for (const entry of result.entries) {
-        if (entry.events && entry.events.length > 0) {
-          byUser.set(entry.name, entry.events)
-        }
-      }
-      calendarByDept.set(dept, byUser)
-    } catch (err) {
-      console.warn('[cron/reminder-22] calendar fetch failed for dept:', dept, err)
-    }
-  }
+  // 내일자 캘린더 일정 조회 (Google Calendar, email 기반 — 휴가 제외 일반 events만)
+  // Phase 1.5f: Sheets(getDepartmentDailyParsed) → org_calendar_events. lookup의 events는 vacation 제외.
+  const calLookup = await fetchOrgCalendarLookup({
+    adminClient,
+    emails: users.map(u => u.email),
+    dates: [targetDate],
+  }).catch(err => {
+    console.warn('[cron/reminder-22] calendar lookup failed:', err)
+    return null
+  })
 
   // 팀별 발송
   const promises = Array.from(teamGroups.values()).map(group => {
@@ -146,28 +135,24 @@ export async function GET(request: Request) {
       }
     })
 
-    // 이 팀(=division)에 속한 사용자들의 내일 캘린더 일정 모음
-    const deptCalendar = calendarByDept.get(group.division)
+    // 이 팀에 속한 사용자들의 내일 캘린더 일정 모음 (email 매칭)
     const calendarEvents: Array<{
       name: string
       startTime: string | null
       endTime: string | null
       title: string
     }> = []
-    if (deptCalendar) {
-      for (const u of group.users) {
-        const userName = u.display_name?.trim()
-        if (!userName) continue
-        const events = deptCalendar.get(userName)
-        if (!events) continue
-        for (const ev of events) {
-          calendarEvents.push({
-            name: userName,
-            startTime: ev.startTime,
-            endTime: ev.endTime,
-            title: ev.title,
-          })
-        }
+    for (const u of group.users) {
+      const userName = u.display_name?.trim()
+      if (!userName) continue
+      const events = calLookup?.byEmail.get(u.email.toLowerCase())?.[targetDate]?.events ?? []
+      for (const ev of events) {
+        calendarEvents.push({
+          name: userName,
+          startTime: ev.startTime,
+          endTime: ev.endTime,
+          title: ev.title,
+        })
       }
     }
 
