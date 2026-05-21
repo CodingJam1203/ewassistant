@@ -369,8 +369,10 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       // v2 chips 우선
       const chips = normalizeWorkLocations(p.plannedWorkLocations)
       const lines: string[] = []
-      // start = expectedStartTime > checkedInAt fallback. end = expectedEndTime (있을 때만 ~end 추가)
-      const startStr = p.expectedStartTime ? fmtTime(p.expectedStartTime) : kstHHmm(p.checkedInAt)
+      // v1.32: 실제출근시간(checkedInAt) 우선 → 없을 때만 expectedStartTime fallback.
+      // 이 알림은 route에서 checkedInAtIso가 있을 때만 발송되므로 실제출근시간이 항상 존재 →
+      // 헤드라인 '근무시작 {실제출근}~{퇴근예정}'. end = expectedEndTime (있을 때만 ~end 추가)
+      const startStr = p.checkedInAt ? kstHHmm(p.checkedInAt) : (p.expectedStartTime ? fmtTime(p.expectedStartTime) : '')
       const endStr   = p.expectedEndTime   ? fmtTime(p.expectedEndTime)   : ''
       const timeStr  = endStr ? `근무시작 ${startStr}~${endStr}` : `${startStr} 출근`
       lines.push(`${p.name} : ${shortKoreanDate(p.date)} ${timeStr}`)
@@ -399,8 +401,8 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
         lines.push(cta())
         return lines.join('\n')
       }
-      // legacy 단일 라벨 fallback — 같은 start~end 정책 유지
-      const startStrFb = p.expectedStartTime ? fmtTime(p.expectedStartTime) : kstHHmm(p.checkedInAt)
+      // legacy 단일 라벨 fallback — 같은 start~end 정책 유지 (v1.32: 실제출근 우선)
+      const startStrFb = p.checkedInAt ? kstHHmm(p.checkedInAt) : (p.expectedStartTime ? fmtTime(p.expectedStartTime) : '')
       const endStrFb   = p.expectedEndTime   ? fmtTime(p.expectedEndTime)   : ''
       const timeStrFb  = endStrFb ? `근무시작 ${startStrFb}~${endStrFb}` : `${startStrFb} 출근`
       return `${p.name} : ${shortKoreanDate(p.date)} ${timeStrFb} ${p.workLocation || '미입력'}`

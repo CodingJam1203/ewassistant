@@ -124,7 +124,8 @@ export interface CheckinNotifyPayload {
   plannedWorkLocations?: WorkLocations | null
   /** 출근 시점의 leave_timeline (휴가/반차) */
   leaveTimeline?: LeaveTimeline | null
-  /** 출근예정시간 'HH:mm' / 'HH:mm:ss' — 메시지 헤드라인 'start~end' 표시용 (없으면 checkedInAt fallback) */
+  /** 출근예정시간 'HH:mm' / 'HH:mm:ss' — v1.32부터 헤드라인 start는 실제출근(checkedInAt) 우선,
+   *  이 값은 checkedInAt이 없을 때만 fallback으로 사용 */
   expectedStartTime?: string | null
   /** 퇴근예정시간 'HH:mm' / 'HH:mm:ss' — 메시지 헤드라인 'start~end' 표시용 (없으면 표시 생략) */
   expectedEndTime?: string | null
