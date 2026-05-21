@@ -15,12 +15,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight, Home, RefreshCw, Plus, Repeat } from 'lucide-react'
+import { startOfMonth, endOfMonth, startOfWeek, endOfWeek } from 'date-fns'
+import { ArrowLeft, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight, Home, RefreshCw, Plus, Repeat, LayoutGrid, CalendarDays } from 'lucide-react'
 import CustomDropdown from '@/components/ui/CustomDropdown'
 import EventEditModal, { type EventEditInitial } from '@/components/calendar/EventEditModal'
+import MonthGridView from '@/components/calendar/MonthGridView'
 
 type CalendarType = 'meeting' | 'vacation' | 'birthday' | 'other'
 type RangeView = '1week' | '2weeks' | 'month'
+type ViewMode = 'matrix' | 'month'
 
 interface ApiEvent {
   id: string
@@ -365,6 +368,8 @@ export default function CalendarMatrixPage() {
   // 좌측 시작일 (KST 자정). default = 오늘
   const [startDate, setStartDate] = useState<Date>(() => todayKst())
   const [rangeView, setRangeView] = useState<RangeView>('2weeks')
+  // 보기방식 — default = 매트릭스(기존 커스텀 뷰). 'month' = 구글캘린더식 월 그리드
+  const [viewMode, setViewMode] = useState<ViewMode>('matrix')
 
   // 본부 dropdown — 단일 선택. default = 사용자 본부 (load 응답에서 set)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string>('')
@@ -393,11 +398,19 @@ export default function CalendarMatrixPage() {
     return Array.from({ length: n }, (_, i) => addDays(startDate, i))
   }, [startDate, rangeView])
 
-  // 이벤트 범위 — 시작일 ~ 종료일
-  const range = useMemo(() => ({
-    from: toKstIsoDate(days[0]),
-    to:   toKstIsoDate(days[days.length - 1]),
-  }), [days])
+  // 이벤트 범위 — 매트릭스는 days 범위, 월 뷰는 startDate가 속한 달의 그리드 전체
+  // (앞뒤 주의 다른 달 날짜 포함 — 월 그리드 6주 칸을 모두 채우기 위해)
+  const range = useMemo(() => {
+    if (viewMode === 'month') {
+      const from = startOfWeek(startOfMonth(startDate), { weekStartsOn: 0 })
+      const to   = endOfWeek(endOfMonth(startDate), { weekStartsOn: 0 })
+      return { from: toKstIsoDate(from), to: toKstIsoDate(to) }
+    }
+    return {
+      from: toKstIsoDate(days[0]),
+      to:   toKstIsoDate(days[days.length - 1]),
+    }
+  }, [viewMode, startDate, days])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -809,36 +822,60 @@ export default function CalendarMatrixPage() {
               </>
             ) : null}
           </div>
-          {/* 범위 토글 */}
+          {/* 보기방식 토글 — 매트릭스(기본) / 월 그리드 */}
           <div className="inline-flex items-center rounded-[10px] border border-border-strong bg-surface overflow-hidden">
-            {(['1week', '2weeks', 'month'] as RangeView[]).map(r => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRangeView(r)}
-                className={`h-8 px-3 text-xs font-medium transition-colors ${
-                  rangeView === r
-                    ? 'bg-primary-600 text-white'
-                    : 'text-text-secondary hover:bg-surface-muted'
-                }`}
-              >
-                {RANGE_LABEL[r]}
-              </button>
-            ))}
-          </div>
-          {/* 날짜 nav */}
-          <div className="inline-flex items-center gap-1">
-            <button type="button" onClick={handlePrev} className="h-8 w-8 inline-flex items-center justify-center rounded-[10px] border border-border-strong bg-surface hover:bg-surface-muted">
-              <ChevronLeft className="h-4 w-4" />
+            <button
+              type="button"
+              onClick={() => setViewMode('matrix')}
+              className={`h-8 px-3 text-xs font-medium inline-flex items-center gap-1 transition-colors ${
+                viewMode === 'matrix' ? 'bg-primary-600 text-white' : 'text-text-secondary hover:bg-surface-muted'
+              }`}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" /> 매트릭스
             </button>
-            <button type="button" onClick={handleToday} className="h-8 px-3 text-xs font-medium inline-flex items-center gap-1 rounded-[10px] border border-border-strong bg-surface hover:bg-surface-muted">
-              <Home className="h-3.5 w-3.5" />
-              오늘
-            </button>
-            <button type="button" onClick={handleNext} className="h-8 w-8 inline-flex items-center justify-center rounded-[10px] border border-border-strong bg-surface hover:bg-surface-muted">
-              <ChevronRight className="h-4 w-4" />
+            <button
+              type="button"
+              onClick={() => setViewMode('month')}
+              className={`h-8 px-3 text-xs font-medium inline-flex items-center gap-1 transition-colors ${
+                viewMode === 'month' ? 'bg-primary-600 text-white' : 'text-text-secondary hover:bg-surface-muted'
+              }`}
+            >
+              <CalendarDays className="h-3.5 w-3.5" /> 월
             </button>
           </div>
+          {/* 범위 토글 + 날짜 nav — 매트릭스 뷰 전용 (월 뷰는 캘린더 내장 toolbar가 담당) */}
+          {viewMode === 'matrix' && (
+            <>
+              <div className="inline-flex items-center rounded-[10px] border border-border-strong bg-surface overflow-hidden">
+                {(['1week', '2weeks', 'month'] as RangeView[]).map(r => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setRangeView(r)}
+                    className={`h-8 px-3 text-xs font-medium transition-colors ${
+                      rangeView === r
+                        ? 'bg-primary-600 text-white'
+                        : 'text-text-secondary hover:bg-surface-muted'
+                    }`}
+                  >
+                    {RANGE_LABEL[r]}
+                  </button>
+                ))}
+              </div>
+              <div className="inline-flex items-center gap-1">
+                <button type="button" onClick={handlePrev} className="h-8 w-8 inline-flex items-center justify-center rounded-[10px] border border-border-strong bg-surface hover:bg-surface-muted">
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button type="button" onClick={handleToday} className="h-8 px-3 text-xs font-medium inline-flex items-center gap-1 rounded-[10px] border border-border-strong bg-surface hover:bg-surface-muted">
+                  <Home className="h-3.5 w-3.5" />
+                  오늘
+                </button>
+                <button type="button" onClick={handleNext} className="h-8 w-8 inline-flex items-center justify-center rounded-[10px] border border-border-strong bg-surface hover:bg-surface-muted">
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -853,6 +890,13 @@ export default function CalendarMatrixPage() {
           <Loader2 className="h-5 w-5 animate-spin inline mr-2" />
           불러오는 중…
         </div>
+      ) : viewMode === 'month' ? (
+        <MonthGridView
+          events={filteredEvents}
+          date={startDate}
+          onNavigate={setStartDate}
+          onEventClick={handleEventClick}
+        />
       ) : (
       <>
       {/* 모바일 default — Agenda(날짜별 그룹). sm 이상에서는 숨김 */}
