@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
+import { kstHHmmToIso } from '@/lib/utils/kst-datetime'
 import { calculateEw } from '@/lib/ew-calculator'
 import { notifyCheckinSubmitted } from '@/lib/notifications/teams'
 
@@ -381,8 +382,10 @@ export async function POST(request: Request) {
       prevCheckedInAt = prevDaily?.checked_in_at ?? null
     }
 
+    // 자정 넘긴 출근(예 24:30 — 실출근 input allowNextDay)도 kstHHmmToIso로 안전 변환.
+    // 직접 new Date(`...T24:30...`)는 Invalid Date → toISOString throw → 500 (v1.34 동일 클래스).
     const checkedInAtIso: string | null = actualCheckInTime
-      ? new Date(`${date}T${actualCheckInTime}:00+09:00`).toISOString()
+      ? kstHHmmToIso(date, actualCheckInTime)
       : null
 
     const checkedInChanged = (prevCheckedInAt ?? null) !== (checkedInAtIso ?? null)
