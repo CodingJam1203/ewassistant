@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
+import { kstHHmmToIso } from '@/lib/utils/kst-datetime'
 import { requireAdmin, requireActiveUser } from '@/lib/admin-check'
 import { calculateEw } from '@/lib/ew-calculator'
 
@@ -571,10 +572,11 @@ export async function PATCH(
       if (!isCheckInOnly) {
         const targetDate = body.leaveDate ?? log.leave_date ?? getKstTodayDateString()
         if (body.startTime) {
-          dailySyncUpdates.checked_in_at = new Date(`${targetDate}T${(body.startTime as string).padStart(5, '0')}:00+09:00`).toISOString()
+          dailySyncUpdates.checked_in_at = kstHHmmToIso(targetDate, body.startTime as string)
         }
         if (body.endTime) {
-          dailySyncUpdates.checked_out_at = new Date(`${targetDate}T${(body.endTime as string).padStart(5, '0')}:00+09:00`).toISOString()
+          // 야간 근무(예 27:00) 자정 넘김 안전 변환 — new Date(`...T27:00...`)는 Invalid Date.
+          dailySyncUpdates.checked_out_at = kstHHmmToIso(targetDate, body.endTime as string)
         }
       }
       if (Object.keys(dailySyncUpdates).length > 1) {

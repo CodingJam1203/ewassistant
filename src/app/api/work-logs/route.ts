@@ -36,6 +36,7 @@ import {
   formatChipsArrow,
 } from '@/lib/work-locations-v2'
 import { computeEffectiveActualStart } from '@/lib/work-log-state'
+import { kstHHmmToIso } from '@/lib/utils/kst-datetime'
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { WorkLocations } from '@/types/work-locations-v2'
 import type { LeaveTimeline } from '@/types/leave-timeline'
@@ -575,9 +576,11 @@ export async function POST(request: Request) {
 
     // ─── daily_work_status: 폼의 출퇴근 시간 = 실제 출퇴근으로 저장 ─────────────
     // (정책: 사용자가 폼에 입력한 startTime/endTime은 "예정"이 아닌 "실제"로 반영)
+    // 야간 근무(예 07:00~27:00)는 finalEndTime이 '27:00' 같은 24h 초과 표현 → kstHHmmToIso로
+    // 안전 변환 (직접 new Date(`...T27:00...`)는 Invalid Date → toISOString throw → 500).
     {
-      const checkedInAtIso  = new Date(`${body.leaveDate}T${(finalStartTime || '09:00').padStart(5, '0')}:00+09:00`).toISOString()
-      const checkedOutAtIso = new Date(`${body.leaveDate}T${(finalEndTime   || '18:00').padStart(5, '0')}:00+09:00`).toISOString()
+      const checkedInAtIso  = kstHHmmToIso(body.leaveDate, finalStartTime || '09:00')
+      const checkedOutAtIso = kstHHmmToIso(body.leaveDate, finalEndTime   || '18:00')
       await adminClient
         .from('daily_work_status')
         .upsert({
