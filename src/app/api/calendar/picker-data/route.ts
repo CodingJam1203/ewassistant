@@ -15,7 +15,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { resolveUserAuthz } from '@/lib/google-calendar/authz'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -46,26 +45,43 @@ export async function GET() {
       .order('team_id', { nullsFirst: true })
       .order('label'),
     admin.from('user_profiles')
-      .select('display_name')
+      .select('display_name, role, division, team')
       .eq('id', user.id)
       .maybeSingle(),
   ])
 
-  const authz = await resolveUserAuthz(admin, user.id, user.email)
+  // authz(본부/팀 매핑·admin 여부)를 별도 순차 쿼리 없이 위 병렬 배치 결과로 계산.
+  // resolveUserAuthz와 동일 로직 — 이미 가져온 divisions/teams 배열에서 이름→id 매핑.
+  const divisions = divisionsRes.data ?? []
+  const teams = teamsRes.data ?? []
+  const profile = profileRes.data
+  const isAdmin = profile?.role === 'admin'
+  let divisionId: string | null = null
+  let teamId: string | null = null
+  if (profile?.division) {
+    const div = divisions.find(d => d.name === profile.division)
+    if (div) {
+      divisionId = div.id
+      if (profile.team) {
+        const team = teams.find(t => t.division_id === div.id && t.name === profile.team)
+        if (team) teamId = team.id
+      }
+    }
+  }
 
   return NextResponse.json({
     users:     usersRes.data ?? [],
     tags:      tagsRes.data ?? [],
-    divisions: divisionsRes.data ?? [],
-    teams:     teamsRes.data ?? [],
+    divisions,
+    teams,
     calendars: calendarsRes.data ?? [],
     myProfile: {
       userId:      user.id,
       email:       user.email,
-      displayName: profileRes.data?.display_name ?? null,
-      divisionId:  authz?.divisionId ?? null,
-      teamId:      authz?.teamId ?? null,
-      isAdmin:     authz?.isAdmin ?? false,
+      displayName: profile?.display_name ?? null,
+      divisionId,
+      teamId,
+      isAdmin,
     },
   })
 }
