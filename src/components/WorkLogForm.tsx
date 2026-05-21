@@ -825,11 +825,14 @@ export default function WorkLogForm({
         setIsSubmitting(false)
         return
       }
-      // C2 정책 (2026-05-19): Google 캘린더 자동 매핑(source='calendar') 항목은
-      // 사용자가 N-Click에서 출퇴근보고를 제출하는 행위 자체로 N-Click 입력 우선 →
-      // submit 시 항상 자동 제거. 사용자가 LeaveTimelineInput에서 직접 추가한 항목
-      // (source='user' 또는 source 없음)은 유지.
-      const submittedLeave: LeaveTimeline = (isRegularWorkSubmit
+      // Phase 1.5d fix #3 (2026-05-21): 종일 휴가(full_day) 묵시 제거는 confirm 동의 시에만.
+      // 종전엔 isRegularWorkSubmit(근무내용 입력 등)만으로 full_day를 묵시 제거 → 사용자가 휴가 8h +
+      // 메모 입력하고 저장하면 휴가가 사라지고 근무로 저장되던 버그 (3/26 QA 보고).
+      // 이제 confirm 모달에서 "휴가 삭제하고 진행" 동의(userConfirmedStripLeaveRef)했을 때만 제거.
+      // confirm이 안 떴거나(휴가 신규 등록·baseline 휴가 없음) 취소하면 full_day 그대로 저장.
+      const shouldStripFullDay = userConfirmedStripLeaveRef.current
+      // C2 정책 (2026-05-19): Google 캘린더 자동 매핑(source='calendar') 항목은 항상 제거 (N-Click 우선).
+      const submittedLeave: LeaveTimeline = (shouldStripFullDay
         ? rawSubmittedLeave.filter(it => it.leaveType !== 'full_day')
         : rawSubmittedLeave
       ).filter(it => it?.source !== 'calendar')
