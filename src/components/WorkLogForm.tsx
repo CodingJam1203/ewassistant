@@ -1284,7 +1284,7 @@ export default function WorkLogForm({
           )}
 
           <div className="sm:col-span-2">
-            <label className="block text-sm font-medium text-text-primary">근무내용 *</label>
+            <label className="block text-sm font-medium text-text-primary">근무내용 & 특이사항 *</label>
             <textarea
               rows={2}
               placeholder="오늘 수행한 업무 내용을 입력해주세요"
