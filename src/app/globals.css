@@ -340,19 +340,34 @@ label[for] {
 /* 오늘 — primary-50 배경 (회색 대신 옅은 파랑) */
 .nclick-rbc .rbc-today { background: var(--color-primary-50); }
 
-/* 이벤트 칩 — 글씨크기 통일 (색은 컴포넌트 eventPropGetter가 담당) */
-.nclick-rbc .rbc-event { font-size: 12px; padding: 1px 4px; }
+/* 이벤트 칩 — 글씨크기 통일 + 셀 밖으로 안 나가게 ...truncate */
+.nclick-rbc .rbc-row-segment { padding: 0 2px 2px; }
+.nclick-rbc .rbc-event {
+  font-size: 12px;
+  padding: 1px 4px;
+  display: block;
+  width: 100%;
+}
+.nclick-rbc .rbc-event-content {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .nclick-rbc .rbc-event:focus { outline: none; }
 .nclick-rbc .rbc-event.rbc-selected { outline: 2px solid var(--color-primary-200); }
 
-/* "+N개 더보기" — primary 링크 스타일 */
+/* "⋯ N" 더보기 — 셀 폭에 맞춰 칸 넘침 방지 */
 .nclick-rbc .rbc-show-more {
   font-size: 11px;
-  font-weight: 500;
-  color: var(--color-primary-600);
+  font-weight: 600;
+  color: var(--color-text-secondary);
   background: transparent;
+  padding: 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.nclick-rbc .rbc-show-more:hover { color: var(--color-primary-700); text-decoration: underline; }
+.nclick-rbc .rbc-show-more:hover { color: var(--color-primary-700); }
 
 /* 더보기 팝업 */
 .nclick-rbc .rbc-overlay {
