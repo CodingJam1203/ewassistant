@@ -90,7 +90,10 @@ export default function MonthGridView<T extends MonthGridEvent>({
   const rbcEvents = useMemo(() => events.map(toRbcEvent), [events])
 
   return (
-    <div className="nclick-rbc bg-surface border border-border rounded-[10px] p-2 sm:p-3" style={{ height: 'calc(100vh - 220px)', minHeight: 480 }}>
+    <div className="nclick-rbc bg-surface border border-border rounded-[10px] p-2 sm:p-3 overflow-x-auto" style={{ height: 'calc(100vh - 220px)', minHeight: 480 }}>
+      {/* 모바일에서 7열이 짓눌려 깨지지 않도록 최소 너비 확보 → 좁은 화면은 가로 스크롤.
+          데스크탑은 컨테이너가 이미 넓어 스크롤 없음. */}
+      <div className="h-full min-w-[680px]">
       <Calendar<RbcEvent<T>>
         localizer={localizer}
         culture="ko"
@@ -125,6 +128,7 @@ export default function MonthGridView<T extends MonthGridEvent>({
         }}
         style={{ height: '100%' }}
       />
+      </div>
     </div>
   )
 }
