@@ -29,7 +29,7 @@ interface PickerData {
   tags: PickerTag[]
   divisions: Array<{ id: string; name: string; sort_order: number }>
   teams: Array<{ id: string; name: string; division_id: string; sort_order: number }>
-  calendars: Array<{ id: string; label: string; calendar_type: CalendarType; division_id: string; team_id: string | null }>
+  calendars: Array<{ id: string; label: string; calendar_type: CalendarType; division_id: string; team_id: string | null; event_classification?: 'by_type' | 'by_title' }>
   myProfile: {
     userId: string
     email: string | null
@@ -512,14 +512,22 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
     const inDiv = data.calendars.filter(c => c.division_id === targetDivisionId)
 
     let pick: typeof data.calendars[number] | undefined
-    if (scopeIsDivision) {
+
+    // 0) 통합형(by_title) 캘린더 우선 — 한 캘린더에 휴가·미팅 다 쌓는 팀.
+    //    속성과 무관하게 그 팀(또는 본부공용)의 통합 캘린더로 prefill. (생일은 제외 — 본부 공용 별도)
+    if (!scopeIsDivision && targetTeamId) {
+      pick = inDiv.find(c => c.team_id === targetTeamId && c.event_classification === 'by_title')
+      if (!pick) pick = inDiv.find(c => c.team_id === null && c.event_classification === 'by_title')
+    }
+
+    if (!pick && scopeIsDivision) {
       // 1) 본부 공용 (team_id null) + 정확 type
       pick = inDiv.find(c => c.team_id === null && c.calendar_type === targetCalType)
       // 2) fallback: 팀 + 정확 type
       if (!pick && targetTeamId) {
         pick = inDiv.find(c => c.team_id === targetTeamId && c.calendar_type === targetCalType)
       }
-    } else if (targetTeamId) {
+    } else if (!pick && targetTeamId) {
       // 1) 팀 + 정확 type
       pick = inDiv.find(c => c.team_id === targetTeamId && c.calendar_type === targetCalType)
       // 2) fallback: 본부 공용 + 정확 type

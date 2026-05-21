@@ -40,7 +40,7 @@ export async function GET() {
     admin.from('org_divisions').select('id, name, sort_order').order('sort_order'),
     admin.from('org_teams').select('id, name, division_id, sort_order').order('sort_order'),
     admin.from('org_calendars')
-      .select('id, label, calendar_type, division_id, team_id')
+      .select('id, label, calendar_type, division_id, team_id, event_classification')
       .eq('is_active', true)
       .order('division_id')
       .order('team_id', { nullsFirst: true })
