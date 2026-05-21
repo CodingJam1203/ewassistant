@@ -64,6 +64,22 @@ interface EventEditModalProps {
   onSaved: () => void
 }
 
+/** 속성 라디오 옵션 — 라벨별 분류 type. 미팅/회의/행사는 모두 meeting(회의 캘린더 prefill). */
+const ATTR_OPTIONS: { key: string; label: string; type: CalendarType }[] = [
+  { key: 'meeting',    label: '미팅',        type: 'meeting'  },
+  { key: 'conference', label: '회의',        type: 'meeting'  },
+  { key: 'event',      label: '행사',        type: 'meeting'  },
+  { key: 'vacation',   label: '휴가',        type: 'vacation' },
+  { key: 'birthday',   label: '생일/기념일', type: 'birthday' },
+]
+
+/** 기존 이벤트 inferred_type → 속성 라디오 key 역매핑. meeting/other/미지정 → 미팅. */
+function inferredToAttrKey(t: CalendarType | undefined): string {
+  if (t === 'vacation') return 'vacation'
+  if (t === 'birthday') return 'birthday'
+  return 'meeting'
+}
+
 const CALENDAR_TYPE_LABEL: Record<CalendarType, string> = {
   meeting: '미팅',
   vacation: '휴가',
@@ -402,7 +418,11 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
 
   // form state
   const [tokens, setTokens] = useState<PickerToken[]>([])
-  const [inferredType, setInferredType] = useState<CalendarType>(initial?.inferredType ?? 'meeting')
+  // 속성 옵션 — 미팅/회의/행사는 모두 회의(meeting)로 분류·prefill. 휴가→vacation, 생일/기념일→birthday.
+  // inferred_type enum은 meeting/vacation/birthday/other 4개라 회의성 3개는 meeting으로 저장되지만,
+  // 사용자가 일정 성격을 선택할 수 있게 UI 옵션으로 제공.
+  const [attrKey, setAttrKey] = useState<string>(inferredToAttrKey(initial?.inferredType))
+  const inferredType: CalendarType = ATTR_OPTIONS.find(o => o.key === attrKey)?.type ?? 'meeting'
   const [body, setBody] = useState<string>(initial?.title ? splitTitleBody(initial.title) : '')
   const [isAllDay, setIsAllDay] = useState(initial?.isAllDay ?? false)
   const [startDate, setStartDate] = useState(toLocalDate(initial?.startAt) || toLocalDate(new Date().toISOString()))
@@ -712,14 +732,14 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
             <div>
               <label className="block text-xs font-medium text-text-secondary mb-1">속성</label>
               <div className="inline-flex items-center rounded-[10px] border border-border-strong bg-surface overflow-hidden">
-                {(['meeting','vacation','birthday','other'] as CalendarType[]).map(t => (
+                {ATTR_OPTIONS.map(o => (
                   <button
-                    key={t}
+                    key={o.key}
                     type="button"
-                    onClick={() => setInferredType(t)}
-                    className={`h-9 px-3 text-xs font-medium ${inferredType === t ? 'bg-primary-600 text-white' : 'text-text-secondary hover:bg-surface-muted'}`}
+                    onClick={() => setAttrKey(o.key)}
+                    className={`h-9 px-3 text-xs font-medium ${attrKey === o.key ? 'bg-primary-600 text-white' : 'text-text-secondary hover:bg-surface-muted'}`}
                   >
-                    {CALENDAR_TYPE_LABEL[t]}
+                    {o.label}
                   </button>
                 ))}
               </div>
