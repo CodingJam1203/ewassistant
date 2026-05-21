@@ -185,6 +185,7 @@
 | **STG 단계 영구 스킵 (DEV_QA완료 → PROD_배포완료 직진)** | **default — 사용자 명시 불요** | dev → main fast-forward push, 티켓 PROD_배포완료로 직행. stg 브랜치 안 만지고 방치 |
 | 한 트리거로 DEV + PROD 동시 배포 | 사용자 명시 트리거 ("한 번에 운영까지") | DEV 배포 직후 즉시 PROD 배포 진행. 명시 트리거가 PROD 게이트도 겸함 |
 | DEV_QA진행중 단계 갱신 누락 | 사용자가 결과만 통지 ("OK", "통과") | DEV_QA진행중을 거치지 않고 DEV_배포완료 → DEV_QA완료 직행 OK |
+| **MAIN-only 검증 변경 PROD 직행** (알림·구글캘린더 연동 등) | **DB 변경 없음 + DEV에서 실 검증 불가, MAIN에서만 실제 발송/연동 테스트 가능** (예 — Make webhook 알림, Google Calendar 연동) | 별도 PROD 트리거 없이 dev push 직후 즉시 main fast-forward + 티켓 PROD_배포완료 직행. (2026-05-21 사용자 결정) |
 
 **필수 가드 (단축이 default여도 절대 생략 금지)**:
 
