@@ -16,6 +16,14 @@ export function toKstDateString(date: Date | string): string {
   return `${y}-${m}-${d}`
 }
 
+/** 'YYYY-MM-DD'가 토(6)/일(0)요일이면 true. 달력 날짜 기준(TZ 무관). */
+export function isWeekendDate(dateStr: string): boolean {
+  const [y, m, d] = (dateStr ?? '').split('-').map(Number)
+  if (!y || !m || !d) return false
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+  return dow === 0 || dow === 6
+}
+
 /** 'YYYY-MM-DD' 또는 Date → '월','화',...,'일'. 잘못된 입력은 빈 문자열. */
 export function dowKo(input: string | Date | null | undefined): string {
   if (!input) return ''

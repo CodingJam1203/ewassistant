@@ -10,6 +10,7 @@ import { notifyDailyCheckinReminder } from '@/lib/notifications/teams'
 import { formatNightlyCheckinStatus } from '@/lib/notifications/messages'
 import { fetchOrgCalendarLookup } from '@/lib/org-calendar/lookup'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
+import { isWeekendDate } from '@/lib/utils/date'
 import type { WorkLocations } from '@/types/work-locations-v2'
 
 /** planned_work_locations(WorkLocations 배열) → 표시용 string ("사무실 → 재택") */
@@ -135,6 +136,9 @@ export async function GET(request: Request) {
       }
     })
 
+    // 주말(토/일) 출근일 + 출근보고 작성자 0명 → 그 팀 알림 스킵 (전원 미보고면 발송 안 함)
+    if (isWeekendDate(targetDate) && members.every(m => !m.hasReport)) return null
+
     // 이 팀에 속한 사용자들의 내일 캘린더 일정 모음 (email 매칭)
     const calendarEvents: Array<{
       name: string
@@ -163,7 +167,7 @@ export async function GET(request: Request) {
       members,
       calendarEvents,
     })
-  })
+  }).filter((p): p is Promise<void> => p !== null)
 
   await Promise.allSettled(promises)
 

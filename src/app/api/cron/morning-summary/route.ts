@@ -22,6 +22,7 @@ import { fetchOrgCalendarLookup } from '@/lib/org-calendar/lookup'
 import { parseLeaveLabel } from '@/lib/leave-timeline'
 import type { LeaveType, LeaveTimeline } from '@/types/leave-timeline'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
+import { isWeekendDate } from '@/lib/utils/date'
 import type { WorkLocations } from '@/types/work-locations-v2'
 
 /** planned_work_locations(WorkLocations 배열) → 표시용 string ("사무실 → 재택") */
@@ -303,6 +304,9 @@ export async function GET(request: Request) {
       }
     })
 
+    // 주말(토/일) + 출근보고 작성자(completedSection) 0명 → 그 팀 알림 스킵 (전원 미보고면 발송 안 함)
+    if (isWeekendDate(todayDate) && completedSection.length === 0) return null
+
     return notifyMorningSummary({
       division:   group.division,
       team:       group.team,
@@ -318,7 +322,7 @@ export async function GET(request: Request) {
       // legacy 필드는 빈 배열로 유지 (타입 호환)
       todayCheckins: completedSection.map(c => ({ name: c.name, status: c.status })),
     })
-  })
+  }).filter((p): p is Promise<void> => p !== null)
 
   await Promise.allSettled(promises)
 

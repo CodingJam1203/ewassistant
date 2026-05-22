@@ -9,6 +9,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyDailyCheckinReminder } from '@/lib/notifications/teams'
 import { formatNightlyCheckinStatus } from '@/lib/notifications/messages'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
+import { isWeekendDate } from '@/lib/utils/date'
 import type { WorkLocations } from '@/types/work-locations-v2'
 
 /** planned_work_locations(WorkLocations 배열) → 표시용 string ("사무실 → 재택") */
@@ -125,13 +126,15 @@ export async function GET(request: Request) {
         hasReport: !!c,
       }
     })
+    // 주말(토/일) 출근일 + 출근보고 작성자 0명 → 그 팀 알림 스킵 (전원 미보고면 발송 안 함)
+    if (isWeekendDate(targetDate) && members.every(m => !m.hasReport)) return null
     return notifyDailyCheckinReminder('daily_checkin_reminder_20', {
       division:   group.division,
       team:       group.team,
       targetDate,
       members,
     })
-  })
+  }).filter((p): p is Promise<void> => p !== null)
 
   await Promise.allSettled(promises)
 
