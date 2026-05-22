@@ -110,7 +110,7 @@ export default function PrivacyPage() {
         <section>
           <h2 className="text-xl font-bold text-text-primary mt-8 mb-4">10. 처리방침의 변경</h2>
           <p>본 개인정보 처리방침은 서비스 운영 정책, 법령 변경, 기능 추가에 따라 변경될 수 있습니다.</p>
-          <p>처리방침이 변경되는 경우 서비스 내 공지 또는 재동의 절차를 통해 안내합니다.</p>
+          <p>처리방침이 변경되는 경우 시행일 및 변경 내용을 서비스 내 공지를 통해 안내합니다.</p>
         </section>
 
         <p className="mt-8 pt-8 border-t text-sm text-text-muted">
