@@ -26,7 +26,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isKoreanHoliday, isSaturday, isSunday } from '@/lib/kr-holidays'
-import { getKstWorkDateString } from '@/lib/utils/date'
+import { getKstTodayDateString } from '@/lib/utils/date'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 import { DIVISION_DIRECT_FILTER } from '@/lib/org'
 
@@ -90,8 +90,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'from must be <= to' }, { status: 400 })
     }
 
-    // 근무일 경계(07시) 기준 — 새벽 근무 연장을 전날로 보아 누락 판정 07시까지 유예
-    const today = getKstWorkDateString()
+    // 달력 자정 기준 — 자정 넘긴 전날 미보고는 즉시 누락 후보 (v1.42)
+    const today = getKstTodayDateString()
     // 오늘은 아직 퇴근 시간 전일 수 있어 미보고 게이트 외부.
     // → 미보고 후보는 어제까지만. (submission-status와 동일 정책)
     const yesterday = addDays(today, -1)

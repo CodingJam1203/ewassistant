@@ -16,7 +16,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getKstWorkDateString } from '@/lib/utils/date'
+import { getKstTodayDateString } from '@/lib/utils/date'
 import { isKoreanHoliday, isSaturday, isSunday } from '@/lib/kr-holidays'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
@@ -33,8 +33,8 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // 근무일 경계(07시) 기준 — 새벽 근무 중인 전날은 07시 전까지 누락으로 잡지 않음
-    const today = getKstWorkDateString()
+    // 달력 자정 기준 — 자정 넘긴 전날 미보고는 즉시 퇴근누락으로 잡아 미보고 팝업 노출 (v1.42)
+    const today = getKstTodayDateString()
     const earliest = (() => {
       // UTC로 파싱해야 setUTCDate가 KST 날짜 단위로 정확히 동작.
       // (+09:00로 파싱하면 UTC에선 전날 15시가 되어 1일 어긋남)
