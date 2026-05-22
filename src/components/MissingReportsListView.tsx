@@ -22,6 +22,7 @@ import type {
   MissingReportsResponse,
   MissingStatus,
 } from '@/app/api/missing-reports/route'
+import { DIVISION_DIRECT_LABEL } from '@/lib/org'
 
 interface Props {
   /** YYYY-MM-DD */
@@ -252,7 +253,7 @@ function MissingRow({ item, isSelf, canSendNotify, sending, result, onSend }: Ro
           </span>
         )}
         <span className="ml-2 text-[12px] text-text-secondary font-normal">
-          {item.division ?? '—'} {item.team ? `/ ${item.team}` : ''}
+          {item.division ?? '—'} {item.division ? `/ ${item.team?.trim() || DIVISION_DIRECT_LABEL}` : (item.team ?? '')}
         </span>
       </span>
 

@@ -18,6 +18,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyLocationChanged } from '@/lib/notifications/teams'
+import { resolveRoutingTeam } from '@/lib/org'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import { normalizeWorkLocations } from '@/lib/work-locations-v2'
 import type { WorkLocations } from '@/types/work-locations-v2'
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
     const [profileRes, dailyRes] = await Promise.all([
       adminClient
         .from('user_profiles')
-        .select('id, display_name, division, team')
+        .select('id, display_name, division, team, notify_team')
         .eq('email', user.email)
         .maybeSingle(),
       adminClient
@@ -94,7 +95,8 @@ export async function POST(request: Request) {
       currentLabel,
       currentIndex,
       division: profile?.division ?? null,
-      team: profile?.team ?? null,
+      // 본부 직속(team 없음) → admin 지정 notify_team으로 라우팅
+      team: resolveRoutingTeam(profile?.team, profile?.notify_team) || null,
     })
 
     return NextResponse.json({ ok: true })

@@ -9,6 +9,7 @@ import { normalizeWorkLocations } from '@/lib/work-locations-v2'
 import type { LeaveTimeline, LeaveType } from '@/types/leave-timeline'
 import type { CalendarEventChunk } from '@/types/leave-calendar'
 import { computeEffectiveActualStart } from '@/lib/work-log-state'
+import { DIVISION_DIRECT_FILTER } from '@/lib/org'
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
 
@@ -214,7 +215,12 @@ export async function GET(request: Request) {
       profileQuery = profileQuery.eq('email', user.email!)
     } else {
       if (filterDivision) profileQuery = profileQuery.eq('division', filterDivision)
-      if (filterTeam)     profileQuery = profileQuery.eq('team',     filterTeam)
+      if (filterTeam === DIVISION_DIRECT_FILTER) {
+        // 본부 직속 — team이 NULL이거나 빈 문자열인 인원
+        profileQuery = profileQuery.or('team.is.null,team.eq.')
+      } else if (filterTeam) {
+        profileQuery = profileQuery.eq('team', filterTeam)
+      }
     }
 
     const { data: profiles, error: profileErr } = await profileQuery
@@ -466,6 +472,12 @@ export async function GET(request: Request) {
 
       const dCmp = (a.division ?? '').localeCompare(b.division ?? '')
       if (dCmp !== 0) return dCmp
+
+      // 본부 직속(team 없음)은 같은 본부 안에서 일반 팀들보다 앞에 배치 (사용자 요구 2026-05-22).
+      // is_self는 위에서 이미 최상단 고정되므로 직속 그룹에서 본인은 자연히 빠진다.
+      const aDirect = !((a.team ?? '').trim())
+      const bDirect = !((b.team ?? '').trim())
+      if (aDirect !== bDirect) return aDirect ? -1 : 1
 
       const aTeamSort = teamSortMap.get(`${a.division ?? ''}::${a.team ?? ''}`) ?? 999
       const bTeamSort = teamSortMap.get(`${b.division ?? ''}::${b.team ?? ''}`) ?? 999

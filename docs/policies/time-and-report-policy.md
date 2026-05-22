@@ -97,6 +97,34 @@ N-Click의 시간 데이터(출근예정·퇴근예정·실제출근·실제퇴�
 | 캘린더 셀 클릭 — 기존 row 수정 | `PATCH /api/work-logs/[id]` (`_editScope` 가드) | 동일 모달 재사용 | ✅ |
 | 미보고 배너 | `GET /api/my/missed-checkout` → 퇴근 모달 자동 prefill | `MissingReportsSummary.tsx` | ✅ |
 
+### 2.6 본부 직속(팀 미배정) 인원 (v1.40, 2026-05-22)
+
+본부(`division`)에는 속하지만 팀(`team`)이 배정되지 않은 인원의 조직 개념·뷰·알림 정책. 사용자 결정(2026-05-22) 박제.
+
+**조직 모델 — team=NULL 유지 + 가상 그룹**
+
+- 데이터상 **`division` 채워짐 + `team` NULL/`''`** = "본부 직속". `org_teams`에 별도 row를 만들지 않고 코드 레벨 가상 그룹으로 취급.
+- 공통 헬퍼 `src/lib/org.ts` — `isDivisionDirect(p)`, `DIVISION_DIRECT_LABEL`('본부 직속'), `resolveRoutingTeam(team, notifyTeam)`, `DIVISION_DIRECT_FILTER`(필터 sentinel).
+- **역할 충돌 없음** — `admin-check.ts`는 `role='leader' + team 없음`을 본부장(division scope)으로 해석하지만, 본부 직속 *일반 멤버*는 `role='user' + team 없음`이라 `role` 필드로 자연 구분. (단 실 운영상 "본부장" 개념은 폐기 — 리더는 팀장·파트장·부팀장 등 팀 단위 직책. 본부 직속 인원의 관리/알림 권한은 admin이 지정한 `notify_team`의 팀 리더 + admin.)
+
+**알림 라우팅 — 인원별 admin 지정 `notify_team`**
+
+- 신규 컬럼 `user_profiles.notify_team`(+`pre_approved_emails.notify_team`, TEXT NULL, 마이그레이션 034). admin이 본부 직속 인원마다 "알림 받을 팀"을 지정.
+- `team`이 비면 출/퇴근 보고·미보고 nudge·cron(아침요약·22시 리마인더) 모두 `notify_team`을 effective team으로 치환해 그 팀 Teams 채널로 라우팅. `team`이 있으면 `notify_team`은 무시.
+- 치환 지점 — 실시간 알림은 각 호출처가 페이로드 `team`을 `team || notify_team`으로 채움(`work-logs` POST/PATCH/DELETE, check-in, location/notify, break-start/end). cron은 `(division, team||notify_team)`으로 그룹핑 키 결정 → 본부 직속 인원이 지정 팀 요약/리마인더에 합류.
+- `notify_team`도 없으면 라우팅 skip — `notification_logs`에 SKIPPED 기록(드롭 silent 방지).
+- work_log row의 `team` 컬럼은 스냅샷이라 본부 직속이면 NULL → 수정/삭제 알림은 작성자(`user_id`/`user_email`)의 `notify_team`을 조회해 치환(`work-logs/[id]/route.ts:resolveRoutingTeamForLog`).
+
+**뷰 노출**
+
+- 둘러보기/팀 현황(`team-status`) — 카드 라벨 "본부 / 본부 직속". 정렬: `is_self` 최상단 → 같은 본부 안에서 **본부 직속 그룹을 일반 팀들보다 앞**(본인은 상단 고정이라 직속 그룹에서 제외). 팀 없는 사용자는 `mine_team` 진입 시 자기 division 전체가 노출(default 본부 전체).
+- 팀 필터 드롭다운 — "본부 직속" 옵션(`DIVISION_DIRECT_FILTER` sentinel → 백엔드 `team IS NULL/''` 조건). team-status·미보고 현황(`history` 페이지)·제출내역(`work-log-submissions`) 모두 동일 처리.
+
+**알림 권한 (미보고 nudge)**
+
+- admin: 제한 없음. team-scope 리더: 대상의 effective team(=`notify_team`)이 본인 팀과 같을 때만. division-scope 리더(잔존): 본인 본부일 때. → admin이 지정한 `notify_team`의 팀 리더가 본부 직속 인원을 관리.
+- 관련 파일 — `src/lib/org.ts`, `src/app/api/admin/users/route.ts`·`[id]/route.ts`(notify_team CRUD), `src/app/admin/page.tsx`(편집·등록 모달의 본부 직속 알림팀 드롭다운).
+
 ---
 
 ## 3. 보고 유형별 기본 정책
@@ -426,6 +454,7 @@ N-Click에는 성격이 다른 캘린더 뷰가 3종 존재한다. 코드·UI·�
 | **023** | `023_work_logs_time_4cols.sql` | **4 컬럼 추가 (nullable, default 없음)** — Stage 0-1 |
 | **024** | `024_backfill_unified_time_columns.sql` | **옛 분리 row + daily_work_status → 단일 row 4 컬럼 backfill** — Stage 0-3 |
 | **025** | `025_work_logs_user_date_unique.sql` | **partial unique index** `(user_email, leave_date) WHERE is_deleted=false` — §12 D2 보강 |
+| **034** | `034_user_profiles_notify_team.sql` | **`user_profiles.notify_team` + `pre_approved_emails.notify_team`** (TEXT NULL) — 본부 직속 인원 알림 라우팅 (§2.6) |
 
 ---
 
@@ -610,6 +639,7 @@ N-Click에는 성격이 다른 캘린더 뷰가 3종 존재한다. 코드·UI·�
 | 2026-05-18 | v1.27 | **운영 규칙 변경 — STG 환경 영구 미사용** (시간/보고 정책 자체 변경 없음, Task Board 머신 운영 결정). 사용자 명시: "STG는 사용 안 하는 거로 하자. 앞으로 stg 배포는 스킵해 크레딧 아깝다. 삭제하진 말고 그냥 방치." 배포 흐름은 **dev → main fast-forward 직진**이 default. stg 브랜치는 방치(merge·삭제 X). CLAUDE.md / AGENTS.md Task Board 상태 머신 §A·§C STG 행에 🚫 표식 + §E 첫 단축이 default로 박제. memory `feedback-skip-stg` 영구 기록. §E 필수 가드(PROD DB 마이그레이션 사전 점검 등)는 그대로 살아있음 — DEV에서만 검증되고 바로 PROD로 가므로 더더욱 중요. | Claude |
 | 2026-05-18 | v1.26 | **야근 임계 정의 명확화 — ≥ 480분 → > 480분** — 사용자 명시: "8시간 이상이 아니라 초과로 가자". 정확히 8시간 근무(예: 9:00~18:00 + 점심 60분 = 실근무 480분)는 야근 표식 제외. 조치 — ① `morning-summary/route.ts:301` 비교 연산자 `>=` → `>`. ② `route.ts:196`/`types.ts:229`/`messages.ts:583` JSDoc·inline 주석 일괄 갱신. ③ 본 정책서·PRD "아침 요약 발송" 페이지 규칙·정책 섹션 야근 판정식 갱신. 임계값 480 자체는 동일. §E 단축 트리거 검토 별도. | Claude |
 | 2026-05-18 | v1.25 | **morning-summary 야근 판정·표시 SoT 정정** — 사용자 보고: 아침 워크플로 카드의 "어제 퇴근 보고"에서 ⚠️ 야근 표식 및 "9:30~18:30 (00:00)" 형식의 시각 표시가 출근예정/퇴근예정 기반으로 계산됨. 근본 원인: 정책서 §2 시간 4종 분리(`actual_start_time`/`actual_end_time` = 실제 SoT) 이후에도 `/api/cron/morning-summary` 라우트가 legacy `start_time`/`end_time` 컬럼만 SELECT. `src/app/api/work-logs/route.ts:339-343` UPDATE 분기에서 legacy 컬럼이 보존(=출근예정/퇴근예정 의미)되므로 퇴근보고 수정 케이스에서 데이터 소스가 어긋남. 조치 — ① `morning-summary/route.ts:153` SELECT에 `actual_start_time, actual_end_time` 추가 + `pickActualTime()` helper로 actual 우선·legacy fallback. ② `messages.ts` `formatMorningWorklogStatus` 시그니처를 `string \| null` 허용 + 둘 다 NULL이면 `❌` 표시. ③ `computeActualMinutes` 호출 인자가 actual 기반으로 자동 교체. 정책 자체 변경 없음 — 야근 임계 8h(480분) 유지. 구현 보강. | Claude |
+| 2026-05-22 | v1.40 | **본부 직속(팀 미배정) 인원 — 조직 개념·뷰·알림 라우팅** — 본부에만 속하고 팀 없는 인원([티켓](https://www.notion.so/368e23a15c0181beb111ce96b0af84d0)). 사용자 결정 박제. ① 조직 모델 — team=NULL 유지 + 코드 가상 그룹 '본부 직속'(`src/lib/org.ts` 신설: `isDivisionDirect`/`DIVISION_DIRECT_LABEL`/`resolveRoutingTeam`/`DIVISION_DIRECT_FILTER`). org_teams row 추가 X. ② 알림 라우팅 — `user_profiles.notify_team`+`pre_approved_emails.notify_team` 신규 컬럼(마이그레이션 034). admin이 인원별로 '알림 받을 팀' 지정 → team 비면 notify_team으로 치환해 그 팀 채널 라우팅. 실시간 알림 6경로(work-logs POST/PATCH/DELETE·check-in·location/notify·break-start/end) 페이로드 team 치환 + cron 2개(morning-summary·reminder-22) 그룹핑 키 `team||notify_team`(종전 `!team continue`가 본부 직속 통째 제외하던 버그 동시 fix). notify_team 미지정 시 SKIPPED 로깅. ③ 뷰 — team-status 카드 '본부/본부 직속' 라벨 + 본부 전체 정렬에서 직속 그룹 맨 앞(본인 제외), 팀 필터에 '본부 직속' 옵션(team-status·history·work-log-submissions 공통). ④ 권한 — 미보고 nudge는 admin + notify_team 팀 리더. ⑤ admin 편집/등록 모달에 본부 직속 알림팀 드롭다운. §2.6 신설. **PROD DB 마이그레이션 포함 — §E 가드대로 사전 점검 후 적용.** | Claude |
 | 2026-05-22 | v1.39 | **주말 정기 알림 스킵 — 대상 출근일 토/일 + 출근보고 0명이면 팀 알림 미발송** — 사용자 제안. 디자인크리에이티브3파트 토요일 출근보고 알림이 전원 미보고(보고 0/미보고 4)로 발송돼 노이즈. 조치 — `src/lib/utils/date.ts` `isWeekendDate(dateStr)` 신설(토6/일0 판정, 달력 날짜 기준). 3개 cron(`morning-summary`/`reminder-20`/`reminder-22`)의 팀별 발송 루프에서 **대상 출근일이 주말 && 그 팀 출근보고 작성자 0명이면 그 팀 promise를 null 반환 → `.filter`로 제외**. 대상일: morning-summary=todayDate(오늘), reminder=targetDate(내일). 카운트 기준은 **출근보고 작성자만**(morning-summary `completedSection`, reminder `members.hasReport`) — 휴가/반차만 있고 출근보고 0인 팀도 스킵(사용자 결정). 평일 대상 알림·일부라도 출근보고 있는 팀은 종전대로 발송. §2.4 갱신. DB 변경 없음. | Claude |
 | 2026-05-21 | v1.38 | **메모(work_content) 확장 — D+1 출근보고 메모란 + 둘러보기 카드 노출 + 출근 알림 포함 + 신규 퇴근보고 prefill** — 사용자 즉석 지시. ① **D+1 출근보고 메모란 신설**: 당일 퇴근보고+다음날 출근보고 동시 제출(WorkLogForm 출근보고진행 영역)에 메모 입력란이 없던 것 추가(`expectedWorkContent`) → work-logs POST D+1 row의 `work_content`에 저장. ② **둘러보기 카드 메모 노출**: team-status가 반환하던 `work_content`를 `team/page.tsx` grid 카드에 표시(종전 미노출). ③ **출근 알림에 메모**: `notifyCheckinSubmitted` 경로(출근보고/완료/수정 공통)에 메모 추가 — `CheckinNotifyPayload.workContent` + check-in route notify payload + `checkin_submitted` 메시지 라인(근무 케이스만, 종일휴가 제외). 퇴근보고 알림은 이미 근무내용 포함. ④ **덮어쓰기 완화**: 출근/퇴근 메모가 같은 `work_logs.work_content` 컬럼 공유(옵션 A, 마이그레이션 없음) → 신규 퇴근보고 작성 시 그날 아침 출근 메모를 prefill(`WorkLogForm.initialWorkContent` ← `WorkLogModal` ← home `checkOutTarget.work_content`)해 이어쓰기. §2.4 갱신. DB 변경 없음. | Claude |
 | 2026-05-21 | v1.37 | **출근보고 자정 넘김(allowNextDay) Invalid Date 잔존 케이스 보강** — v1.34에서 "`team-status/check-in`의 actualCheckInTime은 출근시각이라 24h 초과 비현실적 → 미변경"이라 판단했으나, 실제출근 input에 `allowNextDay`가 있어 사용자가 새벽 자정 넘긴 출근(예 24:30)을 입력할 수 있음 → [check-in/route.ts:384-386](src/app/api/team-status/check-in/route.ts) `new Date(\`${date}T${actualCheckInTime}:00+09:00\`)` 가 Invalid Date → `.toISOString()` throw → 500 가능. 조치 — `kstHHmmToIso(date, actualCheckInTime)`로 교체(v1.34 work-logs 라우트와 동일 헬퍼). 정책 변경 없음 — 구현 가드 보강. DB 변경 없음. | Claude |

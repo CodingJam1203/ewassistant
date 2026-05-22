@@ -17,6 +17,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyMorningSummary } from '@/lib/notifications/teams'
+import { resolveRoutingTeam } from '@/lib/org'
 import { formatMorningWorklogStatus, formatMorningCheckinStatus } from '@/lib/notifications/messages'
 import { fetchOrgCalendarLookup } from '@/lib/org-calendar/lookup'
 import { parseLeaveLabel } from '@/lib/leave-timeline'
@@ -51,6 +52,7 @@ interface UserRow {
   display_name: string | null
   division: string | null
   team: string | null
+  notify_team: string | null
   display_order: number | null
 }
 
@@ -77,7 +79,7 @@ export async function GET(request: Request) {
 
   const { data: usersRaw } = await adminClient
     .from('user_profiles')
-    .select('email, display_name, division, team, display_order')
+    .select('email, display_name, division, team, notify_team, display_order')
     .eq('is_active', true)
     .order('display_order', { ascending: true, nullsFirst: false })
     .order('division', { ascending: true })
@@ -211,12 +213,15 @@ export async function GET(request: Request) {
   })
 
   // ─── 팀별 그루핑 ────────────────────────────────────────────────────────────
+  // 본부 직속(team 없음)은 admin 지정 notify_team으로 effective team을 잡아 해당 팀 그룹에 합류 →
+  // 그 팀 출근보고 채널 아침요약에 함께 노출. division도 notify_team도 없으면 제외.
   const teamGroups = new Map<string, { division: string; team: string; users: UserRow[] }>()
   for (const u of users) {
-    if (!u.division || !u.team) continue
-    const key = `${u.division}||${u.team}`
+    const effTeam = resolveRoutingTeam(u.team, u.notify_team)
+    if (!u.division || !effTeam) continue
+    const key = `${u.division}||${effTeam}`
     if (!teamGroups.has(key)) {
-      teamGroups.set(key, { division: u.division, team: u.team, users: [] })
+      teamGroups.set(key, { division: u.division, team: effTeam, users: [] })
     }
     teamGroups.get(key)!.users.push(u)
   }

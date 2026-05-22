@@ -24,6 +24,7 @@
 import { NextResponse } from 'next/server'
 import { requireActiveUser } from '@/lib/admin-check'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { DIVISION_DIRECT_FILTER } from '@/lib/org'
 
 export async function GET(request: Request) {
   try {
@@ -73,7 +74,12 @@ export async function GET(request: Request) {
     } else {
       // 누구든 조직 전체 조회 가능. 필터 자유.
       if (filterDivision) query = query.eq('division', filterDivision)
-      if (filterTeam)     query = query.eq('team',     filterTeam)
+      if (filterTeam === DIVISION_DIRECT_FILTER) {
+        // 본부 직속 — team이 NULL이거나 빈 문자열인 인원
+        query = query.or('team.is.null,team.eq.')
+      } else if (filterTeam) {
+        query = query.eq('team', filterTeam)
+      }
     }
 
     if (filterFrom) query = query.gte('target_date', filterFrom)

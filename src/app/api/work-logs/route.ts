@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateEw } from '@/lib/ew-calculator'
 import { requireActiveUser } from '@/lib/admin-check'
 import { notifyWorkLogSubmitted, notifyCheckoutResubmitted } from '@/lib/notifications/teams'
+import { resolveRoutingTeam } from '@/lib/org'
 
 // 알림 발송(notifyWorkLogSubmitted)이 fire-and-forget 패턴 + sendToMake retry(최대 31.5s).
 // 응답 후 Vercel function grace period 안에 retry promise가 완주하도록 30s 확보.
@@ -255,15 +256,17 @@ export async function POST(request: Request) {
 
     let userDivision: string | null = null
     let userTeam: string | null = null
+    let userNotifyTeam: string | null = null
     try {
       const adminClientForProfile = createAdminClient()
       const { data: profileSnap } = await adminClientForProfile
         .from('user_profiles')
-        .select('division, team')
+        .select('division, team, notify_team')
         .eq('id', user.id)
         .single()
       userDivision = profileSnap?.division ?? null
       userTeam = profileSnap?.team ?? null
+      userNotifyTeam = profileSnap?.notify_team ?? null
     } catch {
       // 무시
     }
@@ -648,7 +651,8 @@ export async function POST(request: Request) {
       expectedWorkLocation: firstChipLabel(plannedWorkLocations) || null,
       expectedTimeline,
       division: userDivision,
-      team: userTeam,
+      // 본부 직속(team 없음)이면 admin 지정 notify_team으로 라우팅 치환 (DB row의 team은 NULL 유지)
+      team: resolveRoutingTeam(userTeam, userNotifyTeam) || null,
     }
 
     // Stage 6 — 동시 제출 시 알림 채널 통일:

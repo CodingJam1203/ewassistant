@@ -5,6 +5,7 @@ import { getKstTodayDateString } from '@/lib/utils/date'
 import { kstHHmmToIso } from '@/lib/utils/kst-datetime'
 import { calculateEw } from '@/lib/ew-calculator'
 import { notifyCheckinSubmitted } from '@/lib/notifications/teams'
+import { resolveRoutingTeam } from '@/lib/org'
 
 // 알림 발송(notifyCheckinSubmitted)이 fire-and-forget + sendToMake retry(최대 31.5s).
 // 응답 후 Vercel function grace period 안에 retry promise 완주하도록 30s 확보.
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
 
     const { data: profile } = await adminClient
       .from('user_profiles')
-      .select('id, email, display_name, division, team')
+      .select('id, email, display_name, division, team, notify_team')
       .eq('email', user.email!)
       .single()
 
@@ -536,7 +537,8 @@ export async function POST(request: Request) {
         expectedEndTime:   plannedStartUnreported ? null : endTime,
         workContent: workContent || null,
         division: profile?.division ?? null,
-        team: profile?.team ?? null,
+        // 본부 직속(team 없음) → admin 지정 notify_team으로 라우팅
+        team: resolveRoutingTeam(profile?.team, profile?.notify_team) || null,
       })
     }
 

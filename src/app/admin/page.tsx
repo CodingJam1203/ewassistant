@@ -26,6 +26,8 @@ interface UserProfile {
   display_name: string | null
   division: string | null
   team: string | null
+  /** 본부 직속(team 없음) 인원의 알림 라우팅 대상 팀명. team이 있으면 무시. */
+  notify_team: string | null
   role: string
   is_active: boolean
   display_order: number
@@ -366,6 +368,7 @@ function EditUserModal({
     display_name: user.display_name ?? '',
     division: user.division ?? '',
     team: user.team ?? '',
+    notify_team: user.notify_team ?? '',
     role: user.role,
     is_active: user.is_active,
     display_order: user.display_order ?? 999,
@@ -378,9 +381,9 @@ function EditUserModal({
   // 선택된 본부의 팀 목록
   const availableTeams = org.find(d => d.name === form.division)?.teams ?? []
 
-  // 본부 변경 시 팀 초기화
+  // 본부 변경 시 팀·알림팀 초기화
   const handleDivisionChange = (divName: string) => {
-    setForm(p => ({ ...p, division: divName, team: '' }))
+    setForm(p => ({ ...p, division: divName, team: '', notify_team: '' }))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -413,6 +416,8 @@ function EditUserModal({
           display_name: form.display_name.trim() || null,
           division: form.division || null,
           team: form.team || null,
+          // 본부 직속(팀 없음)일 때만 의미 — 팀이 있으면 빈 값으로 정리
+          notify_team: form.team ? null : (form.notify_team || null),
           role: form.role,
           is_active: form.is_active,
           display_order: sanitizedOrder,
@@ -501,6 +506,29 @@ function EditUserModal({
             </div>
           </div>
 
+          {/* 본부 직속(팀 없음) — 알림 받을 팀 지정 */}
+          {form.division && !form.team && (
+            <div className="rounded-lg border border-warning-border bg-warning-bg/30 px-3 py-2.5">
+              <label className="block text-xs font-medium text-text-secondary mb-1">
+                알림 받을 팀 <span className="text-warning-text">(본부 직속)</span>
+              </label>
+              <select
+                value={form.notify_team}
+                onChange={e => set('notify_team', e.target.value)}
+                disabled={availableTeams.length === 0}
+                className="w-full border border-border-strong rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-surface-muted disabled:text-text-muted"
+              >
+                <option value="">선택 안 함 (알림 발송 안 됨)</option>
+                {availableTeams.map(t => (
+                  <option key={t.id} value={t.name}>{t.name}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] text-text-muted leading-snug">
+                팀이 없는 본부 직속 인원입니다. 출/퇴근 보고·미보고 알림이 여기서 고른 팀의 Teams 채널로 전송됩니다. 미지정 시 알림이 발송되지 않습니다.
+              </p>
+            </div>
+          )}
+
           {/* 권한 + 상태 */}
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -570,7 +598,7 @@ function EditUserModal({
 // ─── 사전 등록 폼 ─────────────────────────────────────────────────────────────
 
 function RegisterForm({ org, onDone }: { org: OrgDivision[]; onDone: () => void }) {
-  const [form, setForm] = useState({ email: '', display_name: '', division: '', team: '', role: 'user' })
+  const [form, setForm] = useState({ email: '', display_name: '', division: '', team: '', notify_team: '', role: 'user' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -586,7 +614,8 @@ function RegisterForm({ org, onDone }: { org: OrgDivision[]; onDone: () => void 
       const res = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        // 팀이 있으면 notify_team은 무의미 → 비움
+        body: JSON.stringify({ ...form, notify_team: form.team ? '' : form.notify_team }),
       })
       const data = await res.json()
       if (res.ok) onDone()
@@ -617,7 +646,7 @@ function RegisterForm({ org, onDone }: { org: OrgDivision[]; onDone: () => void 
         <div>
           <label className="block text-xs font-medium text-text-secondary mb-1">본부</label>
           <select value={form.division}
-            onChange={e => setForm(p => ({ ...p, division: e.target.value, team: '' }))}
+            onChange={e => setForm(p => ({ ...p, division: e.target.value, team: '', notify_team: '' }))}
             className="w-full border border-border-strong rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary-500">
             <option value="">선택 안 함</option>
             {org.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
@@ -632,6 +661,19 @@ function RegisterForm({ org, onDone }: { org: OrgDivision[]; onDone: () => void 
             {availableTeams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
           </select>
         </div>
+        {form.division && !form.team && (
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1">
+              알림 팀 <span className="text-warning-text">(본부 직속)</span>
+            </label>
+            <select value={form.notify_team} onChange={e => set('notify_team', e.target.value)}
+              disabled={availableTeams.length === 0}
+              className="w-full border border-border-strong rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:bg-surface-muted">
+              <option value="">선택 안 함</option>
+              {availableTeams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+            </select>
+          </div>
+        )}
         <div>
           <label className="block text-xs font-medium text-text-secondary mb-1">권한</label>
           <select value={form.role} onChange={e => set('role', e.target.value)}

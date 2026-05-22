@@ -8,7 +8,31 @@ import { calculateEw } from '@/lib/ew-calculator'
 // 2026-05-19 v1.21: notify await 대응 — sendToMake retry 최악 31.5s + DB 처리 여유.
 export const maxDuration = 60
 import { notifyWorkLogUpdatedSplit, notifyWorkLogDeleted } from '@/lib/notifications/teams'
+import { resolveRoutingTeam } from '@/lib/org'
 import { recordSubmission } from '@/lib/submission-log'
+
+/**
+ * work_log row의 알림 라우팅용 effective team 결정.
+ * row의 team이 있으면 그대로, 본부 직속(team 없음)이면 작성자의 notify_team으로 fallback.
+ * (work_log row의 team 컬럼 자체는 건드리지 않음 — 알림 라우팅에만 사용)
+ */
+async function resolveRoutingTeamForLog(
+  adminClient: ReturnType<typeof createAdminClient>,
+  log: { team?: string | null; user_id?: string | null; user_email?: string | null },
+): Promise<string> {
+  const raw = (log.team ?? '').trim()
+  if (raw) return raw
+  try {
+    let q = adminClient.from('user_profiles').select('notify_team')
+    if (log.user_id) q = q.eq('id', log.user_id)
+    else if (log.user_email) q = q.eq('email', log.user_email)
+    else return ''
+    const { data } = await q.maybeSingle()
+    return resolveRoutingTeam(null, data?.notify_team)
+  } catch {
+    return ''
+  }
+}
 import { recordAudit, extractRequestMeta } from '@/lib/audit-log'
 import type { ChangedField } from '@/lib/notifications/types'
 import { fmtTime, fmtBreak } from '@/lib/notifications/messages'
@@ -713,12 +737,15 @@ export async function PATCH(
           updatedByName = isOwner ? (log.name ?? '본인') : '관리자'
         }
 
+        // 본부 직속(team 없음)이면 작성자의 notify_team으로 라우팅 치환 (work_log row의 team은 NULL 유지)
+        const updateRoutingTeam = await resolveRoutingTeamForLog(adminClient, log)
+
         // 2026-05-19 v1.21: await — fire-and-forget 시 Vercel function 종료로 promise 끊김.
         await notifyWorkLogUpdatedSplit({
           name: body.name ?? log.name ?? '',
           leaveDate: body.leaveDate ?? log.leave_date ?? '',
           division: log.division ?? null,
-          team: log.team ?? null,
+          team: updateRoutingTeam || null,
           updatedByName,
           originalReportType,
           scheduledWorkDate,
@@ -900,7 +927,8 @@ export async function DELETE(
       breakTime: log.break_time ?? '00:00:00',
       workContent: log.work_content ?? null,
       division: log.division ?? null,
-      team: log.team ?? null,
+      // 본부 직속(team 없음)이면 작성자의 notify_team으로 라우팅 치환
+      team: (await resolveRoutingTeamForLog(adminClient, log)) || null,
     })
 
     try {

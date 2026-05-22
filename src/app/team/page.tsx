@@ -18,6 +18,16 @@ import { computeWorkLogState, buttonsForState } from '@/lib/work-log-state'
 import { resolveDisplayLocations, resolvePlannedLocations, chipLabel, formatChipsArrow } from '@/lib/work-locations-v2'
 import EditableLocationChips from '@/components/EditableLocationChips'
 import type { WorkLocations } from '@/types/work-locations-v2'
+import { DIVISION_DIRECT_LABEL, DIVISION_DIRECT_FILTER } from '@/lib/org'
+
+/** 카드 조직 라벨 — "본부 / 팀". 팀이 없으면(본부 직속) "본부 / 본부 직속". 둘 다 없으면 "-". */
+function formatOrgLabel(division: string | null, team: string | null): string {
+  const d = (division ?? '').trim()
+  const t = (team ?? '').trim()
+  if (!d && !t) return '-'
+  if (!d) return t
+  return `${d} / ${t || DIVISION_DIRECT_LABEL}`
+}
 
 type ViewMode = 'card' | 'list'
 
@@ -117,7 +127,7 @@ const MemberCard = memo(function MemberCard({
             )}
           </div>
           <p className="text-[12px] text-text-muted truncate mt-0.5">
-            {[card.division, card.team].filter(Boolean).join(' / ') || '-'}
+            {formatOrgLabel(card.division, card.team)}
           </p>
         </div>
         <div className="shrink-0 flex items-center gap-1">
@@ -424,7 +434,7 @@ const MemberListRow = memo(function MemberListRow({
           )}
         </div>
         <div className="text-[11px] text-text-muted truncate mt-0.5">
-          {[card.division, card.team].filter(Boolean).join(' / ') || '-'}
+          {formatOrgLabel(card.division, card.team)}
         </div>
       </Td>
 
@@ -861,6 +871,7 @@ export default function TeamPage() {
           >
             <option value="">전체 팀</option>
             {availableTeams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+            <option value={DIVISION_DIRECT_FILTER}>{DIVISION_DIRECT_LABEL}</option>
           </Select>
         </FilterBar.Field>
 

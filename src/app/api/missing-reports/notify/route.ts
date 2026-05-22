@@ -22,6 +22,7 @@ import { NextResponse } from 'next/server'
 import { requireLeaderOrAdmin } from '@/lib/admin-check'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyMissingReport } from '@/lib/notifications/teams'
+import { resolveRoutingTeam } from '@/lib/org'
 
 export const maxDuration = 30
 
@@ -57,7 +58,7 @@ export async function POST(request: Request) {
   // 1) 대상자 profile 조회
   const { data: targetProfile, error: targetErr } = await adminClient
     .from('user_profiles')
-    .select('email, display_name, division, team, is_active')
+    .select('email, display_name, division, team, notify_team, is_active')
     .eq('email', targetEmail)
     .maybeSingle()
   if (targetErr) {
@@ -72,15 +73,20 @@ export async function POST(request: Request) {
   }
   const division = (targetProfile.division ?? '').trim()
   const team = (targetProfile.team ?? '').trim()
-  if (!division || !team) {
+  // 본부 직속(team 없음)이면 admin이 지정한 notify_team으로 라우팅 + 권한 판정.
+  const effectiveTeam = resolveRoutingTeam(team, targetProfile.notify_team)
+  if (!division || !effectiveTeam) {
     return NextResponse.json({
-      error: '대상자의 본부/팀 정보가 없어 알림을 보낼 수 없습니다.',
+      error: team
+        ? '대상자의 본부/팀 정보가 없어 알림을 보낼 수 없습니다.'
+        : '본부 직속 인원은 알림 받을 팀(notify_team)이 지정되지 않아 알림을 보낼 수 없습니다. 관리자에게 알림 팀 지정을 요청하세요.',
     }, { status: 400 })
   }
 
-  // 2) scope 검증 — leader는 자기 범위 밖 알림 발송 금지
+  // 2) scope 검증 — leader는 자기 범위 밖 알림 발송 금지.
+  //   본부 직속 인원은 effectiveTeam(=admin 지정 notify_team)의 팀 리더가 관리 → 그 팀 scope로 판정.
   if (scope.kind === 'team') {
-    if (team !== scope.team) {
+    if (effectiveTeam !== scope.team) {
       return NextResponse.json({
         error: '본인 팀 멤버에게만 알림을 보낼 수 있습니다.',
       }, { status: 403 })
@@ -108,7 +114,7 @@ export async function POST(request: Request) {
     date,
     missingType,
     division,
-    team,
+    team: effectiveTeam,
     senderName,
   })
 

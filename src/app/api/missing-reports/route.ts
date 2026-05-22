@@ -28,6 +28,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { isKoreanHoliday, isSaturday, isSunday } from '@/lib/kr-holidays'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import type { LeaveTimeline } from '@/types/leave-timeline'
+import { DIVISION_DIRECT_FILTER } from '@/lib/org'
 
 export const maxDuration = 30
 
@@ -103,7 +104,12 @@ export async function GET(request: Request) {
       .select('email, display_name, division, team, created_at, is_active')
       .eq('is_active', true)
     if (division) profilesQuery = profilesQuery.eq('division', division)
-    if (team) profilesQuery = profilesQuery.eq('team', team)
+    if (team === DIVISION_DIRECT_FILTER) {
+      // 본부 직속 — team이 NULL이거나 빈 문자열인 인원
+      profilesQuery = profilesQuery.or('team.is.null,team.eq.')
+    } else if (team) {
+      profilesQuery = profilesQuery.eq('team', team)
+    }
     if (nameQ) profilesQuery = profilesQuery.ilike('display_name', `%${nameQ}%`)
     const { data: profiles, error: profilesErr } = await profilesQuery
     if (profilesErr) {

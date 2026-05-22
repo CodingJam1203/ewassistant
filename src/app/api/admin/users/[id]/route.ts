@@ -44,6 +44,7 @@ export async function PATCH(
     if (typeof body.display_name === 'string') preUpdates.display_name = body.display_name.trim() || null
     if (typeof body.division === 'string')     preUpdates.division     = body.division.trim() || null
     if (typeof body.team === 'string')         preUpdates.team         = body.team.trim() || null
+    if (typeof body.notify_team === 'string')  preUpdates.notify_team  = body.notify_team.trim() || null
     if (typeof body.role === 'string' && ['admin', 'leader', 'user'].includes(body.role)) {
       preUpdates.role = body.role
     }
@@ -147,6 +148,7 @@ export async function PATCH(
     if (typeof body.display_name === 'string') updates.display_name = body.display_name.trim() || null
     if (typeof body.division === 'string') updates.division = body.division.trim() || null
     if (typeof body.team === 'string') updates.team = body.team.trim() || null
+    if (typeof body.notify_team === 'string') updates.notify_team = body.notify_team.trim() || null
     if (typeof body.is_active === 'boolean') updates.is_active = body.is_active
     if (typeof body.display_order === 'number') updates.display_order = body.display_order
     if (typeof body.role === 'string' && !isBootstrapAdmin(target.email)) {
@@ -172,6 +174,7 @@ export async function PATCH(
   if (typeof body.display_name === 'string') updates.display_name = body.display_name.trim() || null
   if (typeof body.division === 'string') updates.division = body.division.trim() || null
   if (typeof body.team === 'string') updates.team = body.team.trim() || null
+  if (typeof body.notify_team === 'string') updates.notify_team = body.notify_team.trim() || null
   if (typeof body.is_active === 'boolean') updates.is_active = body.is_active
   if (typeof body.display_order === 'number') updates.display_order = body.display_order
   if (typeof body.role === 'string' && !isBootstrapAdmin(target.email)) {

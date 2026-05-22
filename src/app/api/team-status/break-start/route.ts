@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import { notifyBreakStarted } from '@/lib/notifications/teams'
+import { resolveRoutingTeam } from '@/lib/org'
 
 // 2026-05-19 v1.21: notify await 대응 — sendToMake retry 최악 31.5s + DB 처리 여유.
 export const maxDuration = 60
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
 
     const { data: profile } = await adminClient
       .from('user_profiles')
-      .select('id, display_name, division, team')
+      .select('id, display_name, division, team, notify_team')
       .eq('email', user.email!)
       .single()
 
@@ -72,7 +73,8 @@ export async function POST(request: Request) {
       breakAt: now,
       workLocation: existing.current_location ?? '',
       division: profile?.division ?? null,
-      team: profile?.team ?? null,
+      // 본부 직속(team 없음) → admin 지정 notify_team으로 라우팅
+      team: resolveRoutingTeam(profile?.team, profile?.notify_team) || null,
     })
 
     return NextResponse.json(daily)

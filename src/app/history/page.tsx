@@ -5,6 +5,7 @@ import { RefreshCw, Search, X } from 'lucide-react'
 import WorkLogModal from '@/components/WorkLogModal'
 import SubmissionsRawTable from '@/components/SubmissionsRawTable'
 import MissingReportsListView from '@/components/MissingReportsListView'
+import { DIVISION_DIRECT_LABEL, DIVISION_DIRECT_FILTER } from '@/lib/org'
 import {
   Button,
   FilterBar,
@@ -150,13 +151,14 @@ export default function HistoryPage() {
           <Select
             value={filterTeam}
             onChange={e => setFilterTeam(e.target.value)}
-            disabled={filterMine || !filterDivision || availableTeams.length === 0}
+            disabled={filterMine || !filterDivision}
             className="min-w-[140px]"
           >
             <option value="">전체 팀</option>
             {availableTeams.map(t => (
               <option key={t.id} value={t.name}>{t.name}</option>
             ))}
+            <option value={DIVISION_DIRECT_FILTER}>{DIVISION_DIRECT_LABEL}</option>
           </Select>
         </FilterBar.Field>
 

@@ -40,6 +40,7 @@ export async function GET() {
       display_name: profile.display_name ?? null,
       division: profile.division ?? null,
       team: profile.team ?? null,
+      notify_team: profile.notify_team ?? null,
       role: profile.role,
       is_active: profile.is_active,
       is_pre_registered: false,
@@ -62,6 +63,7 @@ export async function GET() {
     display_name: p.display_name ?? null,
     division: p.division ?? null,
     team: p.team ?? null,
+    notify_team: p.notify_team ?? null,
     role: p.role,
     is_active: true,
     is_pre_registered: true,
@@ -82,7 +84,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json()
-  const { email, display_name, division, team, role } = body
+  const { email, display_name, division, team, notify_team, role } = body
 
   if (!email || typeof email !== 'string' || !email.includes('@')) {
     return NextResponse.json({ error: '유효한 이메일을 입력해주세요.' }, { status: 400 })
@@ -121,6 +123,7 @@ export async function POST(request: Request) {
       display_name: display_name?.trim() || null,
       division: division?.trim() || null,
       team: team?.trim() || null,
+      notify_team: notify_team?.trim() || null,
       role: role === 'admin' ? 'admin' : role === 'leader' ? 'leader' : 'user',
     })
     .select()
