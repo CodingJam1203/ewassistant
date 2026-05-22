@@ -708,39 +708,61 @@ export default function WorkLogForm({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formValues.leaveDate])
 
-  // ─── 근무장소 prefill safety net (신규 퇴근보고) ──────────────────────────────
-  // 부모(카드)가 근무장소를 하나도 안 넘긴 경우, 그날 출근보고 row의 planned 위치를
-  // expected-timeline에서 직접 받아 actual 근무장소로 prefill.
-  // (시간 effect는 startTime/endTime만 채우고 근무장소는 부모 props에만 의존했던 갭 보완 —
-  //  카드의 planned_work_locations가 비어오면 기본값 '사무실'로 잘못 fallback되던 윤정인 5/22 케이스.)
-  // 부모가 actual/timeline/planned 중 하나라도 넘겼으면(정상·재제출·편집) 절대 건드리지 않음.
-  const locPrefillTriedRef = useRef(false)
+  // ─── "맨몸 경로" 신규 퇴근보고 prefill safety net ─────────────────────────────
+  // home의 캘린더/미완료-퇴근보고 팝업(calendarCheckOutDate) 경로는 WorkLogModal에
+  // date·userName만 넘기고 근무장소·메모·휴가 props를 안 넘긴다. 그래서 시간만 expected-timeline
+  // fetch로 채워지고 근무장소는 '사무실', 메모는 빈 값으로 잘못 fallback되던 갭(윤정인 5/22).
+  // → 부모가 위치 props를 하나도 안 넘긴 맨몸 경로일 때만, 그날 출근보고 row(expected-timeline)에서
+  //   근무장소 + 근무내용(메모) + 휴가를 직접 받아 prefill. 부모가 값을 넘긴 정상·재제출·편집 경로,
+  //   또는 사용자가 이미 건드린 필드는 절대 안 건드린다.
+  const barePrefillTriedRef = useRef(false)
   useEffect(() => {
     if (isEditing) return
-    if (locPrefillTriedRef.current) return
+    if (barePrefillTriedRef.current) return
     const date = formValues.leaveDate
     if (!date) return
-    // 부모가 위치 정보를 하나라도 넘겼는지 — 넘겼으면 그 값 우선, safety net 미발동
+    // 부모가 위치 정보를 하나라도 넘겼는지 — 넘겼으면 rich 경로 → safety net 미발동
     const propsHadLocation =
       !!normalizeWorkLocations(initialActualLocations ?? null)?.length ||
       !!legacyTimelineToLocations(initialTimeline ?? null)?.length ||
       !!normalizeWorkLocations(initialPlannedLocations ?? null)?.length
     if (propsHadLocation) return
-    if (formValues.actualWorkLocationsTouched) return
-    locPrefillTriedRef.current = true
+    barePrefillTriedRef.current = true
 
     const ac = new AbortController()
     fetch(`/api/team-status/expected-timeline?date=${encodeURIComponent(date)}`, { signal: ac.signal })
       .then(r => (r.ok ? r.json() : null))
-      .then((data: { plannedLocations?: WorkLocations | null; timeline?: WorkLocationTimeline | null } | null) => {
+      .then((data: {
+        plannedLocations?: WorkLocations | null
+        timeline?: WorkLocationTimeline | null
+        leaveTimeline?: LeaveTimeline | null
+        workContent?: string | null
+      } | null) => {
         if (!data) return
-        // fetch 사이 사용자가 직접 골랐으면 덮지 않음
-        if (formValues.actualWorkLocationsTouched) return
-        const locs = normalizeWorkLocations(data.plannedLocations ?? null)
-          ?? legacyTimelineToLocations(data.timeline ?? null)
-        if (locs && locs.length > 0) {
-          setValue('actualWorkLocations', locs, { shouldDirty: false, shouldValidate: false })
-          baselineActualRef.current = locs  // touched 비교 baseline 동기화 (prefill은 touched 아님)
+
+        // 1) 근무장소 — 사용자가 안 건드렸을 때만
+        if (!formValues.actualWorkLocationsTouched) {
+          const locs = normalizeWorkLocations(data.plannedLocations ?? null)
+            ?? legacyTimelineToLocations(data.timeline ?? null)
+          if (locs && locs.length > 0) {
+            setValue('actualWorkLocations', locs, { shouldDirty: false, shouldValidate: false })
+            baselineActualRef.current = locs  // touched 비교 baseline 동기화 (prefill은 touched 아님)
+          }
+        }
+
+        // 2) 근무내용(메모) — 그날 출근보고 메모 이어쓰기. 현재 비어있을 때만.
+        if (typeof data.workContent === 'string' && data.workContent.length > 0
+            && !(formValues.workContent && formValues.workContent.length > 0)) {
+          setValue('workContent', data.workContent, { shouldDirty: false, shouldValidate: false })
+        }
+
+        // 3) 휴가(N-Click) — 현재 비어있고 사용자가 안 건드렸을 때만.
+        //    Phase 1.5d 가드 정합 위해 baselineLeaveTimelineRef도 동기화 (prefill은 user 의도 아님).
+        if (Array.isArray(data.leaveTimeline) && data.leaveTimeline.length > 0
+            && !leaveTimelineUserTouchedRef.current
+            && ((formValues.leaveTimeline ?? []) as LeaveTimeline).length === 0) {
+          setValue('leaveTimeline', data.leaveTimeline, { shouldDirty: false, shouldValidate: false })
+          baselineLeaveTimelineRef.current = data.leaveTimeline
         }
       })
       .catch(() => { /* 무시 — default 유지 */ })
