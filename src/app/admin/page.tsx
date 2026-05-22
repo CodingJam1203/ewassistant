@@ -414,10 +414,12 @@ function EditUserModal({
         body: JSON.stringify({
           email: form.email.trim().toLowerCase(),
           display_name: form.display_name.trim() || null,
-          division: form.division || null,
-          team: form.team || null,
-          // 본부 직속(팀 없음)일 때만 의미 — 팀이 있으면 빈 값으로 정리
-          notify_team: form.team ? null : (form.notify_team || null),
+          // 빈 값은 빈 문자열로 전송 — 서버 PATCH는 typeof === 'string'일 때만 갱신하므로
+          // null을 보내면 "변경 안 함"으로 간주돼 기존 값이 유지됨(팀 비우기 불가 버그). 빈 문자열 → 서버에서 null로 정리.
+          division: form.division,
+          team: form.team,
+          // 본부 직속(팀 없음)일 때만 의미 — 팀이 있으면 빈 문자열로 정리(서버에서 null)
+          notify_team: form.team ? '' : form.notify_team,
           role: form.role,
           is_active: form.is_active,
           display_order: sanitizedOrder,
