@@ -292,6 +292,19 @@ export default function HomePage() {
       .catch(() => {})
   }, [])
 
+  // 새벽(00:00~07:00) 근무 연장으로 "전날(달력)" 미보고가 잡힌 케이스 — 누락 톤 대신 부드러운 안내.
+  // (이 시간대엔 아직 근무 중일 수 있어 "미완료/누락" 단정이 이름. 단 진짜 지난 누락일은 표준 문구 유지)
+  const missedIsOvernightGrace = (() => {
+    if (!missedCheckoutDate) return false
+    const now = new Date()
+    const kstHour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', hour12: false, hour: '2-digit' }).format(now)) % 24
+    if (kstHour >= 7) return false
+    const kstToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+    const [y, m, d] = kstToday.split('-').map(Number)
+    const kstYesterday = new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)
+    return missedCheckoutDate === kstYesterday
+  })()
+
   // ─── 본인 오늘 카드 ─────────────────────────────────────────────
   const fetchMyCard = useCallback(async () => {
     try {
@@ -509,13 +522,24 @@ export default function HomePage() {
               </div>
               <div className="min-w-0">
                 <h3 id="missed-checkout-title" className="text-base font-semibold text-text-primary">
-                  퇴근보고 미완료
+                  {missedIsOvernightGrace ? '퇴근보고 안내' : '퇴근보고 미완료'}
                 </h3>
                 <p className="mt-1 text-[13px] text-text-secondary leading-relaxed">
-                  <span className="font-semibold text-text-primary">{missedCheckoutDate}</span> 일자의
-                  퇴근보고가 아직 진행되지 않았습니다.
-                  <br />
-                  퇴근보고 및 EW 상신을 진행하시겠어요?
+                  {missedIsOvernightGrace ? (
+                    <>
+                      <span className="font-semibold text-text-primary">{missedCheckoutDate}</span> 근무에 대한
+                      퇴근보고가 아직 진행되지 않았습니다.
+                      <br />
+                      새벽 근무 중이시면 퇴근하실 때 보고해 주세요. 지금 진행하시겠어요?
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-semibold text-text-primary">{missedCheckoutDate}</span> 일자의
+                      퇴근보고가 아직 진행되지 않았습니다.
+                      <br />
+                      퇴근보고 및 EW 상신을 진행하시겠어요?
+                    </>
+                  )}
                 </p>
               </div>
             </div>
