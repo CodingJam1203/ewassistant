@@ -32,7 +32,10 @@ export default async function BlockedPage() {
           <p className="mt-2 text-sm text-text-secondary">
             비활성화된 계정입니다. 관리자에게 문의해주세요.
           </p>
-          <p className="mt-1 text-[12px] text-text-muted">{user.email}</p>
+          <p className="mt-2 text-sm text-text-secondary">
+            잠시 기다려주시면 승인해드리겠습니다.
+          </p>
+          <p className="mt-3 text-[13px] font-medium text-text-primary">문의 : NHR 김재민 선임매니저</p>
         </div>
 
         <form action={handleSignOut}>
