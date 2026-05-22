@@ -23,7 +23,7 @@ import * as z from 'zod'
 import { calculateEw, EwCalculationResult } from '@/lib/ew-calculator'
 import { Copy, Loader2 } from 'lucide-react'
 import { addDays } from 'date-fns'
-import { getKstTodayDateString, toKstDateString } from '@/lib/utils/date'
+import { getKstTodayDateString, getKstWorkDateString, toKstDateString } from '@/lib/utils/date'
 import { categorizeDate, getKoreanHolidayName, type DateCategory } from '@/lib/kr-holidays'
 import { DateInputWithDow } from '@/components/ui'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
@@ -541,13 +541,14 @@ export default function WorkLogForm({
 
   // 다음 출근 사전등록(D+1) 영역 hide 조건.
   //   - 퇴근보고 수정 (editScope='check_out'): 출근 영역 무관 → hide
-  //   - 신규 작성 + leaveDate != 오늘 (과거/미래): "동시 제출" 케이스 아님 → hide
+  //   - 신규 작성 + leaveDate != 근무일(오늘): "동시 제출" 케이스 아님 → hide
   //   - 출근보고 수정 (editingLog + editScope='check_in'): 이 영역이 곧 수정 대상이라 항상 노출
-  //   - 당일 + 신규 작성: D+1 사전등록 영역 노출
+  //   - 근무일(당일) + 신규 작성: D+1 사전등록 영역 노출
   // 지각/감사 마카롱은 항상 노출.
+  // 근무일 경계 07시 — 새벽(자정~07시) 퇴근보고도 전날 근무일로 보아 출근보고 동시 노출.
   const isCheckOutEdit = !!editingLog && editScope === 'check_out'
   const isCheckInEdit  = !!editingLog && editScope === 'check_in'
-  const todayKstForD1 = getKstTodayDateString()
+  const todayKstForD1 = getKstWorkDateString()
   const isTodayLeaveDate = ((formValues.leaveDate ?? todayKstForD1) as string) === todayKstForD1
   // 출근보고 수정 모드는 hide 예외 — D+1 영역이 사용자가 수정하려는 입력 자체
   const hideD1Section = isCheckOutEdit || (!isCheckInEdit && !isTodayLeaveDate)

@@ -20,7 +20,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isKoreanHoliday, getKoreanHolidayName, isSaturday, isSunday } from '@/lib/kr-holidays'
-import { getKstTodayDateString } from '@/lib/utils/date'
+import { getKstWorkDateString } from '@/lib/utils/date'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 import { isCalendarEnabled, getCalendarRangeBatch, parseCell } from '@/lib/leave-calendar'
 
@@ -218,8 +218,9 @@ export async function GET(request: Request) {
       }
     }
 
-    // 날짜 범위 순회하면서 status 결정
-    const today = getKstTodayDateString()
+    // 날짜 범위 순회하면서 status 결정.
+    // 근무일 경계(07시) 기준 — 새벽 근무 중인 전날은 07시 전까지 '진행중'(future)로 보고 누락 칩 미표시.
+    const today = getKstWorkDateString()
     const days: DayStatusEntry[] = []
     let totalWorkdays = 0
     let complete = 0
