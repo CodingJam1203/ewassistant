@@ -708,6 +708,46 @@ export default function WorkLogForm({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formValues.leaveDate])
 
+  // ─── 근무장소 prefill safety net (신규 퇴근보고) ──────────────────────────────
+  // 부모(카드)가 근무장소를 하나도 안 넘긴 경우, 그날 출근보고 row의 planned 위치를
+  // expected-timeline에서 직접 받아 actual 근무장소로 prefill.
+  // (시간 effect는 startTime/endTime만 채우고 근무장소는 부모 props에만 의존했던 갭 보완 —
+  //  카드의 planned_work_locations가 비어오면 기본값 '사무실'로 잘못 fallback되던 윤정인 5/22 케이스.)
+  // 부모가 actual/timeline/planned 중 하나라도 넘겼으면(정상·재제출·편집) 절대 건드리지 않음.
+  const locPrefillTriedRef = useRef(false)
+  useEffect(() => {
+    if (isEditing) return
+    if (locPrefillTriedRef.current) return
+    const date = formValues.leaveDate
+    if (!date) return
+    // 부모가 위치 정보를 하나라도 넘겼는지 — 넘겼으면 그 값 우선, safety net 미발동
+    const propsHadLocation =
+      !!normalizeWorkLocations(initialActualLocations ?? null)?.length ||
+      !!legacyTimelineToLocations(initialTimeline ?? null)?.length ||
+      !!normalizeWorkLocations(initialPlannedLocations ?? null)?.length
+    if (propsHadLocation) return
+    if (formValues.actualWorkLocationsTouched) return
+    locPrefillTriedRef.current = true
+
+    const ac = new AbortController()
+    fetch(`/api/team-status/expected-timeline?date=${encodeURIComponent(date)}`, { signal: ac.signal })
+      .then(r => (r.ok ? r.json() : null))
+      .then((data: { plannedLocations?: WorkLocations | null; timeline?: WorkLocationTimeline | null } | null) => {
+        if (!data) return
+        // fetch 사이 사용자가 직접 골랐으면 덮지 않음
+        if (formValues.actualWorkLocationsTouched) return
+        const locs = normalizeWorkLocations(data.plannedLocations ?? null)
+          ?? legacyTimelineToLocations(data.timeline ?? null)
+        if (locs && locs.length > 0) {
+          setValue('actualWorkLocations', locs, { shouldDirty: false, shouldValidate: false })
+          baselineActualRef.current = locs  // touched 비교 baseline 동기화 (prefill은 touched 아님)
+        }
+      })
+      .catch(() => { /* 무시 — default 유지 */ })
+    return () => ac.abort()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formValues.leaveDate])
+
   // 워크타입 변경 시 휴게값 정책:
   //   - 신규 작성: 첫 mount 1회만 breakAuto 기반으로 prefill, 이후엔 사용자 입력 보존
   //   - 편집: 항상 사용자 입력 보존
