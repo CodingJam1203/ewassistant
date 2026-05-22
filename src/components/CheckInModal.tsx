@@ -769,7 +769,7 @@ export default function CheckInModal({
               value={workContent}
               onChange={e => setWorkContent(e.target.value)}
               rows={2}
-              placeholder="비고"
+              placeholder="팀즈알림, 둘러보기를 통해 실시간 공유됩니다."
               className="w-full rounded-[10px] border border-border-strong bg-surface text-sm px-3 py-2 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 resize-none"
             />
           </div>
