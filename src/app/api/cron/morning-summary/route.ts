@@ -24,6 +24,7 @@ import { parseLeaveLabel } from '@/lib/leave-timeline'
 import type { LeaveType, LeaveTimeline } from '@/types/leave-timeline'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import { isWeekendDate } from '@/lib/utils/date'
+import { isKoreanHoliday } from '@/lib/kr-holidays'
 import type { WorkLocations } from '@/types/work-locations-v2'
 
 /** planned_work_locations(WorkLocations 배열) → 표시용 string ("사무실 → 재택") */
@@ -309,8 +310,9 @@ export async function GET(request: Request) {
       }
     })
 
-    // 주말(토/일) + 출근보고 작성자(completedSection) 0명 → 그 팀 알림 스킵 (전원 미보고면 발송 안 함)
-    if (isWeekendDate(todayDate) && completedSection.length === 0) return null
+    // 비근무일(토/일/한국 공휴일) + 출근보고 작성자(completedSection) 0명 → 그 팀 알림 스킵.
+    // v1.46: 공휴일(대체공휴일 포함) 추가 — 평일이지만 공휴일이라 출근 안 함이 디폴트인 케이스 노이즈 제거.
+    if ((isWeekendDate(todayDate) || isKoreanHoliday(todayDate)) && completedSection.length === 0) return null
 
     return notifyMorningSummary({
       division:   group.division,

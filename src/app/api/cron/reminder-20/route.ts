@@ -11,6 +11,7 @@ import { resolveRoutingTeam } from '@/lib/org'
 import { formatNightlyCheckinStatus } from '@/lib/notifications/messages'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import { isWeekendDate } from '@/lib/utils/date'
+import { isKoreanHoliday } from '@/lib/kr-holidays'
 import type { WorkLocations } from '@/types/work-locations-v2'
 
 /** planned_work_locations(WorkLocations 배열) → 표시용 string ("사무실 → 재택") */
@@ -131,8 +132,9 @@ export async function GET(request: Request) {
         hasReport: !!c,
       }
     })
-    // 주말(토/일) 출근일 + 출근보고 작성자 0명 → 그 팀 알림 스킵 (전원 미보고면 발송 안 함)
-    if (isWeekendDate(targetDate) && members.every(m => !m.hasReport)) return null
+    // 비근무일(토/일/한국 공휴일) 출근일 + 출근보고 작성자 0명 → 그 팀 알림 스킵.
+    // v1.46: 공휴일(대체공휴일 포함) 추가.
+    if ((isWeekendDate(targetDate) || isKoreanHoliday(targetDate)) && members.every(m => !m.hasReport)) return null
     return notifyDailyCheckinReminder('daily_checkin_reminder_20', {
       division:   group.division,
       team:       group.team,
