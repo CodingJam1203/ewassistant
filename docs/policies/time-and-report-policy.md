@@ -456,7 +456,7 @@ N-Click에는 성격이 다른 캘린더 뷰가 3종 존재한다. 코드·UI·�
 | **023** | `023_work_logs_time_4cols.sql` | **4 컬럼 추가 (nullable, default 없음)** — Stage 0-1 |
 | **024** | `024_backfill_unified_time_columns.sql` | **옛 분리 row + daily_work_status → 단일 row 4 컬럼 backfill** — Stage 0-3 |
 | **025** | `025_work_logs_user_date_unique.sql` | **partial unique index** `(user_email, leave_date) WHERE is_deleted=false` — §12 D2 보강 |
-| **034** | `034_user_profiles_notify_team.sql` | **`user_profiles.notify_team` + `pre_approved_emails.notify_team`** (TEXT NULL) — 본부 직속 인원 알림 라우팅 (§2.6) |
+| **034** | `034_user_profiles_notify_team.sql` | **`user_profiles.notify_team` + `pre_approved_emails.notify_team`** (TEXT NULL) — 본부 직속 인원 알림 라우팅 (§2.6). DEV(2026-05-22) · **PROD(2026-05-24) 적용 완료**. |
 
 ---
 
