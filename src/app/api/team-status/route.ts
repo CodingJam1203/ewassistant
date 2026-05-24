@@ -10,6 +10,7 @@ import type { LeaveTimeline, LeaveType } from '@/types/leave-timeline'
 import type { CalendarEventChunk } from '@/types/leave-calendar'
 import { computeEffectiveActualStart } from '@/lib/work-log-state'
 import { DIVISION_DIRECT_FILTER } from '@/lib/org'
+import { kstHHmmToIso } from '@/lib/utils/kst-datetime'
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
 
@@ -346,6 +347,11 @@ export async function GET(request: Request) {
       }
     }
 
+    // v1.44 — false 팀 lazy write 후보 수집. computeEffectiveActualStart가 보정값을 만든 행은
+    //   planned 도달 이후 DB에 actual_start_time이 채워지지 않은 상태 → 이 GET 요청 사이클에서
+    //   DB에 박는다(아래 카드 조립 루프에서 수집, 응답 후 비동기 write).
+    const lazyWriteCandidates: Array<{ workLogId: string; actualStart: string; userEmail: string; leaveDate: string }> = []
+
     // ── 카드 조립 ──────────────────────────────────────────────────────────────
     const cards: TeamMemberCard[] = profiles.map((profile: Record<string, unknown>) => {
       const email = profile.email as string
@@ -440,19 +446,61 @@ export async function GET(request: Request) {
         calendar_events:      calLeave.events,
 
         use_check_in_complete: teamSettings.get(`${division ?? ''}::${(profile.team as string | null) ?? ''}`) ?? true,
-        // Stage 4: read-time 자동 보정. 조건 불충족 시 actual_start_time(또는 NULL) 그대로.
-        effective_actual_start_time: computeEffectiveActualStart(
-          {
-            leave_date: workLog ? (workLog.leave_date as string | null) ?? null : null,
-            planned_start_time: workLog ? (workLog.planned_start_time as string | null) ?? null : null,
-            actual_start_time: workLog ? (workLog.actual_start_time as string | null) ?? null : null,
-          },
-          {
-            use_check_in_complete: teamSettings.get(`${division ?? ''}::${(profile.team as string | null) ?? ''}`) ?? true,
-          },
-        ),
+        // Stage 4 / v1.44: read-time 자동 보정 + lazy write.
+        //   computeEffectiveActualStart는 false 팀 + planned 도달 + actual NULL이면 planned 값을 반환.
+        //   여기서 effective !== null && actual === null이면 후보로 수집해 응답 후 DB write(lazy).
+        effective_actual_start_time: (() => {
+          const rawActual = workLog ? (workLog.actual_start_time as string | null) ?? null : null
+          const rawPlanned = workLog ? (workLog.planned_start_time as string | null) ?? null : null
+          const rawLeave = workLog ? (workLog.leave_date as string | null) ?? null : null
+          const effective = computeEffectiveActualStart(
+            { leave_date: rawLeave, planned_start_time: rawPlanned, actual_start_time: rawActual },
+            { use_check_in_complete: teamSettings.get(`${division ?? ''}::${(profile.team as string | null) ?? ''}`) ?? true },
+          )
+          if (effective && !rawActual && workLog?.id && rawLeave) {
+            lazyWriteCandidates.push({
+              workLogId: workLog.id as string,
+              actualStart: effective,
+              userEmail: email,
+              leaveDate: rawLeave,
+            })
+          }
+          return effective
+        })(),
       }
     })
+
+    // v1.44 lazy write — 응답 차단 X: 비동기 best-effort. 다음 fetch 시점엔 DB값 반영됨.
+    //   각 후보 work_log row의 actual_start_time을 채우고, daily_work_status.checked_in_at도 sync(§D9).
+    //   실패는 무시(다음 호출에서 재시도). 동시성: 같은 row 중복 write라도 멱등.
+    if (lazyWriteCandidates.length > 0) {
+      void (async () => {
+        for (const c of lazyWriteCandidates) {
+          try {
+            await adminClient
+              .from('work_logs')
+              .update({ actual_start_time: c.actualStart })
+              .eq('id', c.workLogId)
+              .is('actual_start_time', null)  // race safety — 그 사이 다른 경로가 채웠으면 덮어쓰지 않음
+            // daily_work_status sync (§D9). 이미 checked_in_at 있으면 안 건드림.
+            const checkedInAtIso = (() => {
+              try { return kstHHmmToIso(c.leaveDate, c.actualStart.slice(0, 5)) }
+              catch { return null }
+            })()
+            if (checkedInAtIso) {
+              await adminClient
+                .from('daily_work_status')
+                .update({ checked_in_at: checkedInAtIso, status: 'checked_in' })
+                .eq('user_email', c.userEmail)
+                .eq('work_date', c.leaveDate)
+                .is('checked_in_at', null)
+            }
+          } catch (err) {
+            console.warn('[team-status lazy-write] failed for', c.workLogId, err)
+          }
+        }
+      })()
+    }
 
     // ABC-194: 둘러보기 정렬 — 조직 구조 그룹화 + 팀 내 사용자 순서.
     //   1) is_self 최상단

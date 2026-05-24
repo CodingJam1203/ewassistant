@@ -336,41 +336,19 @@ export async function POST(request: Request) {
       || prevStartTime !== startTime
       || prevEndTime !== endTime
 
-    // ─── 팀 설정: use_check_in_complete 조회 ────────────────────────────────
-    // 본인 팀의 use_check_in_complete=false면 출근보고 제출 시 자동으로 출근 처리.
-    // (별도 [출근 완료] 버튼 없이 expected start_time을 checked_in_at으로 세팅)
-    let useCheckInComplete = true
-    if (profile?.team && profile?.division) {
-      const { data: divRow } = await adminClient
-        .from('org_divisions')
-        .select('id')
-        .eq('name', profile.division)
-        .maybeSingle()
-      if (divRow?.id) {
-        const { data: teamRow } = await adminClient
-          .from('org_teams')
-          .select('use_check_in_complete')
-          .eq('division_id', divRow.id)
-          .eq('name', profile.team)
-          .maybeSingle()
-        if (teamRow && typeof teamRow.use_check_in_complete === 'boolean') {
-          useCheckInComplete = teamRow.use_check_in_complete
-        }
-      }
-    }
+    // v1.44 — use_check_in_complete 분기 제거: false 팀의 작성 시점 자동 actual 채움은 폐지.
+    // false 팀의 planned 도달 시점 자동 채움은 team-status GET의 lazy write가 담당 (§8.2).
 
     // ─── daily_work_status 갱신 ──────────────────────────────────────────────
-    // checked_in_at 결정:
-    //   1) actualCheckInTime이 명시적으로 들어옴 → 그 값 사용 (수동 지각/조기출근)
-    //   2) 명시 없음 + 팀 use_check_in_complete=false → expected startTime으로 자동
-    //   3) 명시 없음 + 팀 use_check_in_complete=true(기본) → NULL (별도 [출근 완료] 단계 대기)
-    let actualCheckInTime: string | null = (
+    // checked_in_at 결정 (v1.44 정책):
+    //   1) actualCheckInTime이 명시적으로 들어옴 → 그 값 사용 (수동 지각/조기출근, [출근 완료] 클릭)
+    //   2) 명시 없음 → NULL 유지 (작성 시점엔 출근완료 안 함).
+    //      false 팀의 "planned 도달 시 자동 채움"은 team-status GET의 lazy write가 담당(§8.2).
+    //      이전 §8.2.1 "작성 즉시 actual=startTime" 자동 채움은 제거 — 8시 미리 작성 시 actual=09:00이
+    //      이미 박혀 카드 "근무 중"이 되던 동작을 폐기.
+    const actualCheckInTime: string | null = (
       typeof actualCheckInTimeRaw === 'string' && actualCheckInTimeRaw.trim()
     ) ? actualCheckInTimeRaw : null
-    if (!actualCheckInTime && !useCheckInComplete && !isAllDayLeave) {
-      // 미사용 팀: 출근보고 자체가 곧 출근 → 예정 출근시각을 자동 세팅
-      actualCheckInTime = startTime
-    }
 
     let prevCheckedInAt: string | null = null
     {

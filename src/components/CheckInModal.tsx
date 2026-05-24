@@ -170,7 +170,24 @@ export default function CheckInModal({
 
         let mode: CaseMode = 'none'
         if (data.hasExisting) {
-          mode = 'today'
+          // v1.44 — 시간 기준 today/prior 자동 분기 (모든 팀 통일):
+          //   · 당일 + 현재 KST 시각 < planned_start_time → today (예정만 수정, 실출근 hide)
+          //   · 당일 + 현재 KST 시각 ≥ planned_start_time → prior (실출근 정정, 출근예정 hide)
+          //   · 과거 일자 → 항상 prior (실출근 정정 의도)
+          // → use_check_in_complete=true 팀의 "수정 클릭 시 자동 출근완료" 버그 차단 +
+          //   false 팀의 planned 시각 이후 실출근 정정 경로 통일.
+          const isTodayKst = date === todayKstStr
+          const plannedStart = (data.expectedStartTime ?? '').slice(0, 5)
+          const nowHHmm = new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'Asia/Seoul', hour12: false, hour: '2-digit', minute: '2-digit',
+          }).format(new Date())
+          if (!isTodayKst) {
+            mode = 'prior'
+          } else if (plannedStart && nowHHmm >= plannedStart) {
+            mode = 'prior'
+          } else {
+            mode = 'today'
+          }
         } else if (
           (Array.isArray(data.plannedLocations) && data.plannedLocations.length > 0)
           || data.expectedStartTime
@@ -228,15 +245,18 @@ export default function CheckInModal({
 
         // actualCheckInTime — 케이스별 prefill
         if (mode === 'today') {
-          // today 모드 — 기존 daily.checked_in_at 값. 없으면 현재 시각 floor로 prefill
-          // (출근완료 안 한 상태에서 수정 모달 진입 → 그대로 제출 시 출근완료 처리).
-          setActualCheckInTime(data.checkedInAt || nowKstHHmmCeil())
+          // v1.44 — today 모드는 실출근 input UI 자체 hide. 어떤 prefill도 X.
+          // 시간 분기로 today가 결정됐다는 건 actual_start_time이 아직 비어있는 상태(planned 시각 이전)
+          // → submit 시 actualCheckInTime은 항상 '' → 서버가 checked_in_at 무변경 → 출근완료 자동 처리 방지.
+          setActualCheckInTime('')
         } else if (mode === 'future') {
           // future 모드 — 실제 출근시간 입력 안 받음. 빈 값으로 둠.
           setActualCheckInTime('')
         } else {
-          // none/prior — 자동 prefill: 현재 시각 floor (사용자가 그대로 제출 = 출근 완료)
-          setActualCheckInTime(nowKstHHmmCeil())
+          // none/prior — 자동 prefill:
+          //   prior + 기존 actual 있으면(false 팀의 lazy write로 채워진 planned 또는 true 팀이 이미 출근완료한 값) → 그 값 prefill (정정용).
+          //   none(미보고 첫 출근) 또는 prior + actual NULL(true 팀 [출근 완료] 클릭) → 현재 시각 ceil (출근완료 의도).
+          setActualCheckInTime(data.checkedInAt || nowKstHHmmCeil())
         }
 
         // 휴가 — 응답 우선, 없으면 reset (이전 날짜의 휴가가 끌려가지 않게).
@@ -360,8 +380,9 @@ export default function CheckInModal({
       })()
       const isTodaySubmission = date === todayKstStr
       const safeActualCheckIn =
-        caseMode === 'future'
-          ? ''  // 미래 일자 — 실제 출근시간 안 보냄, 서버가 팀 설정에 따라 처리
+        caseMode === 'future' || caseMode === 'today'
+          ? ''  // v1.44 — today/future는 실제 출근시간 보내지 않음(서버 checked_in_at 무변경).
+                // today는 UI hide + state 빈값이지만 만일에 대비한 강제 가드.
           : actualCheckInTime ||
             (caseMode === 'none' && isTodaySubmission && !effectiveIsAllDay
               ? nowKstHHmmCeil() : '')
@@ -557,41 +578,28 @@ export default function CheckInModal({
               빈 채로 제출해도 통과. */}
           {!loadingPrefill && (
             <>
-              {/* 케이스 B (prior) + 케이스 today: 동일 UI로 통합 — 4개 필드 editable.
-                  순서: 실제출근 → 출근예정/퇴근예정 → 근무장소. 사용자 입력 위계상
-                  "지금 실제로 출근한 시각"을 먼저 받고, 예정값은 보조로 둠. */}
+              {/* prior + today 공통 UI 블록. 단 실출근 input은 prior에서만 노출(아래 별도 게이트).
+                  today = planned 이전 진입 → 실출근 정정 의도 X (v1.44) */}
               {(caseMode === 'prior' || caseMode === 'today') && (
                 <>
-                  <div>
-                    <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
-                      실제 출근시간{caseMode === 'today' && (
-                        <span className="ml-1 text-[11px] font-normal text-text-muted">(비우면 출근 안 한 상태)</span>
-                      )}
-                      {caseMode === 'prior' && ' *'}
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1">
-                        <HalfHourTimeSelect
-                          value={actualCheckInTime}
-                          onChange={setActualCheckInTime}
-                          allowNextDay
-                          ariaLabel="실제 출근시간"
-                          placeholder={caseMode === 'today' ? '출근 안 함' : undefined}
-                        />
+                  {/* v1.44 — 실출근 input: prior 모달에만 노출. today는 자동 출근완료 버그 차단 위해 hide. */}
+                  {caseMode === 'prior' && (
+                    <div>
+                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
+                        실제 출근시간{' *'}
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <HalfHourTimeSelect
+                            value={actualCheckInTime}
+                            onChange={setActualCheckInTime}
+                            allowNextDay
+                            ariaLabel="실제 출근시간"
+                          />
+                        </div>
                       </div>
-                      {caseMode === 'today' && actualCheckInTime && (
-                        <button
-                          type="button"
-                          onClick={() => setActualCheckInTime('')}
-                          className="shrink-0 inline-flex items-center justify-center h-10 w-10 rounded-[10px] border border-border-strong bg-surface text-text-muted hover:text-danger-text hover:bg-danger-bg transition-colors"
-                          aria-label="실제 출근시간 비우기"
-                          title="출근 안 함으로 되돌리기"
-                        >
-                          <X className="h-4 w-4" aria-hidden />
-                        </button>
-                      )}
                     </div>
-                  </div>
+                  )}
 
                   <div className={hideExpectedStart ? '' : 'grid grid-cols-2 gap-3'}>
                     {!hideExpectedStart && (
