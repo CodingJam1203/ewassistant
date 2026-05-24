@@ -95,7 +95,7 @@ function nowKstHHmmCeil(): string {
 }
 
 export default function CheckInModal({
-  date: initialDate, userName, initialStartTime, useCheckInComplete = true, onClose, onSuccess,
+  date: initialDate, userName, initialStartTime, mode: entryMode, useCheckInComplete = true, onClose, onSuccess,
 }: CheckInModalProps) {
   // Stage 4: 글로벌 모달 카운터에 등록 — 열려있는 동안 autoRefetch polling 일시 정지
   useRegisterModalOpen()
@@ -170,20 +170,19 @@ export default function CheckInModal({
 
         let mode: CaseMode = 'none'
         if (data.hasExisting) {
-          // v1.44 — 시간 기준 today/prior 자동 분기 (모든 팀 통일):
-          //   · 당일 + 현재 KST 시각 < planned_start_time → today (예정만 수정, 실출근 hide)
-          //   · 당일 + 현재 KST 시각 ≥ planned_start_time → prior (실출근 정정, 출근예정 hide)
+          // v1.45 — actual 채워짐 여부로 today/prior 자동 분기 (모든 팀 통일, 시간 기준 폐기):
+          //   · actual_start_time NULL (출근완료 안 됨) → today (예정만 수정, 실출근 hide)
+          //   · actual_start_time 채워짐 (출근완료 됨, true 팀 [완료] 클릭 또는 false 팀 lazy write 후) → prior (실출근 정정)
           //   · 과거 일자 → 항상 prior (실출근 정정 의도)
-          // → use_check_in_complete=true 팀의 "수정 클릭 시 자동 출근완료" 버그 차단 +
-          //   false 팀의 planned 시각 이후 실출근 정정 경로 통일.
+          //   · entryMode='complete' ([출근 완료] 메인 버튼) → force prior (사용자 명시 출근완료 의도)
+          // → 사용자 직관: [수정] 버튼은 항상 예정 수정, [완료] 버튼은 항상 실출근 입력.
           const isTodayKst = date === todayKstStr
-          const plannedStart = (data.expectedStartTime ?? '').slice(0, 5)
-          const nowHHmm = new Intl.DateTimeFormat('en-GB', {
-            timeZone: 'Asia/Seoul', hour12: false, hour: '2-digit', minute: '2-digit',
-          }).format(new Date())
-          if (!isTodayKst) {
+          const hasActual = !!data.checkedInAt
+          if (entryMode === 'complete') {
             mode = 'prior'
-          } else if (plannedStart && nowHHmm >= plannedStart) {
+          } else if (!isTodayKst) {
+            mode = 'prior'
+          } else if (hasActual) {
             mode = 'prior'
           } else {
             mode = 'today'
