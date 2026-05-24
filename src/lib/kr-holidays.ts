@@ -134,3 +134,29 @@ export function categorizeDate(dateStr: string): DateCategory {
   if (isSunday(dateStr) || isKoreanHoliday(dateStr)) return 'sunday_or_holiday'
   return 'weekday'
 }
+
+/**
+ * YYYY-MM-DD에서 다음 영업일(토/일/한국 공휴일이 아닌 첫 날짜) 반환.
+ * 출근보고 prefill default용 — "금요일에 퇴근+다음날 출근 콤보 제출 시 토요일이 아니라 월요일"처럼
+ * 보통 출근하지 않는 날을 건너뛴다. 사용자가 주말 출근 등 다른 일자에 출근 예정이면 폼에서 수동 변경.
+ *
+ * 안전 가드 — 무한 루프 방지로 최대 14일까지만 점프(공휴일 연휴 등 현실적 상한). 그 안에 영업일을 못 찾으면 +1일을 그대로 반환.
+ */
+export function nextBusinessDay(dateStr: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const MAX_HOPS = 14
+  for (let i = 1; i <= MAX_HOPS; i++) {
+    const utc = new Date(Date.UTC(y, m - 1, d + i, 3, 0, 0))
+    const yy = utc.getUTCFullYear()
+    const mm = String(utc.getUTCMonth() + 1).padStart(2, '0')
+    const dd = String(utc.getUTCDate()).padStart(2, '0')
+    const next = `${yy}-${mm}-${dd}`
+    if (!isSaturday(next) && !isSunday(next) && !isKoreanHoliday(next)) {
+      return next
+    }
+  }
+  // fallback — 14일 안에 영업일을 못 찾는 비현실 케이스: +1일 그대로
+  const fallback = new Date(Date.UTC(y, m - 1, d + 1, 3, 0, 0))
+  return `${fallback.getUTCFullYear()}-${String(fallback.getUTCMonth() + 1).padStart(2, '0')}-${String(fallback.getUTCDate()).padStart(2, '0')}`
+}

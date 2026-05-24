@@ -22,9 +22,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { calculateEw, EwCalculationResult } from '@/lib/ew-calculator'
 import { Copy, Loader2 } from 'lucide-react'
-import { addDays } from 'date-fns'
-import { getKstTodayDateString, getKstWorkDateString, toKstDateString } from '@/lib/utils/date'
-import { categorizeDate, getKoreanHolidayName, type DateCategory } from '@/lib/kr-holidays'
+import { getKstTodayDateString, getKstWorkDateString } from '@/lib/utils/date'
+import { categorizeDate, getKoreanHolidayName, nextBusinessDay, type DateCategory } from '@/lib/kr-holidays'
 import { DateInputWithDow } from '@/components/ui'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
 import LeaveTimelineInput from '@/components/LeaveTimelineInput'
@@ -497,7 +496,9 @@ export default function WorkLogForm({
             (editingLog.attendance_record_type === '스킵(누락퇴근보고, 퇴근보고 수정)'
               ? '스킵(누락퇴근보고, 퇴근보고 수정)'
               : '출근보고 진행 (주말출근, 휴가 포함)'),
-          expectedStartDate: editingLog.expected_start_date ?? toKstDateString(addDays(new Date(editingLog.leave_date), 1)),
+          // v1.43: 콤보 출근보고 날짜 prefill을 leave_date+1일 → 다음 영업일(토/일/공휴일 점프).
+          //   예: 금요일 퇴근보고 콤보 → 토 X → 월. 주말출근자는 default를 폼에서 직접 변경.
+          expectedStartDate: editingLog.expected_start_date ?? nextBusinessDay(editingLog.leave_date),
           expectedStartTime: defaultExpectedStartTime,
           expectedEndTime: defaultExpectedEndTime,
           plannedWorkLocations: defaultPlannedLocations,
@@ -526,7 +527,8 @@ export default function WorkLogForm({
           workContent: initialWorkContent ?? '',
           lateOrAttendanceStatus: '아니오',
           attendanceRecordType: '출근보고 진행 (주말출근, 휴가 포함)',
-          expectedStartDate: toKstDateString(addDays(new Date(), 1)),
+          // v1.43: today+1일 → 다음 영업일(토/일/공휴일 점프). 금요일 퇴근 콤보면 prefill=월요일.
+          expectedStartDate: nextBusinessDay(getKstTodayDateString()),
           expectedStartTime: '09:00',
           expectedEndTime: '18:00',
           expectedWorkContent: '',
