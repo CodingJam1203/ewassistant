@@ -162,6 +162,8 @@ export default function BreakStartModal({
               plannedHint={plannedHint ?? null}
               date={date}
               onChange={() => { onLocationChange?.() }}
+              alwaysEditing
+              hideDoneButton
             />
           </div>
 

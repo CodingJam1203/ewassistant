@@ -32,6 +32,14 @@ interface EditableLocationChipsProps {
   showLabels?: boolean
   /** 칩 크기. sm은 좁은 셀(리스트뷰)용. */
   chipSize?: 'sm' | 'md'
+  /**
+   * true면 항상 편집 모드 — 보기 모드/수정 토글 스킵. (v1.44 BreakStartModal 등에서 사용)
+   * 위치 변경은 기존대로 즉시 서버 저장. handleEditStart/Done 호출 안 됨 → 위치 변경 알림은
+   * 부모가 별도로 처리(휴게 시작 알림에 포함).
+   */
+  alwaysEditing?: boolean
+  /** true면 편집 모드 내 "완료" 버튼 숨김 — 부모가 별도 액션으로 모드 종료 (모달 저장 등). */
+  hideDoneButton?: boolean
 }
 
 /** 작은 라벨 pill — 예정/실제 구분용 */
@@ -52,8 +60,11 @@ function EditableLocationChipsImpl({
   plannedHint, emptyText,
   showLabels = true,
   chipSize = 'md',
+  alwaysEditing = false,
+  hideDoneButton = false,
 }: EditableLocationChipsProps) {
   const [editing, setEditing] = useState(false)
+  const effectiveEditing = editing || alwaysEditing
 
   // 로컬 optimistic state — 즉시 반영
   const [chips, setChips] = useState<WorkLocations>(value)
@@ -260,8 +271,8 @@ function EditableLocationChipsImpl({
         </div>
       )}
 
-      {/* 실제 라인 */}
-      {!editing ? (
+      {/* 실제 라인 — alwaysEditing이면 보기 모드 스킵 */}
+      {!effectiveEditing ? (
         <WorkLocationChipsView
           value={chips}
           currentLabel={currentLabel}
@@ -280,7 +291,7 @@ function EditableLocationChipsImpl({
             currentIndex={effectiveIndex}
             onSetCurrent={handleSetCurrent}
             chipsLeading={showLabels ? <LabelPill text="실제" tone="actual" /> : null}
-            chipsTrailing={doneButton}
+            chipsTrailing={hideDoneButton ? null : doneButton}
             chipSize={chipSize}
             compact
           />
