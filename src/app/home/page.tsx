@@ -25,6 +25,7 @@ import type { MonthBaselines, UserMonthSummary } from '@/lib/utils/work-hours'
 import type { TeamMemberCard } from '@/app/api/team-status/route'
 import { computeWorkLogState, buttonsForState } from '@/lib/work-log-state'
 import EditableLocationChips from '@/components/EditableLocationChips'
+import BreakStartModal from '@/components/BreakStartModal'
 import MissingReportsSummary from '@/components/MissingReportsSummary'
 import { resolveDisplayLocations, resolvePlannedLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import { useAutoRefetch } from '@/hooks/useAutoRefetch'
@@ -410,6 +411,10 @@ export default function HomePage() {
     }
   }
 
+  // v1.44 — 휴게 시작 모달 토글. false로 바꾸면 기존 즉시 시작 흐름(triggerBreak('break-start'))으로 즉시 롤백.
+  const USE_BREAK_MODAL_FLOW = true
+  const [showBreakStartModal, setShowBreakStartModal] = useState(false)
+
   /** 휴게 시작/종료 — endpoint 호출 후 카드 다시 fetch */
   const [breakBusy, setBreakBusy] = useState(false)
   const triggerBreak = async (endpoint: 'break-start' | 'break-end') => {
@@ -485,6 +490,36 @@ export default function HomePage() {
           onSuccess={() => { setCheckOutTarget(null); fetchMyCard(); setCalendarRefreshTick(t => t + 1) }}
         />
       )}
+
+      {/* v1.44 — 휴게 시작 모달 (USE_BREAK_MODAL_FLOW=true일 때만) */}
+      {showBreakStartModal && myCard && (() => {
+        const plannedChips = resolvePlannedLocations({
+          planned: myCard.planned_work_locations,
+          legacyExpectedTimeline: myCard.work_location_timeline,
+          legacyExpectedWorkLocation: myCard.work_location,
+        })
+        const actualChips = resolveDisplayLocations({
+          actual: myCard.actual_work_locations,
+          planned: myCard.planned_work_locations,
+          legacyActualTimeline: myCard.work_location_timeline,
+          legacyWorkLocation: myCard.current_location,
+        })
+        const initialChips = (actualChips && actualChips.length > 0) ? actualChips : (plannedChips ?? [])
+        return (
+          <BreakStartModal
+            date={today}
+            userName={userName}
+            currentLocations={initialChips}
+            currentLocationLabel={myCard.current_location ?? null}
+            currentLocationIndex={myCard.current_location_index ?? null}
+            plannedHint={plannedChips ? formatChipsArrow(plannedChips) : null}
+            currentMemo={myCard.work_content ?? null}
+            onClose={() => setShowBreakStartModal(false)}
+            onSuccess={() => { setShowBreakStartModal(false); fetchMyCard() }}
+            onLocationChange={fetchMyCard}
+          />
+        )
+      })()}
 
       {/* 캘린더 → 출근보고 작성 (임의 날짜) */}
       {calendarCheckInDate && (
@@ -762,11 +797,11 @@ export default function HomePage() {
                 </Button>
               )}
 
-              {/* 휴게 시작 (C 상태) */}
+              {/* 휴게 시작 (C 상태) — v1.44: 모달 흐름 / 토글 OFF면 기존 즉시 시작 */}
               {buttons.showBreakStart && (
                 <Button
                   variant="secondary"
-                  onClick={() => triggerBreak('break-start')}
+                  onClick={() => USE_BREAK_MODAL_FLOW ? setShowBreakStartModal(true) : triggerBreak('break-start')}
                   disabled={breakBusy}
                 >
                   <Coffee className="h-4 w-4" aria-hidden />
