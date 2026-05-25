@@ -327,7 +327,10 @@ export default function CheckInModal({
       if (!startTime || !isHalfHour(startTime)) timeErrors.push('출근예정시간을 30분 단위로 선택해주세요.')
     }
     if (!endTime || !isHalfHour(endTime)) timeErrors.push('퇴근예정시간을 30분 단위로 선택해주세요.')
-    if (caseMode !== 'future' && (!actualCheckInTime || !isHalfHour(actualCheckInTime))) {
+    // today·future 모드는 실출근 input을 UI에서 hide(today=v1.44 자동 출근완료 차단,
+    // future=실출근 무의미) → submit 시에도 safeActualCheckIn은 빈 문자열로 강제됨(381~384).
+    // 검증도 동일하게 skip — 그렇지 않으면 [수정 저장] 버튼이 항상 disabled.
+    if (caseMode !== 'future' && caseMode !== 'today' && (!actualCheckInTime || !isHalfHour(actualCheckInTime))) {
       timeErrors.push('실제 출근시간을 30분 단위로 선택해주세요.')
     }
   }
