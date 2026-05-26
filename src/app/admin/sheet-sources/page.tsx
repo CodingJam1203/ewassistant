@@ -45,11 +45,28 @@ interface SheetSourceRow {
   mappedTeams: number
 }
 
+type CalendarMode = 'gcal_only' | 'gcal_plus_sheet' | 'sheet_only' | 'none'
+
+const CALENDAR_MODE_LABEL: Record<CalendarMode, string> = {
+  gcal_only:       'GCal만',
+  gcal_plus_sheet: 'GCal + 시트',
+  sheet_only:      '시트만',
+  none:            '미사용',
+}
+
+const CALENDAR_MODE_BADGE: Record<CalendarMode, string> = {
+  gcal_only:       'bg-info-bg text-info-text border-info-border',
+  gcal_plus_sheet: 'bg-success-bg text-success-text border-success-border',
+  sheet_only:      'bg-warning-bg text-warning-text border-warning-border',
+  none:            'bg-surface-muted text-text-muted border-border',
+}
+
 interface TeamRow {
   id: string
   name: string
   division_id: string
   sheet_source_id: string | null
+  calendar_mode: CalendarMode
 }
 
 interface FormState {
@@ -75,6 +92,37 @@ function fmtDateTime(iso: string | null): string {
   } catch {
     return iso
   }
+}
+
+// Phase B — mode 변경 confirm 메시지 빌더
+function buildModeChangeConfirm(teamNames: string[], current: CalendarMode, next: CalendarMode): string {
+  const subject = teamNames.length === 1 ? `"${teamNames[0]}" 팀` : `${teamNames.length}개 팀`
+  return [
+    `${subject}의 캘린더 운영 방식을 변경합니다:`,
+    ``,
+    `  ${CALENDAR_MODE_LABEL[current]} → ${CALENDAR_MODE_LABEL[next]}`,
+    ``,
+    `⚠ 주의:`,
+    `- 기존 일정·휴가는 자동 이관되지 않습니다.`,
+    next === 'sheet_only' ? `- 사용자가 N-Click에서 일정 등록·수정·삭제 불가능해집니다.` : '',
+    next === 'none' ? `- 캘린더 기능이 완전히 비활성됩니다 (일정/휴가 등록 불가).` : '',
+    (next === 'gcal_plus_sheet' || next === 'sheet_only') ? `- 시트 source 매핑이 없으면 시트 데이터는 표시되지 않습니다.` : '',
+    ``,
+    `계속하시겠습니까?`,
+  ].filter(Boolean).join('\n')
+}
+
+function buildBulkModeChangeConfirm(divisionName: string, teamNames: string[], next: CalendarMode): string {
+  return [
+    `"${divisionName}" 본부의 ${teamNames.length}개 팀을 ${CALENDAR_MODE_LABEL[next]}(으)로 일괄 변경:`,
+    ``,
+    teamNames.map(n => `  • ${n}`).join('\n'),
+    ``,
+    `⚠ 기존 일정·휴가는 자동 이관되지 않습니다.`,
+    next === 'sheet_only' ? `⚠ N-Click 일정 등록·수정 차단됩니다.` : '',
+    ``,
+    `계속하시겠습니까?`,
+  ].filter(Boolean).join('\n')
 }
 
 export default function SheetSourcesPage() {
@@ -106,7 +154,7 @@ export default function SheetSourcesPage() {
         const orgData = await teamsRes.json() as Array<{
           id: string
           name: string
-          teams: Array<{ id: string; name: string; division_id: string; sheet_source_id?: string | null }>
+          teams: Array<{ id: string; name: string; division_id: string; sheet_source_id?: string | null; calendar_mode?: CalendarMode }>
         }>
         const flat: TeamRow[] = []
         for (const div of orgData) {
@@ -116,6 +164,7 @@ export default function SheetSourcesPage() {
               name: t.name,
               division_id: t.division_id,
               sheet_source_id: t.sheet_source_id ?? null,
+              calendar_mode: t.calendar_mode ?? 'none',
             })
           }
         }
@@ -258,6 +307,61 @@ export default function SheetSourcesPage() {
     // 로컬 상태 갱신
     setTeams(prev => prev.map(t => t.id === teamId ? { ...t, sheet_source_id: value } : t))
     await fetchAll()  // mappedTeams 갱신
+  }
+
+  // Phase B — 팀 mode 변경 (단건 + 본부 bulk). confirm 대화창 출력 후 적용.
+  const handleSingleModeChange = async (teamId: string, nextMode: CalendarMode) => {
+    const team = teams.find(t => t.id === teamId)
+    if (!team) return
+    const teamName = team.name
+    const currentMode = team.calendar_mode
+    if (currentMode === nextMode) return
+    const msg = buildModeChangeConfirm([teamName], currentMode, nextMode)
+    if (!confirm(msg)) return
+
+    const res = await fetch(`/api/admin/org/teams/${teamId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calendar_mode: nextMode }),
+    })
+    if (!res.ok) {
+      const data = await res.json()
+      alert(data.error ?? 'mode 변경 실패')
+      return
+    }
+    setTeams(prev => prev.map(t => t.id === teamId ? { ...t, calendar_mode: nextMode } : t))
+    await fetchAll()
+  }
+
+  const handleBulkDivisionModeChange = async (divisionId: string, nextMode: CalendarMode) => {
+    const divTeams = teams.filter(t => t.division_id === divisionId)
+    if (divTeams.length === 0) return
+    const divisionName = divisions.find(d => d.id === divisionId)?.name ?? ''
+    const targetTeams = divTeams.filter(t => t.calendar_mode !== nextMode)
+    if (targetTeams.length === 0) {
+      alert('이 본부의 모든 팀이 이미 해당 mode입니다.')
+      return
+    }
+    const msg = buildBulkModeChangeConfirm(divisionName, targetTeams.map(t => t.name), nextMode)
+    if (!confirm(msg)) return
+
+    let failCount = 0
+    for (const t of targetTeams) {
+      const res = await fetch(`/api/admin/org/teams/${t.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ calendar_mode: nextMode }),
+      })
+      if (!res.ok) failCount++
+    }
+    if (failCount > 0) {
+      alert(`${targetTeams.length}개 중 ${failCount}개 실패. 새로고침 후 다시 시도해주세요.`)
+    }
+    await fetchAll()
+    // 로컬 teams도 갱신 (fetchAll이 setTeams 호출하므로 사실상 sync)
+    setTeams(prev => prev.map(t =>
+      t.division_id === divisionId ? { ...t, calendar_mode: nextMode } : t
+    ))
   }
 
   return (
@@ -461,12 +565,16 @@ export default function SheetSourcesPage() {
         )}
       </div>
 
-      {/* 팀 매핑 */}
+      {/* 팀 매핑 + mode (Phase B) */}
       <div className="bg-surface rounded-2xl border border-border shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-border bg-surface-muted">
-          <h3 className="text-sm font-semibold text-text-primary">팀별 시트 매핑</h3>
-          <p className="text-[12px] text-text-muted mt-1">
-            팀의 sheet_source 드롭다운으로 선택 — 매핑 변경 즉시 저장. (Phase A 기준 read 측은 모든 source 합쳐서 표시. Mode 3 등 mode-aware 분기는 Phase B)
+          <h3 className="text-sm font-semibold text-text-primary">팀별 운영 mode + 시트 매핑</h3>
+          <p className="text-[12px] text-text-muted mt-1 leading-relaxed">
+            팀의 운영 mode 변경 — confirm 후 저장.<br />
+            <span className="inline-block mr-3"><span className="font-medium">GCal만</span> = 평소처럼 구글캘린더만</span>
+            <span className="inline-block mr-3"><span className="font-medium">GCal + 시트</span> = 둘 다 표시 (시트는 read-only)</span>
+            <span className="inline-block mr-3"><span className="font-medium">시트만</span> = N-Click 일정 등록 차단, 시트만 표시</span>
+            <span className="inline-block"><span className="font-medium">미사용</span> = 캘린더 기능 비활성</span>
           </p>
         </div>
         {loading ? (
@@ -479,29 +587,75 @@ export default function SheetSourcesPage() {
               if (divTeams.length === 0) return null
               return (
                 <div key={div.id} className="px-5 py-4">
-                  <h4 className="text-sm font-semibold text-text-primary mb-3">{div.name}</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                    {divTeams.map(team => (
-                      <div key={team.id} className="flex items-center gap-2">
-                        <span className="text-sm text-text-secondary min-w-[80px]">{team.name}</span>
-                        <select
-                          value={team.sheet_source_id ?? ''}
-                          onChange={e => handleTeamMapping(team.id, e.target.value)}
-                          disabled={divSources.length === 0}
-                          className="flex-1 border border-border-strong rounded-md px-2 py-1 text-[12px] focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:bg-surface-muted disabled:text-text-disabled"
-                        >
-                          <option value="">없음</option>
-                          {divSources.map(s => (
-                            <option key={s.id} value={s.id}>
-                              {s.label}{!s.isActive ? ' (비활성)' : ''}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    ))}
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <h4 className="text-sm font-semibold text-text-primary">{div.name}</h4>
+                    {/* Phase B — 본부 일괄 변경 */}
+                    <div className="flex items-center gap-1.5 text-[11px]">
+                      <span className="text-text-muted">본부 전체 mode 일괄 →</span>
+                      <select
+                        value=""
+                        onChange={e => {
+                          const v = e.target.value as CalendarMode
+                          if (v) handleBulkDivisionModeChange(div.id, v)
+                          // reset to placeholder
+                          e.target.value = ''
+                        }}
+                        className="border border-border-strong rounded px-1.5 py-0.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-primary-500 bg-surface"
+                      >
+                        <option value="">선택…</option>
+                        <option value="gcal_only">GCal만</option>
+                        <option value="gcal_plus_sheet">GCal + 시트</option>
+                        <option value="sheet_only">시트만</option>
+                        <option value="none">미사용</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {divTeams.map(team => {
+                      const showSourceSelect = team.calendar_mode === 'gcal_plus_sheet' || team.calendar_mode === 'sheet_only'
+                      return (
+                        <div key={team.id} className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm text-text-secondary min-w-[100px] flex-shrink-0">{team.name}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${CALENDAR_MODE_BADGE[team.calendar_mode]}`}>
+                            {CALENDAR_MODE_LABEL[team.calendar_mode]}
+                          </span>
+                          {/* mode 드롭다운 */}
+                          <select
+                            value={team.calendar_mode}
+                            onChange={e => handleSingleModeChange(team.id, e.target.value as CalendarMode)}
+                            className="border border-border-strong rounded-md px-2 py-1 text-[12px] focus:outline-none focus:ring-1 focus:ring-primary-500"
+                          >
+                            <option value="gcal_only">GCal만</option>
+                            <option value="gcal_plus_sheet">GCal + 시트</option>
+                            <option value="sheet_only">시트만</option>
+                            <option value="none">미사용</option>
+                          </select>
+                          {/* sheet_source 드롭다운 — sheet 쓰는 mode일 때만 활성 */}
+                          {showSourceSelect && (
+                            <select
+                              value={team.sheet_source_id ?? ''}
+                              onChange={e => handleTeamMapping(team.id, e.target.value)}
+                              disabled={divSources.length === 0}
+                              className="flex-1 min-w-[140px] border border-border-strong rounded-md px-2 py-1 text-[12px] focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:bg-surface-muted disabled:text-text-disabled"
+                            >
+                              <option value="">시트 source 선택</option>
+                              {divSources.map(s => (
+                                <option key={s.id} value={s.id}>
+                                  {s.label}{!s.isActive ? ' (비활성)' : ''}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          {/* 시트 mode인데 source 없음 경고 */}
+                          {showSourceSelect && !team.sheet_source_id && (
+                            <span className="text-[11px] text-warning-text">⚠ 시트 source 미지정</span>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                   {divSources.length === 0 && (
-                    <p className="text-[11px] text-text-muted mt-2">이 본부에 등록된 source 없음. 위에서 source부터 등록하세요.</p>
+                    <p className="text-[11px] text-text-muted mt-2">이 본부에 등록된 시트 source 없음. 위에서 source부터 등록하면 &lsquo;GCal + 시트&rsquo; 또는 &lsquo;시트만&rsquo; mode에서 자동 매핑.</p>
                   )}
                 </div>
               )

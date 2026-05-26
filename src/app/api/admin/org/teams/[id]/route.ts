@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/admin-check'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-// PATCH /api/admin/org/teams/[id] — 팀명·use_check_in_complete·sheet_source_id 수정
+// PATCH /api/admin/org/teams/[id] — 팀명·use_check_in_complete·sheet_source_id·calendar_mode 수정
+const VALID_CALENDAR_MODES = ['gcal_only', 'gcal_plus_sheet', 'sheet_only', 'none'] as const
+type CalendarMode = typeof VALID_CALENDAR_MODES[number]
+
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -12,7 +15,7 @@ export async function PATCH(
 
   const { id } = await params
   const body = await request.json()
-  const updates: { name?: string; use_check_in_complete?: boolean; sheet_source_id?: string | null } = {}
+  const updates: { name?: string; use_check_in_complete?: boolean; sheet_source_id?: string | null; calendar_mode?: CalendarMode } = {}
 
   if ('name' in body) {
     if (typeof body.name !== 'string' || !body.name.trim()) {
@@ -41,6 +44,17 @@ export async function PATCH(
     } else {
       return NextResponse.json({ error: 'sheet_source_id는 uuid 또는 null이어야 합니다.' }, { status: 400 })
     }
+  }
+
+  // Phase B — 캘린더 운영 mode 변경. ENUM 4종 중 하나만 허용.
+  if ('calendar_mode' in body) {
+    const v = body.calendar_mode
+    if (typeof v !== 'string' || !VALID_CALENDAR_MODES.includes(v as CalendarMode)) {
+      return NextResponse.json({
+        error: `calendar_mode는 다음 중 하나여야 합니다: ${VALID_CALENDAR_MODES.join(', ')}`,
+      }, { status: 400 })
+    }
+    updates.calendar_mode = v as CalendarMode
   }
 
   if (Object.keys(updates).length === 0) {
