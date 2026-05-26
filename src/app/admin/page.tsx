@@ -901,6 +901,12 @@ export default function AdminPage() {
             본부 캘린더 관리
           </Link>
           <Link
+            href="/admin/sheet-sources"
+            className="inline-flex items-center gap-1.5 h-10 px-4 text-sm font-medium rounded-[10px] bg-surface text-text-primary border border-border-strong hover:bg-surface-muted transition-colors"
+          >
+            외부 시트 source 관리
+          </Link>
+          <Link
             href="/admin/tags"
             className="inline-flex items-center gap-1.5 h-10 px-4 text-sm font-medium rounded-[10px] bg-surface text-text-primary border border-border-strong hover:bg-surface-muted transition-colors"
           >
