@@ -457,14 +457,16 @@ export default function CheckInModal({
     userConfirmedStripLeaveRef.current = false
   }
 
-  // ─── partial delete (today 모드 — 출근보고만 삭제, 퇴근보고는 유지) ─────────
+  // ─── partial delete (today/prior/future 모드 — 출근보고만 삭제) ─────────
   // 같은 work_log row에 퇴근보고가 있으면 그건 보존됨 (?scope=check_in).
   // 양쪽 다 비면 서버가 자동으로 row 전체 soft-delete.
+  // none(미보고 첫 작성)은 work_log_id 자체가 없어 자동으로 가드됨.
   const handleDeleteCheckIn = async () => {
     if (!workLogId || deleting) return
-    const ok = window.confirm(
-      `${date} 출근보고를 삭제하시겠습니까?\n같은 날 퇴근보고가 있으면 유지됩니다.`
-    )
+    const confirmMsg = caseMode === 'future'
+      ? `${date} 사전 출근보고를 취소하시겠습니까?\n같은 날 다른 보고가 있으면 유지됩니다.`
+      : `${date} 출근보고를 삭제하시겠습니까?\n같은 날 퇴근보고가 있으면 유지됩니다.`
+    const ok = window.confirm(confirmMsg)
     if (!ok) return
     setDeleting(true)
     setError(null)
@@ -484,6 +486,7 @@ export default function CheckInModal({
       setDeleting(false)
     }
   }
+  const deleteButtonLabel = caseMode === 'future' ? '사전 출근보고 취소' : '이 출근보고 삭제'
 
   // 헤더 제목 — 케이스별
   const headerTitle =
@@ -823,18 +826,18 @@ export default function CheckInModal({
           )}
 
           <div className="flex justify-between items-center gap-2 pt-1">
-            {/* 좌측 — 삭제 (today 수정 모드에서만 노출) */}
+            {/* 좌측 — 삭제 (work_log row가 있을 때 = today/prior/future) */}
             <div>
-              {caseMode === 'today' && workLogId && (
+              {caseMode !== 'none' && workLogId && (
                 <button
                   type="button"
                   onClick={handleDeleteCheckIn}
                   disabled={deleting || saving}
                   className="inline-flex items-center gap-1.5 h-10 px-3 rounded-[10px] text-sm font-medium text-danger-text bg-surface border border-border hover:bg-danger-bg hover:border-danger-border disabled:opacity-50 transition-colors"
-                  title="이 출근보고만 삭제 — 같은 날 퇴근보고는 유지됩니다"
+                  title={caseMode === 'future' ? '사전 출근보고 취소 — 같은 날 다른 보고는 유지됩니다' : '이 출근보고만 삭제 — 같은 날 퇴근보고는 유지됩니다'}
                 >
                   {deleting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Trash2 className="h-4 w-4" aria-hidden />}
-                  이 출근보고 삭제
+                  {deleteButtonLabel}
                 </button>
               )}
             </div>
