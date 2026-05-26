@@ -1,6 +1,6 @@
 # N-Click 시간 및 보고 정책서
 
-> **최종 갱신** — 2026-05-21 (v1.30 — Phase 1.5 c/d/e + admin 캘린더 CRUD 완료)
+> **최종 갱신** — 2026-05-26 (v1.31 — partial delete by scope + 퇴근 누락 표시 정합성)
 > **상태** — Stage 0~7 반영 완료. 단일 `(user_email, leave_date)` row + 4 시간 컬럼 통합 모델.
 > **단일 진실 (SoT)** — 이 문서가 N-Click 시간·보고 관련 모든 의사결정의 기준이다.
 
@@ -79,6 +79,7 @@ N-Click의 시간 데이터(출근예정·퇴근예정·실제출근·실제퇴�
 | 퇴근보고 수정 | 퇴근보고 채널 | `notifyWorkLogUpdatedSplit` (`kind='check_out'`, `teams.ts:336-342`) | ✅ |
 | **퇴근보고 + 명일 출근보고 동시 제출** | **퇴근보고 채널만 1건** (명일 출근 채널 별도 발송 X) | `teams.ts:271-289`, D+1 INSERT 후 알림 호출 없음 (`teams.ts:551-556` 주석 참조) | ✅ |
 | 미보고 수동 nudge (리더+) | 미보고 종류별 — `missing_all`→출근보고, `missing_checkout`→퇴근보고 채널 | `notifyMissingReport` (`teams.ts:429-479`) | ✅ |
+| **보고 삭제 — partial / 전체 (v1.31, 2026-05-26)** | `scope='check_in'`→출근보고 채널 "출근보고 삭제 / 같은 날 퇴근보고는 유지됩니다". `scope='check_out'`→퇴근보고 채널 "퇴근보고 삭제 / 같은 날 출근보고는 유지됩니다". scope 없음(row 전체 soft-delete)→기존 메시지 그대로(퇴근보고 채널). | `notifyWorkLogDeleted` (`teams.ts:418-435`) + `messages.ts:338-377` | ✅ |
 | Cron 알림 — 일일 리마인더 | 출근보고 채널 | `notifyDailyCheckinReminder` | ✅ |
 | Cron 알림 — 아침 요약 | 출근보고 채널 | `notifyMorningSummary` | ✅ |
 | 라우팅 결정 | `(division, team, report_type)` 3-tuple → `teams_routing` row | `src/lib/notifications/teams-routing.ts` | ✅ |
@@ -195,6 +196,57 @@ work_logs UPSERT 시 leave_timeline 변경분을 사용자 본부의 vacation �
 | leave_timeline 스키마 변화 | `LeaveTimelineItem.google_event_id?: string` 추가 (optional) — sync 식별 키 | `src/types/leave-timeline.ts:58-64` | ✅ |
 | 발견 케이스 | 5/20 22:59 김재민 4/22 휴가 push 안 됨 — commit 459647c(22:54:49) PROD 빌드가 사용자 제출(22:59:04) 직전에 막 완료된 timing으로 hook 미배포. 진단 라우트(`/api/debug/vacation-replay`) 호출로 재push 성공 확인 | 코드 fix 불필요 — timing artifact | ✅ |
 
+### 3.7 보고 삭제 — partial (한쪽씩) / 전체 (v1.31, 2026-05-26)
+
+콤보(같은 row의 출근+퇴근) 또는 단독 보고의 한쪽 영역만 따로 삭제 가능. 수정 모달 좌하단 통일된 위치에 🗑 버튼 노출.
+
+**라우트 — `DELETE /api/work-logs/[id]?scope=check_in|check_out`**
+
+| 케이스 | 동작 | 구현 위치 | 상태 |
+|---|---|---|---|
+| `?scope` 없음 | 기존 동작 보존 — row 전체 soft-delete (`is_deleted=true`, `deleted_at`, `deleted_by`). backward compat | `src/app/api/work-logs/[id]/route.ts` DELETE 분기 진입 | ✅ |
+| `?scope=check_in` | 출근보고 영역 NULL out — `planned_start_time`, `planned_end_time`, `planned_work_locations`, `expected_start_date`, `expected_work_time`, `expected_work_location`, `expected_work_location_timeline`, `expected_leave_timeline`, `attendance_record_type` | 동일 | ✅ |
+| `?scope=check_out` | 퇴근보고 영역 NULL out — `actual_start_time`, `actual_end_time`, `break_*`(default), `work_content`, `work_location`(NOT NULL → `''`), `work_location_type/custom`, `actual_work_locations`, `work_location_timeline`, `leave_timeline`, `late_*`, `thanks_macaron`, EW 파생값 묶음(`actual_work_time`, `deduction_time`, `ew_start/end/value`, `copy_text` — NOT NULL은 `''` 또는 `'0 minutes'`) | 동일 | ✅ |
+| Auto-cleanup | partial 후 양쪽 다 비면(`planned_*_time` NULL AND `actual_end_time` NULL) → row 전체 soft-delete로 격상 | 동일 | ✅ |
+
+**안전 가드**
+
+| 가드 | 정책 | 구현 위치 | 상태 |
+|---|---|---|---|
+| legacy `start_time`/`end_time` 보존 | `workLogToFinalRows` planned fallback에 쓰이므로 절대 NULL 안 함 (Stage 0-2 SoT 컬럼만 건드림) | DELETE updates 객체 | ✅ |
+| `attendance_record_type` 분류 | `check_in` 삭제에서만 NULL. `check_out` 삭제에서는 절대 안 건드림 | 동일 | ✅ |
+| 권한 | `isOwner OR isAdmin` (기존 정책 그대로) | route 진입부 권한 체크 | ✅ |
+| 소프트 삭제 only | hard delete 없음. `deleted_at`/`deleted_by` 박제 | 동일 | ✅ |
+
+**부수 효과**
+
+| 효과 | 동작 | 구현 위치 | 상태 |
+|---|---|---|---|
+| `daily_work_status` 동기화 | `check_out` partial→`status='checked_in'` + `checked_out_at=null`. `check_in` partial→그대로(본문 보존). `wholeRowDelete`→`status='not_reported'` + `checked_in_at/out_at`/break/location 다 reset (`check-in-cancel` 패턴 차용) | DELETE 함수 daily 분기 | ✅ |
+| `work_log_submissions` append (history) | 사용자 의도(=누른 버튼) 기준 report_type 박제 — `check_in_delete` / `check_out_delete` / `work_log_delete`. wholeRowDelete로 격상된 경우에도 사용자가 누른 scope 라벨 유지 (`?scope` 없이 호출된 진짜 전체 삭제만 `work_log_delete`) | DELETE 끝 recordSubmission | ✅ |
+| Google 캘린더 휴가 sync | `leave_timeline` 또는 `expected_leave_timeline`이 영향받을 때만 `syncLeaveTimelineWithGoogle({prev, next:[]})` 호출. `prev`에 `google_event_id` 명시되어 이벤트 삭제 신호 | DELETE 함수 vacation sync 분기 | ✅ |
+| Teams 알림 — partial vs 전체 | §2.4 표 참조 | `notifyWorkLogDeleted` | ✅ |
+| Audit log | `details.scope` + `wholeRowDelete` 박제. action은 `work_log_self_delete` / `work_log_admin_delete` 유지 | recordAudit | ✅ |
+
+**알려진 cron 알림 정책 (옵션 A, 2026-05-26 결정)**
+
+- partial delete 후에도 `cron`(morning-summary / reminder-20 / reminder-22)은 **그대로 발송**. 사용자가 의도적으로 비웠으니 미보고 알림이 다시 가는 게 자연스러움. 별도 마이그레이션·skip 마커 도입 없음 — "최대한 덜 건드리고" 정책 우선.
+
+**UI 진입점 — 수정 모달 좌하단 🗑 통일**
+
+| 모달 | 노출 조건 | 버튼 라벨 | DELETE 호출 |
+|---|---|---|---|
+| `CheckInModal` `caseMode='today'` | `workLogId` 있음 | `이 출근보고 삭제` | `?scope=check_in` |
+| `CheckInModal` `caseMode='prior'` | 동일 | `이 출근보고 삭제` | 동일 |
+| `CheckInModal` `caseMode='future'` | 동일 | `사전 출근보고 취소` | 동일 |
+| `CheckInModal` `caseMode='none'` | `workLogId` 없음 → 버튼 자체 X | — | — |
+| `WorkLogModal` `editScope='check_in'` | `isEditing && editScope` | `이 출근보고 삭제` | 동일 |
+| `WorkLogModal` `editScope='check_out'` | 동일 | `이 퇴근보고 삭제` | `?scope=check_out` |
+
+**RAW 탭 표시 — `work_log_submissions.report_type` CHECK 확장**
+
+기존 5개(`check_in/check_out/check_in_update/check_out_update/check_in_complete`) → 8개 (`check_in_delete/check_out_delete/work_log_delete` 추가). 마이그레이션 `035_work_log_submissions_partial_delete_types.sql`. RAW 탭에 빨간 `danger` 배지로 "출근보고 삭제 / 퇴근보고 삭제 / 전체 삭제" 표시.
+
 ---
 
 ## 4. 시간 노출 정책
@@ -256,6 +308,38 @@ work_logs UPSERT 시 leave_timeline 변경분을 사용자 본부의 vacation �
 | 실제출근 | 현재 시각 30분 **올림(ceil)** | ✅ (2026-05-21 v1.35, floor→ceil) | ✅ |
 | 근무장소 | 기존값 | — | ✅ |
 | 메모 | 기존값 | — | ✅ |
+
+### 5.3 퇴근 누락 (missing_checkout) 표시 정합성 (v1.31, 2026-05-26)
+
+**정책 단일 출처** — `/api/missing-reports` route:
+> "어제 이하 + 출근만 있음 = `missing_checkout`. 오늘은 아직 퇴근 시간 전일 수 있어 미보고 게이트 외부. 토/일·공휴일은 보고 의무 외부."
+
+이전엔 `/team` 둘러보기, `/home` 본인 카드, `/home` 캘린더 셀 표시 로직이 모두 date·요일 비교 없이 단순 `checkedIn && !checkedOut → 근무 중` / `state==='check_in_done' → 출근완료, 퇴근 전`으로 표시 → missing-reports와 정합성 깨졌었음. v1.31에서 헬퍼 단일화로 정정.
+
+| 화면 | 평일 + 어제 이하 + 출근만 | 주말 + 어제 이하 + 출근만 | 오늘 + 출근만 | 구현 위치 | 상태 |
+|---|---|---|---|---|---|
+| `/team`·`/home` 카드 (team-status) | 🔴 빨강 "퇴근 누락" (`status='missing_checkout'`) | 🟢 "근무 중" (의무 외부) | 🟢 "근무 중" (게이트 외부) | `src/app/api/team-status/route.ts:computeStatus` (date·todayKst 파라미터 + 요일 가드) | ✅ |
+| `/home` 캘린더 셀 본문 chip | 🔴 warning tone "출근 HH:MM — 퇴근 누락 / 장소" | ⚪ neutral tone "출근 HH:MM — 퇴근 누락 / 장소" (정보성, 셀 좌측 badge 없음) | 🔵 primary tone "출근 HH:MM → 예정 HH:MM" | `src/components/MyHistoryCalendar.tsx:buildDisplayItems` `check_in_done` 분기 | ✅ |
+| `/history` 미보고 탭 | 🔴 빨강 "퇴근 누락" badge | 표시 X (보고 의무 외부, missing 카운트 외부) | 표시 X | `src/app/api/my/submission-status/route.ts` + `MissingReportsListView.tsx` | ✅ (정책 원조) |
+| Cron 알림 (morning-summary / reminder-20/22) | 📨 미보고 알림 발송 | 📭 발송 안 함 (`isWeekendDate || isKoreanHoliday` && 출근보고 0명 skip — v1.39) | 📭 발송 안 함 (게이트 외부) | `src/app/api/cron/*` | ✅ |
+
+**단일 정책 헬퍼**
+
+```ts
+// src/lib/work-logs/status-policy.ts (v1.31 신규)
+export function isMissingCheckout(
+  date: string,
+  state: WorkLogState,
+  todayKst: string,
+  isWorkday: boolean = true,
+): boolean {
+  return isWorkday && date < todayKst && state === 'check_in_done'
+}
+```
+
+- 평일/주말 가드는 caller에서 결정. team-status route는 dateParam 요일 계산, MyHistoryCalendar는 `data.isWeekend` 활용.
+- **주말 캘린더 셀**: 정책상 보고 의무 외부지만, 사용자가 본인의 "출근만 했고 퇴근 안 했음"을 시각적으로 인지할 수 있게 `neutral` tone 정보성 chip 표시 — 셀 좌측 badge(submission-status 기반)는 그대로 안 뜸 (layer 분리).
+- **공휴일 처리**: 현재 fix는 주말만 처리. 공휴일은 캘린더 셀에서 평일처럼 빨강 warning으로 잘못 표시될 수 있음 — fast-follow 후보.
 
 ---
 
