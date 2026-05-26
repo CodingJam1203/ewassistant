@@ -867,8 +867,10 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
     const pe = trimToHHmm(ci?.end_time)
     // 정책 — 과거 일자 + 출근만 → '퇴근 누락' chip (missing-reports와 일관).
     //  data.date < todayKst 비교. todayKst는 fmtDate(new Date())로 KST 계산.
+    //  weekend는 보고 의무 없는 날 → 일반 chip 유지 (셀 좌측 badge도 'weekend' 분류).
     const todayKst = fmtDate(new Date())
-    if (isMissingCheckout(data.date, state, todayKst)) {
+    const isWorkday = !data.isWeekend
+    if (isMissingCheckout(data.date, state, todayKst, isWorkday)) {
       out.push({
         tone: 'warning',
         icon: <Clock className="h-3 w-3" aria-hidden />,

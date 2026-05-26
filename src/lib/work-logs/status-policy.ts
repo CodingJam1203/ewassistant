@@ -13,16 +13,21 @@ import type { WorkLogState } from './unified-times'
 /**
  * 과거 일자 + 출근만 보고된 상태(check_in_done) → 퇴근 누락(missing_checkout).
  *
- * 오늘 일자는 미보고 게이트 외부이므로 false (= "근무 중" / "출근완료, 퇴근 전" 유지).
+ * 정책:
+ *   - 오늘 일자는 미보고 게이트 외부 (퇴근 시간 전일 수 있음) → false
+ *   - 토/일은 보고 의무 없는 날 → false (submission-status route의 'weekend' 분기와 일치)
+ *   - 그 외 과거 일자 + check_in_done → true
  *
  * @param date YYYY-MM-DD — 해당 row의 leave_date / 셀의 날짜
  * @param state classifyWorkLog 결과
  * @param todayKst KST 기준 오늘 (YYYY-MM-DD). getKstTodayDateString() 결과
+ * @param isWorkday 평일 여부 (false면 토/일/공휴일로 의무 없음). 기본 true.
  */
 export function isMissingCheckout(
   date: string,
   state: WorkLogState,
   todayKst: string,
+  isWorkday: boolean = true,
 ): boolean {
-  return date < todayKst && state === 'check_in_done'
+  return isWorkday && date < todayKst && state === 'check_in_done'
 }

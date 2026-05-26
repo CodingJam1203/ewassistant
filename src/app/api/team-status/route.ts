@@ -153,10 +153,15 @@ function computeStatus(
     if (onBreak) {
       return { color: 'green', status_text: '휴게 중', status: 'on_break' }
     }
-    // 정책: 어제 이하 + 출근만 → '퇴근 누락' (missing-reports와 일관).
-    // 오늘은 미보고 게이트 외부라 '근무 중' 유지.
+    // 정책: 어제 이하 + 평일 + 출근만 → '퇴근 누락' (missing-reports와 일관).
+    //   - 오늘은 미보고 게이트 외부라 '근무 중' 유지.
+    //   - 토/일은 보고 의무 없는 날이라 '근무 중' 유지 (의무 외부 근무는 정보성 표시만).
     if (date && todayKst && date < todayKst) {
-      return { color: 'red', status_text: '퇴근 누락', status: 'missing_checkout' }
+      const dow = new Date(date + 'T00:00:00').getDay()
+      const isWorkday = dow !== 0 && dow !== 6
+      if (isWorkday) {
+        return { color: 'red', status_text: '퇴근 누락', status: 'missing_checkout' }
+      }
     }
     return { color: 'green', status_text: '근무 중', status: 'working' }
   }
