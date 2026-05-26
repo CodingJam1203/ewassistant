@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/admin-check'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-// PATCH /api/admin/org/teams/[id] — 팀명 또는 use_check_in_complete 수정
+// PATCH /api/admin/org/teams/[id] — 팀명·use_check_in_complete·sheet_source_id 수정
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -12,7 +12,7 @@ export async function PATCH(
 
   const { id } = await params
   const body = await request.json()
-  const updates: { name?: string; use_check_in_complete?: boolean } = {}
+  const updates: { name?: string; use_check_in_complete?: boolean; sheet_source_id?: string | null } = {}
 
   if ('name' in body) {
     if (typeof body.name !== 'string' || !body.name.trim()) {
@@ -29,6 +29,18 @@ export async function PATCH(
       return NextResponse.json({ error: 'use_check_in_complete must be boolean' }, { status: 400 })
     }
     updates.use_check_in_complete = body.use_check_in_complete
+  }
+
+  // Phase A — 시트 source 매핑. null/'' → 매핑 해제, uuid → 매핑 설정.
+  if ('sheet_source_id' in body) {
+    const v = body.sheet_source_id
+    if (v === null || v === '') {
+      updates.sheet_source_id = null
+    } else if (typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v)) {
+      updates.sheet_source_id = v
+    } else {
+      return NextResponse.json({ error: 'sheet_source_id는 uuid 또는 null이어야 합니다.' }, { status: 400 })
+    }
   }
 
   if (Object.keys(updates).length === 0) {

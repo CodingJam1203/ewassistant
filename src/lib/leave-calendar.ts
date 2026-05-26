@@ -32,7 +32,36 @@ const APPS_SCRIPT_TIMEOUT_MS = 15_000      // 7s → 15s. Apps Script가 종종 
 const APPS_SCRIPT_TIMEOUT_MS_CRON = 30_000  // cron은 더 여유 (재시도 없음)
 
 function cacheKey(date: string): string {
+  // legacy 키 형식. writeCache fallback path만 이 형식으로 씀.
+  // 새 write-cache PUSH는 source 단위로 'calendar:<source_id>:YYYY-MM-DD' 형식.
   return `calendar:${date}`
+}
+
+/**
+ * Phase A — leave_calendar_cache 키에서 날짜 suffix 추출.
+ * 두 형식 모두 지원:
+ *   - legacy:  'calendar:YYYY-MM-DD'
+ *   - 신규:    'calendar:<source_id>:YYYY-MM-DD'
+ */
+function parseCacheKeyDate(key: string): string | null {
+  const m = /(\d{4}-\d{2}-\d{2})$/.exec(key)
+  return m ? m[1] : null
+}
+
+/**
+ * Phase A — 같은 날짜의 여러 cache row(legacy 1 + source별 N)의 departments를 합쳐서
+ * 단일 CalendarBatchResponse 형태로 반환. 호출처는 형식 변화 모름.
+ */
+function mergeDepartmentsInto(
+  base: CalendarBatchResponse['departments'],
+  add: CalendarBatchResponse['departments'] | undefined,
+): void {
+  if (!add) return
+  for (const [name, entries] of Object.entries(add)) {
+    if (!Array.isArray(entries)) continue
+    if (!base[name]) base[name] = []
+    base[name].push(...entries)
+  }
 }
 
 /** env 셋업 여부 — 미설정 시 모든 외부 호출이 자동 skip됨 */
@@ -93,16 +122,23 @@ interface CachedRow {
 async function readCache(date: string): Promise<CachedRow | null> {
   try {
     const adminClient = createAdminClient()
+    // Phase A — legacy('calendar:DATE') + 신규('calendar:<source>:DATE') 둘 다 fetch.
+    // OR 2 conditions만 사용 — 단일 date라 쿼리 짧음.
+    // 결과를 merge해서 단일 CalendarBatchResponse로 반환 (호출처 호환 유지).
     const { data, error } = await adminClient
       .from('leave_calendar_cache')
-      .select('data, updated_at')
-      .eq('key', cacheKey(date))
-      .maybeSingle()
-    if (error || !data) return null
-    return {
-      data: data.data as CalendarBatchResponse,
-      updatedAtMs: new Date(data.updated_at as string).getTime(),
+      .select('key, data, updated_at')
+      .or(`key.eq.calendar:${date},key.like.calendar:%:${date}`)
+    if (error || !data || data.length === 0) return null
+
+    const merged: CalendarBatchResponse = { date, departments: {} }
+    let latestMs = 0
+    for (const r of data as Array<{ key: string; data: CalendarBatchResponse; updated_at: string }>) {
+      const ts = new Date(r.updated_at).getTime()
+      if (ts > latestMs) latestMs = ts
+      mergeDepartmentsInto(merged.departments, r.data?.departments)
     }
+    return { data: merged, updatedAtMs: latestMs }
   } catch (err) {
     console.warn('[leave-calendar] readCache failed:', err)
     return null
@@ -211,26 +247,37 @@ export async function getCalendarRangeBatch(
   const missing: string[] = []
   const now = Date.now()
 
-  // 1) 캐시 전체 1회 IN 쿼리 — 91개 round-trip → 1번으로 압축
+  // 1) 캐시 전체 1회 fetch — Phase A 이후 legacy + source별 row 모두 들고와서 date로 그룹·merge.
+  //    LIKE 'calendar:%' 로 캘린더 캐시 row 전부 가져옴 (테이블 max ~90 dates × 본부 수 ⇒ 수백 row 수준).
+  //    91개 OR 체인보다 단순하고 안정적.
   try {
     const adminClient = createAdminClient()
-    const keys = dates.map(d => cacheKey(d))
+    const datesSet = new Set(dates)
     const { data: rows } = await adminClient
       .from('leave_calendar_cache')
       .select('key, data, updated_at')
-      .in('key', keys)
-    const byKey = new Map<string, { data: CalendarBatchResponse; updatedAtMs: number }>()
+      .like('key', 'calendar:%')
+
+    // date → { merged departments, latest updated_at } 누적
+    const byDate = new Map<string, { merged: CalendarBatchResponse; latestMs: number }>()
     for (const r of (rows ?? []) as Array<{ key: string; data: CalendarBatchResponse; updated_at: string }>) {
-      byKey.set(r.key, {
-        data: r.data,
-        updatedAtMs: new Date(r.updated_at).getTime(),
-      })
+      const d = parseCacheKeyDate(r.key)
+      if (!d || !datesSet.has(d)) continue
+      const ts = new Date(r.updated_at).getTime()
+      let entry = byDate.get(d)
+      if (!entry) {
+        entry = { merged: { date: d, departments: {} }, latestMs: 0 }
+        byDate.set(d, entry)
+      }
+      if (ts > entry.latestMs) entry.latestMs = ts
+      mergeDepartmentsInto(entry.merged.departments, r.data?.departments)
     }
+
     for (const date of dates) {
-      const c = byKey.get(cacheKey(date))
-      if (c) {
-        result[date] = c.data
-        if (now - c.updatedAtMs >= TTL_MS) missing.push(date)
+      const e = byDate.get(date)
+      if (e) {
+        result[date] = e.merged
+        if (now - e.latestMs >= TTL_MS) missing.push(date)
       } else {
         result[date] = null
         missing.push(date)
