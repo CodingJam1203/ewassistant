@@ -18,6 +18,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { UserCalendarLookup, CalendarEventChunk } from '@/types/leave-calendar'
 import type { LeaveType } from '@/types/leave-timeline'
+import { parseCell } from '@/lib/leave-calendar'
 
 /** ISO → KST 'HH:mm' */
 export function toKstTime(iso: string): string {
@@ -198,5 +199,162 @@ export async function fetchOrgCalendarLookup(args: {
     }
   }
 
+  // Phase A — 시트 source 매핑된 팀의 사용자에 한해 leave_calendar_cache 데이터 합산.
+  // best-effort: 실패해도 GCal lookup은 그대로 반환 (fetchFailed 영향 X).
+  try {
+    await mergeSheetDataIntoLookup({ adminClient, dates, byEmail })
+  } catch (err) {
+    console.warn('[org-calendar/lookup] sheet merge failed:', err)
+  }
+
   return { enabled: true, fetchFailed: false, byEmail }
+}
+
+// ─── Phase A — Sheet data merge layer ───────────────────────────────────────
+
+interface UserProfileRow {
+  email: string
+  display_name: string | null
+  division: string | null
+  team: string | null
+}
+
+interface TeamRow {
+  name: string
+  sheet_source_id: string
+  org_divisions: { name: string }
+  org_sheet_sources: { is_active: boolean }
+}
+
+interface SheetCacheRow {
+  key: string
+  data: { departments?: Record<string, Array<{ name?: string; cellValue?: string }>> }
+}
+
+/**
+ * Phase A — 시트 source 매핑된 팀의 사용자에 leave_calendar_cache 데이터 합산.
+ *
+ * 동작 정책:
+ *   - sheet_source_id 매핑된 팀(opt-in)만 시트 데이터 활용 → Mode 1 팀은 영향 0
+ *   - 본부 단위 1차 필터 — 시트의 dept entries × user의 (division, team) 매칭
+ *   - 이름 매칭은 user_profiles.display_name == sheet entry.name (정확 일치)
+ *   - 본부 내 동명이인은 둘 다 매칭됨 (Phase B에서 override 처리 예정)
+ *   - 휴가 우선순위: GCal already set → 시트 skip / GCal 비어있음 → 시트 적용
+ *   - 일반 일정: 그대로 events에 push (dedup은 Phase B)
+ */
+async function mergeSheetDataIntoLookup(args: {
+  adminClient: SupabaseClient
+  dates: string[]
+  byEmail: Map<string, Record<string, UserCalendarLookup>>
+}): Promise<void> {
+  const { adminClient, dates, byEmail } = args
+  if (byEmail.size === 0 || dates.length === 0) return
+
+  const emails = Array.from(byEmail.keys())
+
+  // 1) user_profiles에서 display_name + (division, team) text 컬럼 조회
+  const { data: userRows, error: usersErr } = await adminClient
+    .from('user_profiles')
+    .select('email, display_name, division, team')
+    .in('email', emails)
+
+  if (usersErr || !userRows || userRows.length === 0) return
+
+  // 2) sheet_source_id 매핑된 팀 + 활성 source만 join 결과 조회
+  const { data: teamRows, error: teamsErr } = await adminClient
+    .from('org_teams')
+    .select('name, sheet_source_id, org_divisions!inner(name), org_sheet_sources!inner(is_active)')
+    .not('sheet_source_id', 'is', null)
+    .eq('org_sheet_sources.is_active', true)
+
+  if (teamsErr || !teamRows || teamRows.length === 0) return
+
+  // teamKey ("본부명::팀명") → sheet_source_id
+  const teamKeyToSourceId = new Map<string, string>()
+  for (const t of teamRows as unknown as TeamRow[]) {
+    const divName = t.org_divisions?.name
+    if (!divName || !t.name || !t.sheet_source_id) continue
+    teamKeyToSourceId.set(`${divName}::${t.name}`, t.sheet_source_id)
+  }
+
+  // 3) user → sheet_source_id + display_name 매핑
+  // userToTarget — email(lowercase) → { sourceId, displayName(trim) }
+  const userToTarget = new Map<string, { sourceId: string; displayName: string }>()
+  for (const u of userRows as UserProfileRow[]) {
+    if (!u.division || !u.team || !u.display_name) continue
+    const sourceId = teamKeyToSourceId.get(`${u.division}::${u.team}`)
+    if (!sourceId) continue
+    userToTarget.set(u.email.toLowerCase(), {
+      sourceId,
+      displayName: u.display_name.trim(),
+    })
+  }
+  if (userToTarget.size === 0) return  // 매핑된 사용자 없음 → Mode 1 zero impact
+
+  // 4) source × name → users 인덱스 (entry 매칭 시 O(1) lookup)
+  //    key: `${sourceId}::${displayName}`, value: 매칭되는 user emails
+  const sourceNameToEmails = new Map<string, string[]>()
+  for (const [email, target] of userToTarget) {
+    const key = `${target.sourceId}::${target.displayName}`
+    const arr = sourceNameToEmails.get(key)
+    if (arr) arr.push(email)
+    else sourceNameToEmails.set(key, [email])
+  }
+
+  // 5) leave_calendar_cache에서 신규 형식(`calendar:<source_id>:DATE`) row 전부 read
+  const dateSet = new Set(dates)
+  const { data: cacheRows, error: cacheErr } = await adminClient
+    .from('leave_calendar_cache')
+    .select('key, data')
+    .like('key', 'calendar:%:%')
+
+  if (cacheErr || !cacheRows) return
+
+  // 6) row 순회 — source_id + date 파싱 → 매칭 user들에게 entries 합산
+  for (const r of cacheRows as SheetCacheRow[]) {
+    const m = /^calendar:([0-9a-f-]{36}):(\d{4}-\d{2}-\d{2})$/i.exec(r.key)
+    if (!m) continue
+    const sourceId = m[1]
+    const date = m[2]
+    if (!dateSet.has(date)) continue
+
+    const departments = r.data?.departments
+    if (!departments) continue
+
+    for (const entries of Object.values(departments)) {
+      if (!Array.isArray(entries)) continue
+      for (const entry of entries) {
+        const sheetName = (entry.name ?? '').trim()
+        if (!sheetName) continue
+        const cellValue = entry.cellValue ?? ''
+        if (!cellValue) continue
+
+        const matchedEmails = sourceNameToEmails.get(`${sourceId}::${sheetName}`)
+        if (!matchedEmails || matchedEmails.length === 0) continue
+
+        const parsed = parseCell(cellValue)
+
+        for (const email of matchedEmails) {
+          const rec = byEmail.get(email)
+          if (!rec) continue
+          const lookup = rec[date]
+          if (!lookup) continue
+
+          if (parsed.leaveType) {
+            // 휴가 — GCal이 이미 설정했으면 skip (GCal 우선)
+            if (lookup.leaveType === null) {
+              lookup.leaveType = parsed.leaveType
+              lookup.leaveLabel = cellValue.trim()
+              lookup.raw = cellValue
+            }
+          } else {
+            // 일반 일정 — events에 누적
+            for (const ev of parsed.events) {
+              lookup.events.push(ev as CalendarEventChunk)
+            }
+          }
+        }
+      }
+    }
+  }
 }
