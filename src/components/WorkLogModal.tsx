@@ -152,17 +152,19 @@ export default function WorkLogModal({
   )
 
   const handleSubmitSuccess = () => {
-    // 모달 즉시 닫고 /api/team-status/check-out는 fire-and-forget으로 백그라운드 실행.
-    // /api/work-logs POST가 이미 daily_work_status + actual_end_time을 업데이트하므로
-    // 이 호출은 work_status_events 이벤트 기록 등 보조 목적. await으로 폼 영역을
-    // "퇴근 처리 중..." 로딩으로 교체하면 사용자에게 깜빡이는 빈 모달이 잠깐 보임.
-    if (!isEditing) {
-      fetch('/api/team-status/check-out', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date }),
-      }).catch(() => { /* ignore */ })
-    }
+    // 2026-05-26: fire-and-forget POST /api/team-status/check-out 제거.
+    // 사유: handleSubmitSuccess의 props.date는 모달이 열렸을 때 부모가 넘긴 값(보통 오늘)
+    //   이고, 폼 내부에서 사용자가 leave_date를 다른 일자로 바꿔도 props.date는
+    //   변경되지 않는다. 그래서 오늘 화면에서 과거 날짜 퇴근보고를 신규로 작성하면
+    //   fire-and-forget이 잘못된 일자(=오늘)로 호출되어, 오늘 work_log row의
+    //   end_time(예: 어제 사전등록한 18:30)을 자동으로 "퇴근 시각"으로 잡아
+    //   오늘 daily.checked_out_at + work_log.actual_end_time까지 잘못 채워버림.
+    //   결과: 실제로 퇴근 안 한 오늘 카드가 '퇴근' 상태로 표시.
+    // work-logs POST가 이미 leave_date 기준으로 daily.checked_out_at +
+    // actual_end_time + work_status_events를 다 처리하므로 이 보조 호출은
+    // 본래 의도("보조 목적")가 사실상 중복이며, 잠재 버그 소스에 가깝다.
+    // work_status_events의 'check_out' row 기록은 잃지만, work_log_submissions이
+    // 메인 이벤트 소스라 큰 손실 X. 필요 시 별 cycle에서 work-logs POST에 직접 추가 검토.
     onSuccess()
   }
 
