@@ -444,15 +444,13 @@ export default function CalendarMatrixPage() {
     }
   }, [range.from, range.to])
 
-  useEffect(() => { load() }, [load])
-
   /**
-   * /api/calendar/refresh 호출.
-   *   - force=false (mount/silent): throttle(5분) 안이면 즉시 throttled 응답. UI 그대로.
-   *   - force=true (수동 새로고침 버튼): throttle 무시 강제 sync. 완료 후 events 재load.
-   * 어느 쪽이든 응답에서 lastSyncedAt 갱신.
+   * /api/calendar/refresh 호출 — 백엔드 sync trigger. load() 호출은 안 함.
+   *   - force=false: throttle(5분) 안이면 즉시 throttled 응답.
+   *   - force=true: throttle 무시 강제 sync.
+   * 응답에서 lastSyncedAt 갱신. 상태 반환은 호출자가 후속 load 여부 결정 시 활용 가능.
    */
-  const refresh = useCallback(async (force: boolean) => {
+  const refresh = useCallback(async (force: boolean): Promise<'synced' | 'throttled' | 'error'> => {
     setSyncing(true)
     try {
       const res = await fetch('/api/calendar/refresh', {
@@ -461,26 +459,45 @@ export default function CalendarMatrixPage() {
         body: JSON.stringify({ force }),
         cache: 'no-store',
       })
-      const data: { status?: string; lastSyncedAt?: string | null } = await res.json().catch(() => ({}))
+      const data: { status?: 'synced' | 'throttled' | 'error'; lastSyncedAt?: string | null } = await res.json().catch(() => ({}))
       if (data.lastSyncedAt) setLastSyncedAt(data.lastSyncedAt)
-      // 실제 sync가 일어났을 때만 events 재load (throttled면 DB 변경 없음)
-      if (data.status === 'synced') {
-        await load()
-      }
+      return data.status ?? 'error'
     } catch (err) {
       // refresh 실패는 silent — 캘린더 자체 read는 별개로 동작
       console.error('[calendar/refresh] failed:', err)
+      return 'error'
     } finally {
       setSyncing(false)
     }
-  }, [load])
+  }, [])
 
-  // mount 시 1회 silent refresh
+  // 사용자 수동 새로고침 / 모달 저장 — force sync 후 무조건 load.
+  const manualRefresh = useCallback(async () => {
+    await refresh(true)
+    await load()
+  }, [refresh, load])
+
+  // Mount: silent refresh 먼저 await → 그 다음 한 번 load. throttle 안이면 refresh가
+  // 즉시 끝나므로 사실상 단일 load와 동등. throttle 밖이면 sync 끝날 때까지 로딩 표시
+  // 유지하다 한 번에 paint — 종전처럼 mount load + 4초 후 재load 깜빡임 제거.
+  // Range/view 변경(mount 이후)은 아래 effect에서 load만.
   useEffect(() => {
     if (didMountSyncRef.current) return
     didMountSyncRef.current = true
-    refresh(false)
-  }, [refresh])
+    let cancelled = false
+    void (async () => {
+      await refresh(false)
+      if (cancelled) return
+      await load()
+    })()
+    return () => { cancelled = true }
+  }, [refresh, load])
+
+  // Mount 이후 range/view 변경 → load만.
+  useEffect(() => {
+    if (!didMountSyncRef.current) return
+    void load()
+  }, [load])
 
   // 선택된 본부의 users / events 1차 필터
   const divUsers = useMemo(() => {
@@ -728,11 +745,11 @@ export default function CalendarMatrixPage() {
     })
   }, [])
 
-  /** 모달에서 저장/삭제 성공 시 — 모달 닫고 force refresh */
+  /** 모달에서 저장/삭제 성공 시 — 모달 닫고 force refresh 후 load */
   const handleModalSaved = useCallback(() => {
     setModalState(null)
-    void refresh(true)
-  }, [refresh])
+    void manualRefresh()
+  }, [manualRefresh])
 
   return (
     <div className="max-w-[120rem] mx-auto p-3 sm:p-4 space-y-3">
@@ -811,7 +828,7 @@ export default function CalendarMatrixPage() {
                 <span className="tabular-nums">최신 {fmtSyncTime(lastSyncedAt)}</span>
                 <button
                   type="button"
-                  onClick={() => refresh(true)}
+                  onClick={() => { void manualRefresh() }}
                   className="ml-1 inline-flex items-center gap-0.5 text-primary-600 hover:text-primary-700 hover:underline"
                   aria-label="지금 새로고침"
                   title="지금 새로고침 (Google 캘린더 즉시 fetch)"
