@@ -1010,11 +1010,32 @@ export async function DELETE(
     if (error) throw error
 
     // ─── daily_work_status 동기화 (함정 5/9 대응) ────────────────────────────────
-    // 퇴근 partial delete: status='checked_in'으로 되돌리고 checked_out_at NULL
-    // 출근 partial delete + 본문 있음: daily 그대로 (퇴근은 살아있으니 의미 있음)
-    // 양쪽 다 비어 row 전체 delete: daily_work_status는 별도 정리 안 함(기존 정책 그대로)
-    if (scope === 'check_out' && !wholeRowDelete) {
-      try {
+    // 시나리오별:
+    //   1) scope='check_out' + partial (본문 영역만 삭제, 출근보고는 살아있음)
+    //      → "출근완료, 퇴근 전" 상태로 되돌림: status='checked_in', checked_out_at=null
+    //   2) scope='check_in' + partial (출근보고만 삭제, 본문 살아있음)
+    //      → daily 그대로 유지 (본문이 의미 가짐)
+    //   3) wholeRowDelete=true (양쪽 다 비어 row 전체 삭제 OR ?scope 없이 호출)
+    //      → daily도 "미보고" 상태로 reset (check-in-cancel 패턴과 동일):
+    //        status='not_reported', checked_in_at/out_at=null, is_on_break=false.
+    //      안 그러면 둘러보기 카드가 "근무중"으로 stale 표시되고 "출근보고 수정" 버튼도 잔존.
+    try {
+      if (wholeRowDelete) {
+        await adminClient
+          .from('daily_work_status')
+          .update({
+            status: 'not_reported',
+            checked_in_at: null,
+            checked_out_at: null,
+            break_started_at: null,
+            break_ended_at: null,
+            is_on_break: false,
+            current_location: null,
+            current_location_index: null,
+            updated_at: nowIso,
+          })
+          .eq('work_log_id', id)
+      } else if (scope === 'check_out') {
         await adminClient
           .from('daily_work_status')
           .update({
@@ -1023,8 +1044,9 @@ export async function DELETE(
             updated_at: nowIso,
           })
           .eq('work_log_id', id)
-      } catch { /* 무시 — best-effort */ }
-    }
+      }
+      // scope === 'check_in' && !wholeRowDelete: daily 그대로 (본문 보존됨)
+    } catch { /* 무시 — best-effort */ }
 
     // ─── Google 캘린더 휴가 sync (함정 4/8 대응) ─────────────────────────────────
     // partial delete가 leave_timeline 또는 expected_leave_timeline에 영향 줄 때만.
@@ -1091,12 +1113,15 @@ export async function DELETE(
 
     // ─── work_log_submissions append (함정 3 대응) ─────────────────────────────
     // 사용자가 history에서 "이 보고 삭제됨" history를 추적할 수 있도록.
+    // 라벨은 사용자 의도(누른 버튼) 기준 — wholeRowDelete 격상 여부와 무관.
+    // 예: 출근만 있던 row의 [출근보고 삭제] → wholeRowDelete=true로 격상되지만 라벨은 'check_in_delete'.
+    //     ?scope 없이 호출되는 진짜 전체 삭제(API 직접 호출 등)만 'work_log_delete'.
     try {
       const submissionReportType:
         | 'check_in_delete' | 'check_out_delete' | 'work_log_delete' =
-        wholeRowDelete
-          ? 'work_log_delete'
-          : (scope === 'check_in' ? 'check_in_delete' : 'check_out_delete')
+        scope === 'check_in' ? 'check_in_delete'
+          : scope === 'check_out' ? 'check_out_delete'
+          : 'work_log_delete'
       await recordSubmission({
         user_id: log.user_id ?? null,
         user_email: log.user_email ?? user.email ?? '',
