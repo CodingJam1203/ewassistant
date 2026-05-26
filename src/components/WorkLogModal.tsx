@@ -84,27 +84,39 @@ export default function WorkLogModal({
     : editScope === 'check_out' ? '이 퇴근보고 삭제'
     : '이 보고 삭제'
   const handleDelete = useCallback(async () => {
-    if (!editingLog?.id || !editScope || deleting) return
+    if (!editingLog?.id || !editScope || deleting) {
+      console.log('[WorkLog delete] skip — id:', editingLog?.id, 'scope:', editScope, 'deleting:', deleting)
+      return
+    }
     const ok = window.confirm(
       editScope === 'check_in'
         ? `${date} 출근보고를 삭제하시겠습니까?\n같은 날 퇴근보고가 있으면 유지됩니다.`
         : `${date} 퇴근보고를 삭제하시겠습니까?\n같은 날 출근보고가 있으면 유지됩니다.`
     )
+    console.log('[WorkLog delete] confirm result:', ok)
     if (!ok) return
     setDeleting(true)
     setDeleteError(null)
     try {
+      console.log('[WorkLog delete] fetching DELETE id=', editingLog.id, 'scope=', editScope)
       const res = await fetch(`/api/work-logs/${editingLog.id}?scope=${editScope}`, {
         method: 'DELETE',
       })
-      const data = await res.json().catch(() => ({}))
+      const text = await res.text()
+      let data: { error?: string; success?: boolean; scope?: string | null; wholeRowDelete?: boolean } = {}
+      try { data = text ? JSON.parse(text) : {} } catch {
+        console.warn('[WorkLog delete] response not JSON:', text.slice(0, 200))
+      }
+      console.log('[WorkLog delete] response status=', res.status, 'body=', data)
       if (!res.ok) {
-        setDeleteError(data.error ?? '삭제 중 오류가 발생했습니다.')
+        setDeleteError(`삭제 실패 (HTTP ${res.status}): ${data.error ?? text.slice(0, 100) ?? '서버 오류'}`)
         return
       }
+      console.log('[WorkLog delete] success — calling onSuccess()')
       onSuccess()
-    } catch {
-      setDeleteError('네트워크 오류가 발생했습니다.')
+    } catch (err) {
+      console.error('[WorkLog delete] network/parse error:', err)
+      setDeleteError(`네트워크 오류: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setDeleting(false)
     }
