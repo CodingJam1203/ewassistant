@@ -96,6 +96,13 @@ function computeStatus(
   workLog: (Record<string, unknown> & { _expectedOnly?: boolean }) | null,
   daily: Record<string, unknown> | null,
   calendarLeaveType: LeaveType | null = null,
+  /**
+   * 카드 조회 일자 (YYYY-MM-DD). 정책: 과거 일자 + 출근만 → '퇴근 누락'.
+   * 오늘 일자는 미보고 게이트 외부라 그대로 '근무 중'/'휴게 중' 유지.
+   */
+  date?: string,
+  /** KST 기준 오늘 일자 (YYYY-MM-DD). date < todayKst 비교용. */
+  todayKst?: string,
 ): { color: 'green' | 'yellow' | 'red'; status_text: string; status: string } {
   const hasLog = !!workLog
   const isExpectedOnly = !!workLog?._expectedOnly
@@ -145,6 +152,11 @@ function computeStatus(
     }
     if (onBreak) {
       return { color: 'green', status_text: '휴게 중', status: 'on_break' }
+    }
+    // 정책: 어제 이하 + 출근만 → '퇴근 누락' (missing-reports와 일관).
+    // 오늘은 미보고 게이트 외부라 '근무 중' 유지.
+    if (date && todayKst && date < todayKst) {
+      return { color: 'red', status_text: '퇴근 누락', status: 'missing_checkout' }
     }
     return { color: 'green', status_text: '근무 중', status: 'working' }
   }
@@ -368,7 +380,13 @@ export async function GET(request: Request) {
       const displayName = (profile.display_name as string | null) ?? null
       const calLeave = lookupCalendar(email)
 
-      const { color, status_text, status } = computeStatus(workLog, daily, calLeave.leaveType)
+      const { color, status_text, status } = computeStatus(
+        workLog,
+        daily,
+        calLeave.leaveType,
+        dateParam,
+        getKstTodayDateString(),
+      )
 
       // expected_start_date 매칭으로 잡힌 work_log는 출근보고 정보를 본문 필드로 노출
       const isExpectedOnly = !!workLog?._expectedOnly

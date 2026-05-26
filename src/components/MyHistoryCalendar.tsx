@@ -47,6 +47,7 @@ import {
   pickLatestWorkLogPerDay,
   type WorkLogState,
 } from '@/lib/work-logs/unified-times'
+import { isMissingCheckout } from '@/lib/work-logs/status-policy'
 
 interface MyHistoryCalendarProps {
   /** 셀 / 상세 모달의 ✏ 수정 버튼이 트리거하는 콜백 (부모가 WorkLogModal 띄움) */
@@ -864,17 +865,30 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
   } else if (state === 'check_in_done') {
     const sa = trimToHHmm(co?.start_time)
     const pe = trimToHHmm(ci?.end_time)
-    // ci=null edge case (출근보고 영역 없이 actual_start만 채워진 매우 드문 quirk):
-    // "출근 09:00 → 예정 " 빈 칸 보다 깔끔하게 "출근 09:00 (퇴근예정 미보고)" 표시.
-    const text = ci
-      ? `출근 ${sa} → 예정 ${pe}${loc ? ' ' + loc : ''}`
-      : `출근 ${sa} (퇴근예정 미보고)${loc ? ' ' + loc : ''}`
-    out.push({
-      tone: 'primary',
-      icon: <Clock className="h-3 w-3" aria-hidden />,
-      text,
-      title: '출근완료, 퇴근 전',
-    })
+    // 정책 — 과거 일자 + 출근만 → '퇴근 누락' chip (missing-reports와 일관).
+    //  data.date < todayKst 비교. todayKst는 fmtDate(new Date())로 KST 계산.
+    const todayKst = fmtDate(new Date())
+    if (isMissingCheckout(data.date, state, todayKst)) {
+      out.push({
+        tone: 'warning',
+        icon: <Clock className="h-3 w-3" aria-hidden />,
+        text: `출근 ${sa} — 퇴근 누락${loc ? ' / ' + loc : ''}`,
+        title: '퇴근보고 누락 (과거 일자 + 출근만 보고)',
+      })
+    } else {
+      // 오늘 또는 미래 일자 — 기존 "출근완료, 퇴근 전" 표시
+      // ci=null edge case (출근보고 영역 없이 actual_start만 채워진 매우 드문 quirk):
+      // "출근 09:00 → 예정 " 빈 칸 보다 깔끔하게 "출근 09:00 (퇴근예정 미보고)" 표시.
+      const text = ci
+        ? `출근 ${sa} → 예정 ${pe}${loc ? ' ' + loc : ''}`
+        : `출근 ${sa} (퇴근예정 미보고)${loc ? ' ' + loc : ''}`
+      out.push({
+        tone: 'primary',
+        icon: <Clock className="h-3 w-3" aria-hidden />,
+        text,
+        title: '출근완료, 퇴근 전',
+      })
+    }
   } else if (state === 'planned_only' && ci) {
     // planned_only 정의상 plannedStart 있어야 ci 생성됨. ci null이면 비정상 데이터로 표시 skip.
     const ps = trimToHHmm(ci.start_time)
