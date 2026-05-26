@@ -17,7 +17,7 @@
  *   - 드래그로 캘린더 여러 칸 선택 → 폼 prefill
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X, Plane } from 'lucide-react'
 import { Button, Field, Input, DateInputWithDow } from '@/components/ui'
 import CustomDropdown from '@/components/ui/CustomDropdown'
@@ -64,6 +64,48 @@ export default function VacationRegisterModal({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<BulkLeaveResult | null>(null)
+  // pre-submit 안내: 시작일~종료일 범위에 이미 보고가 있는 본인 일자들.
+  // bulk-leave는 이런 날을 안전장치로 skip하므로 submit 전 미리 표시해서
+  // "등록 시 실제로 만들어질 건 수 / 건너뛸 건 수"를 사용자가 인지할 수 있게 한다.
+  const [existingDates, setExistingDates] = useState<string[]>([])
+  const [previewLoading, setPreviewLoading] = useState(false)
+
+  // pre-submit 조회 — 날짜 범위 안에 이미 본인 보고가 있는 날 미리 확인.
+  // bulk-leave는 그런 날 skip이라 사용자에게 등록 시 실제 동작을 미리 알려준다.
+  // 결과 화면 표시 중이면 skip(이미 등록 처리됨).
+  useEffect(() => {
+    if (result) return
+    if (!startDate || !endDate || startDate > endDate) {
+      setExistingDates([])
+      return
+    }
+    const ac = new AbortController()
+    setPreviewLoading(true)
+    fetch(
+      `/api/work-logs?mine=true&from=${startDate}&to=${endDate}&limit=500`,
+      { signal: ac.signal, cache: 'no-store' },
+    )
+      .then(r => r.ok ? r.json() : [])
+      .then((logs: Array<{ leave_date: string; is_deleted: boolean }>) => {
+        if (ac.signal.aborted) return
+        const dates = (Array.isArray(logs) ? logs : [])
+          .filter(l => !l.is_deleted)
+          .map(l => l.leave_date)
+        // 중복 제거 + 정렬
+        const unique = Array.from(new Set(dates)).sort()
+        // 주말 제외 옵션 적용 — 사용자가 어차피 등록 안 할 날은 안내에서도 제외
+        const filtered = excludeWeekends
+          ? unique.filter(d => {
+              const dow = new Date(`${d}T00:00:00`).getUTCDay()
+              return dow !== 0 && dow !== 6
+            })
+          : unique
+        setExistingDates(filtered)
+      })
+      .catch(() => { /* 무시 — best-effort */ })
+      .finally(() => { if (!ac.signal.aborted) setPreviewLoading(false) })
+    return () => ac.abort()
+  }, [startDate, endDate, excludeWeekends, result])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -213,6 +255,22 @@ export default function VacationRegisterModal({
               <br />
               종일(8:00) 외 부분 휴가는 출퇴근 시각이 09:00~18:00로 임시 채워지며, 후속 출퇴근보고에서 조정할 수 있습니다.
             </div>
+
+            {/* pre-submit 안내 — 선택한 범위 내 이미 보고된 날 미리 표시 */}
+            {existingDates.length > 0 && (
+              <div className="rounded-[10px] bg-warning-bg border border-warning-border p-3 text-[12px] text-warning-text">
+                <div className="flex items-start gap-2">
+                  <span className="font-semibold">⚠️ 건너뛸 날짜 {existingDates.length}건</span>
+                  {previewLoading && <span className="text-[11px] text-text-muted">(확인 중…)</span>}
+                </div>
+                <div className="mt-1 text-text-primary tabular-nums break-all">
+                  {existingDates.join(', ')}
+                </div>
+                <div className="mt-1 text-text-secondary">
+                  이 날짜에는 이미 출근/퇴근 보고가 있어 등록 시 자동으로 제외됩니다. 휴가를 추가하시려면 캘린더 셀의 출근보고 수정(✏)에서 직접 추가해주세요.
+                </div>
+              </div>
+            )}
 
             {error && (
               <div className="rounded-[10px] bg-danger-bg border border-danger-border p-3 text-sm text-danger-text">
