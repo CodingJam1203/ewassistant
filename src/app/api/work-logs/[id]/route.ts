@@ -943,6 +943,14 @@ export async function DELETE(
       // 퇴근보고(본문) 영역만 NULL out — 출근보고 영역은 보존.
       // legacy start_time/end_time은 절대 안 건드림 (workLogToFinalRows fallback에서
       // planned 표시용으로 쓰이기 때문 — 함정 1 대응).
+      //
+      // NOT NULL 컬럼은 NULL 대신 의미상 "비어있음" 값으로 reset:
+      //   work_location (text NOT NULL)       → ''
+      //   copy_text     (text NOT NULL)       → ''
+      //   ew_start/end/value (text NOT NULL)  → ''
+      //   actual_work_time (interval NOT NULL) → '0 minutes'
+      //   deduction_time   (interval NOT NULL) → '0 minutes'
+      //   break_time       (interval NOT NULL, default '00:00:00') → '00:00:00'
       updates = {
         actual_start_time: null,
         actual_end_time: null,
@@ -953,7 +961,7 @@ export async function DELETE(
         break_manual_rounded_minutes: null,
         break_final_rounded_minutes: null,
         work_content: null,
-        work_location: null,
+        work_location: '',  // NOT NULL
         work_location_type: null,
         work_location_custom: null,
         actual_work_locations: null,
@@ -964,13 +972,14 @@ export async function DELETE(
         current_report_time: null,
         late_reason: null,
         thanks_macaron: null,
-        // EW 파생값 묶음 NULL out — 함정 7 대응 (복사문구만 남고 시간 0 모순 방지)
-        deduction_time: null,
-        actual_work_time: null,
-        ew_start: null,
-        ew_end: null,
-        ew_value: null,
-        copy_text: null,
+        // EW 파생값 묶음 reset — 함정 7 대응 (복사문구만 남고 시간 0 모순 방지).
+        // NOT NULL 제약상 NULL 불가, 의미상 "비어있음" 값으로:
+        deduction_time: '0 minutes',  // NOT NULL
+        actual_work_time: '0 minutes',  // NOT NULL
+        ew_start: '',  // NOT NULL
+        ew_end: '',  // NOT NULL
+        ew_value: '',  // NOT NULL
+        copy_text: '',  // NOT NULL
         updated_at: nowIso,
         updated_by: user.id,
       }
