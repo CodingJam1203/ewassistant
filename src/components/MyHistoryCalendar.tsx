@@ -130,7 +130,7 @@ interface WorkLogRow {
  *   checkOut : actual_*   + 공통 필드 (check_in_done/check_out_done일 때만)
  */
 function workLogToSubmissionPair(row: WorkLogRow): {
-  checkIn: SubmissionRow
+  checkIn: SubmissionRow | null
   checkOut: SubmissionRow | null
   state: WorkLogState
 } {
@@ -171,13 +171,22 @@ function workLogToSubmissionPair(row: WorkLogRow): {
     attendance_record_type: row.attendance_record_type,
   } satisfies Omit<SubmissionRow, 'report_type' | 'start_time' | 'end_time'>
 
-  // checkIn 영역 — planned 시각 노출
-  const checkIn: SubmissionRow = {
+  // checkIn 영역 — 출근보고가 진짜로 작성된 경우에만 생성.
+  // (SubmissionsRawTable.workLogToFinalRows와 동일 기준 적용 — 일관성 확보.)
+  // legacy start_time/end_time fallback이 work_location 등 본문 컬럼을
+  // 출근보고로 fake-fill하는 문제 차단 (2026-05-26 fix).
+  const hasCheckIn =
+    row.planned_start_time !== null ||
+    row.planned_end_time !== null ||
+    (Array.isArray(row.planned_work_locations) && row.planned_work_locations.length > 0) ||
+    !!row.expected_start_date ||
+    row.attendance_record_type === '출근보고 진행 (주말출근, 휴가 포함)'
+  const checkIn: SubmissionRow | null = hasCheckIn ? {
     ...baseCommon,
     report_type: 'check_in',
     start_time: row.planned_start_time ?? row.start_time,
     end_time:   row.planned_end_time   ?? row.end_time,
-  }
+  } : null
 
   // checkOut 영역 — actual_start_time 이상 진행됐을 때만.
   // start = displayTimeRange의 start (check_in_done이면 actual_start, check_out_done이면 actual_start)
@@ -855,15 +864,21 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
   } else if (state === 'check_in_done') {
     const sa = trimToHHmm(co?.start_time)
     const pe = trimToHHmm(ci?.end_time)
+    // ci=null edge case (출근보고 영역 없이 actual_start만 채워진 매우 드문 quirk):
+    // "출근 09:00 → 예정 " 빈 칸 보다 깔끔하게 "출근 09:00 (퇴근예정 미보고)" 표시.
+    const text = ci
+      ? `출근 ${sa} → 예정 ${pe}${loc ? ' ' + loc : ''}`
+      : `출근 ${sa} (퇴근예정 미보고)${loc ? ' ' + loc : ''}`
     out.push({
       tone: 'primary',
       icon: <Clock className="h-3 w-3" aria-hidden />,
-      text: `출근 ${sa} → 예정 ${pe}${loc ? ' ' + loc : ''}`,
+      text,
       title: '출근완료, 퇴근 전',
     })
-  } else if (state === 'planned_only') {
-    const ps = trimToHHmm(ci?.start_time)
-    const pe = trimToHHmm(ci?.end_time)
+  } else if (state === 'planned_only' && ci) {
+    // planned_only 정의상 plannedStart 있어야 ci 생성됨. ci null이면 비정상 데이터로 표시 skip.
+    const ps = trimToHHmm(ci.start_time)
+    const pe = trimToHHmm(ci.end_time)
     out.push({
       tone: 'planned',
       icon: <Clock className="h-3 w-3" aria-hidden />,
