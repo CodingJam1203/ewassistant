@@ -52,13 +52,14 @@ export async function GET(request: Request) {
       hasExisting: false,
       checkedInAt: null as string | null,  // 'HH:mm' or null — daily.checked_in_at에서 추출
       workContent: null as string | null,
+      workLogId: null as string | null,  // 출근보고 삭제 버튼용 — CheckInModal에서 DELETE 호출에 필요
     }
 
     // ─── 1순위: D-day 본문 row ─────────────────────────────────────────────
     // 이미 D-day에 출근보고를 작성한 적이 있다면 그 값으로 prefill (수정 가능)
     const { data: bodyLog } = await adminClient
       .from('work_logs')
-      .select('start_time, end_time, work_location, work_location_timeline, leave_timeline, planned_work_locations, work_content')
+      .select('id, start_time, end_time, work_location, work_location_timeline, leave_timeline, planned_work_locations, work_content')
       .eq('user_email', user.email!)
       .eq('leave_date', date)
       .eq('is_deleted', false)
@@ -130,6 +131,7 @@ export async function GET(request: Request) {
         hasExisting: true,
         checkedInAt,
         workContent: (bodyLog.work_content as string | null) ?? null,
+        workLogId: (bodyLog.id as string | null) ?? null,
       })
     }
 
@@ -206,6 +208,7 @@ export async function GET(request: Request) {
       hasExisting: false,
       checkedInAt: null,
       workContent: null,
+      workLogId: null,
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
@@ -219,6 +222,7 @@ export async function GET(request: Request) {
       hasExisting: false,
       checkedInAt: null,
       workContent: null,
+      workLogId: null,
     }, { status: 200 })
   }
 }

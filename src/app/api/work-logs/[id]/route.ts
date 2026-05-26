@@ -861,6 +861,20 @@ export async function PATCH(
 }
 
 // ─── DELETE ──────────────────────────────────────────────────────────────────
+// 쿼리:
+//   (없음)            → 기존 동작: row 전체 soft-delete (backward compat)
+//   ?scope=check_in   → 출근보고 영역만 NULL out (퇴근보고 보존)
+//   ?scope=check_out  → 퇴근보고 영역만 NULL out (출근보고 보존)
+//
+// partial 후 양쪽 다 비면(planned_*_time AND actual_*_time 모두 NULL) 자동으로
+// row 전체 soft-delete (auto-cleanup). 그 판정 기준은 SubmissionsRawTable의
+// workLogToFinalRows 표시 기준과 일치(planned_start/end_time + actual_end_time).
+//
+// 안전 가드:
+//   · Stage 0-2 SoT 컴럼만 건드림 — start_time/end_time(legacy planned fallback) 보존
+//   · attendance_record_type은 check_in scope에서만 변경
+//   · soft-delete only (deleted_at + deleted_by 박제)
+//   · 권한: isOwner OR isAdmin (기존 정책)
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -870,11 +884,16 @@ export async function DELETE(
     const user = await requireActiveUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized or Inactive account' }, { status: 403 })
 
+    const url = new URL(request.url)
+    const scopeParam = url.searchParams.get('scope')
+    const scope: 'check_in' | 'check_out' | null =
+      scopeParam === 'check_in' || scopeParam === 'check_out' ? scopeParam : null
+
     const adminClient = createAdminClient()
 
     const { data: log, error: fetchError } = await adminClient
       .from('work_logs')
-      .select('user_id, is_deleted, name, leave_date, division, team, work_type_label, work_location, start_time, end_time, break_time, work_content')
+      .select('user_id, user_email, is_deleted, name, leave_date, division, team, work_type_label, work_location, start_time, end_time, break_time, work_content, planned_start_time, planned_end_time, actual_start_time, actual_end_time, leave_timeline, expected_leave_timeline, attendance_record_type')
       .eq('id', id)
       .single()
 
@@ -891,16 +910,143 @@ export async function DELETE(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
+    const nowIso = new Date().toISOString()
+
+    // ─── partial delete: scope별 NULL out 필드 매핑 ────────────────────────────
+    // 분류는 PATCH의 editScope 가드(line 410~477)와 데칼코마니.
+    let updates: Record<string, unknown> = {}
+    let wholeRowDelete = false  // true면 row 전체 soft-delete (scope 없거나 양쪽 다 빈 경우)
+
+    if (scope === 'check_in') {
+      // 출근보고 영역만 NULL out — 퇴근보고(본문) 영역은 보존.
+      updates = {
+        planned_start_time: null,
+        planned_end_time: null,
+        planned_work_locations: null,
+        expected_start_date: null,
+        expected_work_time: null,
+        expected_work_location: null,
+        expected_work_location_timeline: null,
+        expected_leave_timeline: null,
+        // attendance_record_type은 "이 row가 출근보고 영역 가지고 있음" flag → 출근 삭제 시 끔.
+        attendance_record_type: null,
+        updated_at: nowIso,
+        updated_by: user.id,
+      }
+      // 양쪽 다 빈 상태가 되는지 사전 판정 (auto-cleanup).
+      // 본문(퇴근보고) 비었음 = actual_end_time NULL (= check_out_done 진입 기준과 동일)
+      const checkOutEmpty = !log.actual_end_time
+      if (checkOutEmpty) {
+        wholeRowDelete = true
+      }
+    } else if (scope === 'check_out') {
+      // 퇴근보고(본문) 영역만 NULL out — 출근보고 영역은 보존.
+      // legacy start_time/end_time은 절대 안 건드림 (workLogToFinalRows fallback에서
+      // planned 표시용으로 쓰이기 때문 — 함정 1 대응).
+      updates = {
+        actual_start_time: null,
+        actual_end_time: null,
+        break_time: '00:00:00',
+        break_reason: null,
+        break_auto_actual_minutes: null,
+        break_auto_rounded_minutes: null,
+        break_manual_rounded_minutes: null,
+        break_final_rounded_minutes: null,
+        work_content: null,
+        work_location: null,
+        work_location_type: null,
+        work_location_custom: null,
+        actual_work_locations: null,
+        work_location_timeline: null,
+        leave_timeline: null,
+        late_or_attendance_status: null,
+        previous_report_time: null,
+        current_report_time: null,
+        late_reason: null,
+        thanks_macaron: null,
+        // EW 파생값 묶음 NULL out — 함정 7 대응 (복사문구만 남고 시간 0 모순 방지)
+        deduction_time: null,
+        actual_work_time: null,
+        ew_start: null,
+        ew_end: null,
+        ew_value: null,
+        copy_text: null,
+        updated_at: nowIso,
+        updated_by: user.id,
+      }
+      // 출근보고 비었음 = planned_*_time 둘 다 NULL (= workLogToFinalRows 표시 기준)
+      const checkInEmpty = !log.planned_start_time && !log.planned_end_time
+      if (checkInEmpty) {
+        wholeRowDelete = true
+      }
+    } else {
+      // scope 없음 — row 전체 soft-delete (기존 동작 그대로)
+      wholeRowDelete = true
+    }
+
+    // 양쪽 다 비면 row 전체 soft-delete로 격상 (auto-cleanup).
+    if (wholeRowDelete) {
+      updates = {
+        is_deleted: true,
+        deleted_at: nowIso,
+        deleted_by: user.id,
+      }
+    }
+
     const { error } = await adminClient
       .from('work_logs')
-      .update({
-        is_deleted: true,
-        deleted_at: new Date().toISOString(),
-        deleted_by: user.id,
-      })
+      .update(updates)
       .eq('id', id)
 
     if (error) throw error
+
+    // ─── daily_work_status 동기화 (함정 5/9 대응) ────────────────────────────────
+    // 퇴근 partial delete: status='checked_in'으로 되돌리고 checked_out_at NULL
+    // 출근 partial delete + 본문 있음: daily 그대로 (퇴근은 살아있으니 의미 있음)
+    // 양쪽 다 비어 row 전체 delete: daily_work_status는 별도 정리 안 함(기존 정책 그대로)
+    if (scope === 'check_out' && !wholeRowDelete) {
+      try {
+        await adminClient
+          .from('daily_work_status')
+          .update({
+            status: 'checked_in',
+            checked_out_at: null,
+            updated_at: nowIso,
+          })
+          .eq('work_log_id', id)
+      } catch { /* 무시 — best-effort */ }
+    }
+
+    // ─── Google 캘린더 휴가 sync (함정 4/8 대응) ─────────────────────────────────
+    // partial delete가 leave_timeline 또는 expected_leave_timeline에 영향 줄 때만.
+    // prev에 기존 google_event_id 포함 → 명시적 delete 트리거.
+    if (!wholeRowDelete) {
+      try {
+        const { syncLeaveTimelineWithGoogle } = await import('@/lib/google-calendar/vacation-sync')
+        if (scope === 'check_out' && Array.isArray(log.leave_timeline) && log.leave_timeline.length > 0 && log.leave_date && log.user_email) {
+          await syncLeaveTimelineWithGoogle({
+            adminClient,
+            userEmail: log.user_email,
+            userDisplayName: log.name ?? log.user_email,
+            leaveDate: log.leave_date,
+            prev: log.leave_timeline,
+            next: [],
+          })
+        }
+        if (scope === 'check_in' && Array.isArray(log.expected_leave_timeline) && log.expected_leave_timeline.length > 0 && log.leave_date && log.user_email) {
+          await syncLeaveTimelineWithGoogle({
+            adminClient,
+            userEmail: log.user_email,
+            userDisplayName: log.name ?? log.user_email,
+            leaveDate: log.leave_date,
+            prev: log.expected_leave_timeline,
+            next: [],
+          })
+        }
+      } catch (vacSyncErr) {
+        console.warn('[work-logs DELETE] vacation sync failed (non-fatal):', vacSyncErr)
+      }
+    }
 
     let deletedByName = ''
     try {
@@ -915,7 +1061,9 @@ export async function DELETE(
       deletedByName = isOwner ? (log.name ?? '본인') : '관리자'
     }
 
-    // 2026-05-19 v1.21: await — fire-and-forget 시 Vercel function 종료로 promise 끊김.
+    // ─── Teams 알림 (함정 — scope-aware 메시지) ─────────────────────────────────
+    // partial delete는 scope에 맞춰 라우팅(출근보고/퇴근보고 채널 분기).
+    // 양쪽 다 비어 row 전체 delete된 경우엔 scope=undefined로 발송 → 기존 메시지.
     await notifyWorkLogDeleted({
       name: log.name ?? '',
       leaveDate: log.leave_date ?? '',
@@ -929,7 +1077,29 @@ export async function DELETE(
       division: log.division ?? null,
       // 본부 직속(team 없음)이면 작성자의 notify_team으로 라우팅 치환
       team: (await resolveRoutingTeamForLog(adminClient, log)) || null,
+      scope: wholeRowDelete ? null : scope,
     })
+
+    // ─── work_log_submissions append (함정 3 대응) ─────────────────────────────
+    // 사용자가 history에서 "이 보고 삭제됨" history를 추적할 수 있도록.
+    try {
+      const submissionReportType:
+        | 'check_in_delete' | 'check_out_delete' | 'work_log_delete' =
+        wholeRowDelete
+          ? 'work_log_delete'
+          : (scope === 'check_in' ? 'check_in_delete' : 'check_out_delete')
+      await recordSubmission({
+        user_id: log.user_id ?? null,
+        user_email: log.user_email ?? user.email ?? '',
+        name: log.name ?? null,
+        division: log.division ?? null,
+        team: log.team ?? null,
+        report_type: submissionReportType,
+        target_date: log.leave_date,
+        submitted_at: nowIso,
+        work_log_id: id,
+      })
+    } catch { /* 무시 */ }
 
     try {
       const meta = extractRequestMeta(request)
@@ -939,13 +1109,18 @@ export async function DELETE(
         action: isOwner ? 'work_log_self_delete' : 'work_log_admin_delete',
         targetTable: 'work_logs',
         targetId: id,
-        details: { leaveDate: log.leave_date, name: log.name },
+        details: {
+          leaveDate: log.leave_date,
+          name: log.name,
+          scope: wholeRowDelete ? null : scope,
+          wholeRowDelete,
+        },
         ipAddress: meta.ipAddress,
         userAgent: meta.userAgent,
       })
     } catch { /* 무시 */ }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, scope: wholeRowDelete ? null : scope, wholeRowDelete })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('Work Log DELETE Error:', message)

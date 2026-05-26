@@ -3,7 +3,7 @@ import { DateInputWithDow } from '@/components/ui'
 import { dowKo } from '@/lib/utils/date'
 
 import { useEffect, useState, useRef } from 'react'
-import { X, Loader2, Calendar } from 'lucide-react'
+import { X, Loader2, Calendar, Trash2 } from 'lucide-react'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
 import LeaveTimelineInput from '@/components/LeaveTimelineInput'
 import HalfHourTimeSelect from '@/components/HalfHourTimeSelect'
@@ -113,6 +113,9 @@ export default function CheckInModal({
   const [calendarLookup, setCalendarLookup] = useState<UserCalendarLookup | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState<string | null>(null)
+  // partial delete (today 모드 한정) — work_log_id는 prefill 응답에서 받음
+  const [workLogId, setWorkLogId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   // Phase 1.5d (CheckInModal 확장 — 2026-05-21):
   //   종일 휴가 prefill + 근무 의도 신호 동시 입력 시 confirm 모달.
   //   확인 시 leaveTimeline=[]로 비우고 isAllDayLeave=false로 재제출
@@ -155,8 +158,11 @@ export default function CheckInModal({
           hasExisting?: boolean
           checkedInAt?: string | null
           workContent?: string | null
+          workLogId?: string | null
         }
         if (cancelled) return
+        // work_log_id — today 모드의 partial delete에서 필요
+        setWorkLogId(data.workLogId ?? null)
 
         // 케이스 판별
         // todayKst 비교용 — KST yyyy-mm-dd
@@ -449,6 +455,34 @@ export default function CheckInModal({
   const handleCancelStripLeave = () => {
     setStripLeaveConfirmOpen(false)
     userConfirmedStripLeaveRef.current = false
+  }
+
+  // ─── partial delete (today 모드 — 출근보고만 삭제, 퇴근보고는 유지) ─────────
+  // 같은 work_log row에 퇴근보고가 있으면 그건 보존됨 (?scope=check_in).
+  // 양쪽 다 비면 서버가 자동으로 row 전체 soft-delete.
+  const handleDeleteCheckIn = async () => {
+    if (!workLogId || deleting) return
+    const ok = window.confirm(
+      `${date} 출근보고를 삭제하시겠습니까?\n같은 날 퇴근보고가 있으면 유지됩니다.`
+    )
+    if (!ok) return
+    setDeleting(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/work-logs/${workLogId}?scope=check_in`, {
+        method: 'DELETE',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.error ?? '삭제 중 오류가 발생했습니다.')
+        return
+      }
+      onSuccess()
+    } catch {
+      setError('네트워크 오류가 발생했습니다.')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   // 헤더 제목 — 케이스별
@@ -788,22 +822,40 @@ export default function CheckInModal({
             <p className="text-sm text-danger-text bg-danger-bg border border-danger-border rounded-[10px] px-3 py-2">{error}</p>
           )}
 
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex items-center justify-center h-10 px-4 rounded-[10px] text-sm font-medium text-text-primary bg-surface border border-border-strong hover:bg-surface-muted transition-colors"
-            >
-              취소
-            </button>
-            <button
-              type="submit"
-              disabled={saving || (loadingPrefill && false) || validationErrors.length > 0}
-              className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 transition-colors"
-            >
-              {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-              {submitLabel}
-            </button>
+          <div className="flex justify-between items-center gap-2 pt-1">
+            {/* 좌측 — 삭제 (today 수정 모드에서만 노출) */}
+            <div>
+              {caseMode === 'today' && workLogId && (
+                <button
+                  type="button"
+                  onClick={handleDeleteCheckIn}
+                  disabled={deleting || saving}
+                  className="inline-flex items-center gap-1.5 h-10 px-3 rounded-[10px] text-sm font-medium text-danger-text bg-surface border border-border hover:bg-danger-bg hover:border-danger-border disabled:opacity-50 transition-colors"
+                  title="이 출근보고만 삭제 — 같은 날 퇴근보고는 유지됩니다"
+                >
+                  {deleting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Trash2 className="h-4 w-4" aria-hidden />}
+                  이 출근보고 삭제
+                </button>
+              )}
+            </div>
+            {/* 우측 — 기존 [취소] [수정 저장] */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex items-center justify-center h-10 px-4 rounded-[10px] text-sm font-medium text-text-primary bg-surface border border-border-strong hover:bg-surface-muted transition-colors"
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                disabled={saving || deleting || (loadingPrefill && false) || validationErrors.length > 0}
+                className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 transition-colors"
+              >
+                {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                {submitLabel}
+              </button>
+            </div>
           </div>
         </form>
       </div>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { X, Copy, Loader2 } from 'lucide-react'
+import { X, Copy, Loader2, Trash2 } from 'lucide-react'
 import WorkLogForm from '@/components/WorkLogForm'
 import CalculationPreview from '@/components/CalculationPreview'
 import { EwCalculationResult } from '@/lib/ew-calculator'
@@ -57,6 +57,9 @@ export default function WorkLogModal({
   const [calculationResult, setCalculationResult] = useState<EwCalculationResult | null>(null)
   const [calculationError, setCalculationError]   = useState<string | null>(null)
   const [formSubmitting, setFormSubmitting]       = useState(false)
+  // partial delete (isEditing 모드 한정) — scope는 editScope 따라감
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const handleCalculate = useCallback(
     (result: EwCalculationResult | null, error: string | null) => {
@@ -73,6 +76,40 @@ export default function WorkLogModal({
     []
   )
 
+  // ─── partial delete (isEditing 모드 — editScope에 맞춰 ?scope) ────────────
+  // 같은 work_log row의 다른 영역은 보존됨 (서버에서 처리).
+  // 양쪽 다 비면 서버가 자동으로 row 전체 soft-delete.
+  const deleteLabel =
+    editScope === 'check_in'  ? '이 출근보고 삭제'
+    : editScope === 'check_out' ? '이 퇴근보고 삭제'
+    : '이 보고 삭제'
+  const handleDelete = useCallback(async () => {
+    if (!editingLog?.id || !editScope || deleting) return
+    const ok = window.confirm(
+      editScope === 'check_in'
+        ? `${date} 출근보고를 삭제하시겠습니까?\n같은 날 퇴근보고가 있으면 유지됩니다.`
+        : `${date} 퇴근보고를 삭제하시겠습니까?\n같은 날 출근보고가 있으면 유지됩니다.`
+    )
+    if (!ok) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      const res = await fetch(`/api/work-logs/${editingLog.id}?scope=${editScope}`, {
+        method: 'DELETE',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setDeleteError(data.error ?? '삭제 중 오류가 발생했습니다.')
+        return
+      }
+      onSuccess()
+    } catch {
+      setDeleteError('네트워크 오류가 발생했습니다.')
+    } finally {
+      setDeleting(false)
+    }
+  }, [editingLog?.id, editScope, deleting, date, onSuccess])
+
   // 간주근로(workTypeCode=2) + 실근무 8h 미만 — EW 코드 자체가 유효하지 않은 상태라 제출 차단.
   // 사용자는 advisory 안내에 따라 근무유형을 '기본근무 등록'으로 바꿔야 함.
   const submitBlocked = !!calculationResult
@@ -88,11 +125,25 @@ export default function WorkLogModal({
     ? 'w-full inline-flex justify-center items-center gap-2 h-12 px-5 rounded-[10px] text-base font-semibold text-text-muted bg-surface-muted border border-border cursor-not-allowed transition-colors'
     : 'w-full inline-flex justify-center items-center gap-2 h-12 px-5 rounded-[10px] text-base font-semibold text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-500 disabled:opacity-50 transition-colors'
 
+  // 삭제 버튼 — isEditing + editScope 있을 때만. footer 좌하단 통일된 위치(submit 위 stack).
+  const DeleteButton = isEditing && editScope ? (
+    <button
+      type="button"
+      onClick={handleDelete}
+      disabled={deleting || formSubmitting}
+      className="w-full inline-flex justify-center items-center gap-2 h-10 px-4 rounded-[10px] text-sm font-medium text-danger-text bg-surface border border-border hover:bg-danger-bg hover:border-danger-border disabled:opacity-50 transition-colors"
+      title={editScope === 'check_in' ? '같은 날 퇴근보고는 유지됩니다' : '같은 날 출근보고는 유지됩니다'}
+    >
+      {deleting ? <Loader2 className="animate-spin h-4 w-4" aria-hidden /> : <Trash2 className="h-4 w-4" aria-hidden />}
+      {deleteLabel}
+    </button>
+  ) : null
+
   const DesktopSubmitButton = (
     <button
       type="submit"
       form="work-log-form"
-      disabled={formSubmitting || submitBlocked}
+      disabled={formSubmitting || submitBlocked || deleting}
       className={submitBtnClass}
     >
       {formSubmitting ? <Loader2 className="animate-spin h-5 w-5" aria-hidden /> : <Copy className="h-5 w-5" aria-hidden />}
@@ -132,7 +183,7 @@ export default function WorkLogModal({
     <button
       type="submit"
       form="work-log-form"
-      disabled={formSubmitting || submitBlocked}
+      disabled={formSubmitting || submitBlocked || deleting}
       className={submitBtnClass}
     >
       {formSubmitting ? <Loader2 className="animate-spin h-5 w-5" aria-hidden /> : <Copy className="h-5 w-5" aria-hidden />}
@@ -178,7 +229,14 @@ export default function WorkLogModal({
                 onSubmitSuccess={handleSubmitSuccess}
                 onSubmitStateChange={handleFormStateChange}
               />
-              <div className="hidden lg:block mt-4">{DesktopSubmitButton}</div>
+              {/* desktop footer — 삭제(좌하단 stack) + submit. lg:block. */}
+              <div className="hidden lg:block mt-4 space-y-2">
+                {DeleteButton}
+                {DesktopSubmitButton}
+                {deleteError && (
+                  <p className="text-xs text-danger-text bg-danger-bg border border-danger-border rounded-[10px] px-3 py-2">{deleteError}</p>
+                )}
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -204,14 +262,26 @@ export default function WorkLogModal({
               </div>
               <div className="lg:col-span-1 space-y-4 lg:sticky lg:top-4 lg:self-start">
                 <CalculationPreview result={calculationResult} error={calculationError} />
-                <div className="hidden lg:block">{DesktopSubmitButton}</div>
+                {/* desktop footer (사이드 컬럼) — 삭제(좌하단 stack) + submit. */}
+                <div className="hidden lg:block space-y-2">
+                  {DeleteButton}
+                  {DesktopSubmitButton}
+                  {deleteError && (
+                    <p className="text-xs text-danger-text bg-danger-bg border border-danger-border rounded-[10px] px-3 py-2">{deleteError}</p>
+                  )}
+                </div>
               </div>
             </div>
           )}
         </div>
 
-        <div className="lg:hidden shrink-0 px-4 py-3 bg-surface border-t border-border">
+        {/* mobile sticky footer — 삭제 + submit horizontal */}
+        <div className="lg:hidden shrink-0 px-4 py-3 bg-surface border-t border-border space-y-2">
+          {DeleteButton}
           {MobileSubmitButton}
+          {deleteError && (
+            <p className="text-xs text-danger-text bg-danger-bg border border-danger-border rounded-[10px] px-3 py-2">{deleteError}</p>
+          )}
         </div>
       </div>
     </div>

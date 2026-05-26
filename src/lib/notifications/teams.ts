@@ -416,12 +416,18 @@ export async function notifyWorkLogUpdatedSplit(payload: WorklogUpdateNotifyPayl
 }
 
 export async function notifyWorkLogDeleted(payload: WorklogDeletedNotifyPayload): Promise<void> {
+  // partial delete는 scope에 맞춰 라우팅:
+  //   check_in 삭제  → 출근보고 채널 (그 row의 출근보고 thread)
+  //   check_out 삭제 → 퇴근보고 채널 (기존 동작 동일)
+  //   scope 없음     → 기존 동작 (퇴근보고 채널) — backward compat
+  const reportType: '출근보고' | '퇴근보고' =
+    payload.scope === 'check_in' ? '출근보고' : '퇴근보고'
   try {
     await routeAndSend(
       'worklog_deleted',
       payload.division,
       payload.team,
-      '퇴근보고',
+      reportType,
       payload
     )
   } catch (err) {

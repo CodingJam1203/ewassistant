@@ -337,6 +337,30 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
 
     case 'worklog_deleted': {
       const p = payload as WorklogDeletedNotifyPayload
+      // scope partial delete — 같은 row의 다른 영역은 보존됨을 명시.
+      if (p.scope === 'check_in') {
+        return [
+          `🗑️${p.name} 출근보고 삭제 / ${p.leaveDate}`,
+          `🔹삭제자 : ${p.deletedByName}`,
+          `🔹같은 날 퇴근보고는 유지됩니다`,
+          cta(),
+        ].join('\n')
+      }
+      if (p.scope === 'check_out') {
+        const breakHM = fmtTime(fmtBreak(p.breakTime))
+        return [
+          `🗑️${p.name} 퇴근보고 삭제 / ${p.leaveDate}`,
+          `🔹삭제자 : ${p.deletedByName}`,
+          `🔹근무유형 : ${p.workTypeLabel || '미입력'}`,
+          `🔹근무장소 : ${p.workLocation || '미입력'}`,
+          `🔹근무시간 : ${fmtTime(p.startTime)} ~ ${fmtTime(p.endTime)}`,
+          `🔹휴게시간 : ${breakHM} / 휴게`,
+          `🔹근무내용 : ${p.workContent || '미입력'}`,
+          `🔹같은 날 출근보고는 유지됩니다`,
+          cta(),
+        ].join('\n')
+      }
+      // scope 없음 — row 전체 삭제 (기존 메시지 그대로)
       const breakHM = fmtTime(fmtBreak(p.breakTime))
       return [
         `🗑️${p.name} 기록 삭제 / ${p.leaveDate}`,

@@ -111,6 +111,12 @@ export interface WorklogDeletedNotifyPayload {
   workContent?: string | null
   division?: string | null
   team?: string | null
+  /**
+   * partial delete scope. undefined면 row 전체 삭제(기존 동작 유지).
+   * 'check_in'  = 출근보고 영역만 삭제됨 → 출근보고 채널로 발송
+   * 'check_out' = 퇴근보고 영역만 삭제됨 → 퇴근보고 채널로 발송
+   */
+  scope?: 'check_in' | 'check_out' | null
 }
 
 export interface CheckinNotifyPayload {
