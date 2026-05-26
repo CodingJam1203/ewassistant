@@ -8,8 +8,9 @@
  *
  * 정책:
  *   - 인증된 사용자라면 admin 권한 없어도 호출 가능. RLS·middleware 통과면 OK.
- *   - throttle: `org_calendar_events.synced_at` MAX가 5분 이내면 sync skip → status: 'throttled'.
- *     수동 새로고침은 body.force=true 로 throttle 우회.
+ *   - throttle: `org_calendar_events.synced_at` MAX가 30초 이내면 sync skip → status: 'throttled'.
+ *     수동 새로고침은 body.force=true 로 throttle 우회. (종전 5분 → 30초로 단축 — 매 페이지
+ *     진입이 사실상 fresh sync가 되도록. 30초 안 연속 reload만 backend 보호 차원에서 skip.)
  *   - sync 본체는 syncAllCalendars 재사용 (admin client, 동시성 5).
  *
  * 응답:
@@ -31,7 +32,7 @@ export const dynamic = 'force-dynamic'
 // 모든 active 캘린더 fetch + upsert + cleanup. 캘린더 N개 × 평균 1-3초.
 export const maxDuration = 60
 
-const THROTTLE_MS = 5 * 60 * 1000
+const THROTTLE_MS = 30 * 1000
 
 async function readLastSyncedAt(admin: ReturnType<typeof createAdminClient>): Promise<string | null> {
   const { data } = await admin
