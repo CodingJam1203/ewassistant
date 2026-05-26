@@ -125,14 +125,29 @@ export default function VacationRegisterModal({
         {/* 결과 화면 */}
         {result ? (
           <div className="px-6 py-5 space-y-4">
-            <div className="rounded-[10px] bg-success-bg border border-success-border p-3 text-sm text-success-text">
-              <strong className="font-semibold">{result.created}건</strong> 등록 완료
-              {result.skipped > 0 && (
-                <span className="block mt-1 text-[12px] text-text-secondary">
-                  {result.skipped}건은 이미 보고가 있어 건너뛰었습니다.
+            {result.created === 0 && result.skipped > 0 ? (
+              // 모두 skip된 케이스 — 사용자가 "등록 안 됨"으로 오해하기 쉬워 명확히 경고 + 대안 안내
+              <div className="rounded-[10px] bg-danger-bg border border-danger-border p-3 text-sm text-danger-text">
+                <strong className="font-semibold">휴가가 등록되지 않았습니다</strong>
+                <span className="block mt-1 text-[12px] text-text-primary">
+                  대상 일자({result.skipped}건)에 이미 출근/퇴근보고가 있어 건너뛰었습니다.
                 </span>
-              )}
-            </div>
+                <span className="block mt-2 text-[12px] text-text-secondary">
+                  💡 이미 보고된 날에 휴가를 추가하려면 캘린더 셀을 클릭한 후
+                  <strong className="text-text-primary"> 출근보고 수정(✏) 모달의 "휴가" 영역</strong>에서
+                  반차·부분휴가를 추가하세요.
+                </span>
+              </div>
+            ) : (
+              <div className="rounded-[10px] bg-success-bg border border-success-border p-3 text-sm text-success-text">
+                <strong className="font-semibold">{result.created}건</strong> 등록 완료
+                {result.skipped > 0 && (
+                  <span className="block mt-1 text-[12px] text-text-secondary">
+                    {result.skipped}건은 이미 보고가 있어 건너뛰었습니다. 출근보고 수정에서 휴가 추가 가능.
+                  </span>
+                )}
+              </div>
+            )}
             {result.skippedDates.length > 0 && (
               <details className="text-[12px] text-text-secondary">
                 <summary className="cursor-pointer font-medium">건너뛴 날짜 보기</summary>

@@ -288,10 +288,20 @@ export default function CalendarDayDetailModal({
         <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-border bg-background/40 rounded-b-[20px]">
           <div className="flex items-center gap-2">
             {onRegisterVacation && (
-              <Button variant="secondary" size="sm" onClick={onRegisterVacation}>
-                <CalendarPlus className="h-4 w-4" aria-hidden />
-                이 날 휴가 등록
-              </Button>
+              // 이미 출근/퇴근 보고가 있는 날은 bulk-leave가 안전장치로 skip하므로
+              // 버튼 대신 정확한 대안 경로(출근보고 수정 → 휴가 timeline)를 안내.
+              // (checkIn / checkOut prop은 work_log row가 실제로 있을 때만 non-null —
+              //  workLogToSubmissionPair의 hasCheckIn 가드 적용 후 정확.)
+              (checkIn || checkOut) ? (
+                <span className="inline-flex items-center text-[12px] text-text-muted px-2 py-1 rounded-md bg-surface-muted">
+                  💡 이미 보고된 날 — 출근보고 수정(✏)에서 휴가 추가
+                </span>
+              ) : (
+                <Button variant="secondary" size="sm" onClick={onRegisterVacation}>
+                  <CalendarPlus className="h-4 w-4" aria-hidden />
+                  이 날 휴가 등록
+                </Button>
+              )
             )}
             {onCreateEvent && (
               <Button variant="secondary" size="sm" onClick={onCreateEvent}>
