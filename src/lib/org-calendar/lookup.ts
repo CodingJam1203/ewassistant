@@ -235,12 +235,14 @@ interface SheetCacheRow {
  * Phase A — 시트 source 매핑된 팀의 사용자에 leave_calendar_cache 데이터 합산.
  *
  * 동작 정책:
- *   - sheet_source_id 매핑된 팀(opt-in)만 시트 데이터 활용 → Mode 1 팀은 영향 0
+ *   - 팀 멤버: sheet_source_id 매핑된 팀(opt-in)만 시트 데이터 활용
+ *   - 본부 직속(team NULL): 본부에 active source 있으면 자동 적용 (fallback)
  *   - 본부 단위 1차 필터 — 시트의 dept entries × user의 (division, team) 매칭
  *   - 이름 매칭은 user_profiles.display_name == sheet entry.name (정확 일치)
  *   - 본부 내 동명이인은 둘 다 매칭됨 (Phase B에서 override 처리 예정)
  *   - 휴가 우선순위: GCal already set → 시트 skip / GCal 비어있음 → 시트 적용
  *   - 일반 일정: 그대로 events에 push (dedup은 Phase B)
+ *   - Mode 1 zero impact: 매핑 0인 본부의 멤버는 변화 없음
  */
 async function mergeSheetDataIntoLookup(args: {
   adminClient: SupabaseClient
@@ -260,30 +262,60 @@ async function mergeSheetDataIntoLookup(args: {
 
   if (usersErr || !userRows || userRows.length === 0) return
 
-  // 2) sheet_source_id 매핑된 팀 + 활성 source만 join 결과 조회
+  // 2-a) sheet_source_id 매핑된 팀 + 활성 source join (팀 멤버용 매핑)
   const { data: teamRows, error: teamsErr } = await adminClient
     .from('org_teams')
     .select('name, sheet_source_id, org_divisions!inner(name), org_sheet_sources!inner(is_active)')
     .not('sheet_source_id', 'is', null)
     .eq('org_sheet_sources.is_active', true)
 
-  if (teamsErr || !teamRows || teamRows.length === 0) return
+  if (teamsErr) return
+
+  // 2-b) 본부 단위 활성 source (본부 직속 fallback용) — 본부에 active source 있으면 본부 직속 자동 적용
+  const { data: sourceRows, error: sourcesErr } = await adminClient
+    .from('org_sheet_sources')
+    .select('id, division:org_divisions!inner(name)')
+    .eq('is_active', true)
+
+  if (sourcesErr) return
 
   // teamKey ("본부명::팀명") → sheet_source_id
   const teamKeyToSourceId = new Map<string, string>()
-  for (const t of teamRows as unknown as TeamRow[]) {
+  for (const t of (teamRows ?? []) as unknown as TeamRow[]) {
     const divName = t.org_divisions?.name
     if (!divName || !t.name || !t.sheet_source_id) continue
     teamKeyToSourceId.set(`${divName}::${t.name}`, t.sheet_source_id)
   }
 
+  // 본부명 → 첫 active source_id (본부 직속 fallback)
+  const divisionToSourceId = new Map<string, string>()
+  for (const s of (sourceRows ?? []) as unknown as Array<{ id: string; division: { name: string } }>) {
+    const divName = s.division?.name
+    if (!divName || !s.id) continue
+    if (!divisionToSourceId.has(divName)) {
+      divisionToSourceId.set(divName, s.id)
+    }
+  }
+
+  if (teamKeyToSourceId.size === 0 && divisionToSourceId.size === 0) return
+
   // 3) user → sheet_source_id + display_name 매핑
-  // userToTarget — email(lowercase) → { sourceId, displayName(trim) }
+  // - 팀 멤버: (division, team) 매칭으로 sheet_source_id 찾기
+  // - 본부 직속(team NULL): division 단위 fallback
   const userToTarget = new Map<string, { sourceId: string; displayName: string }>()
   for (const u of userRows as UserProfileRow[]) {
-    if (!u.division || !u.team || !u.display_name) continue
-    const sourceId = teamKeyToSourceId.get(`${u.division}::${u.team}`)
+    if (!u.division || !u.display_name) continue
+
+    let sourceId: string | undefined
+    if (u.team) {
+      // 팀 멤버 — 팀의 sheet_source_id 매핑 우선
+      sourceId = teamKeyToSourceId.get(`${u.division}::${u.team}`)
+    } else {
+      // 본부 직속(team NULL) — 본부 단위 active source fallback
+      sourceId = divisionToSourceId.get(u.division)
+    }
     if (!sourceId) continue
+
     userToTarget.set(u.email.toLowerCase(), {
       sourceId,
       displayName: u.display_name.trim(),

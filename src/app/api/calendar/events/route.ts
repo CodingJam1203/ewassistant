@@ -15,6 +15,8 @@ import { extractCalendarRawId } from '@/lib/google-calendar/client'
 import { pushEventInsert, pushEventDelete, syncMasterById } from '@/lib/google-calendar/events'
 import { resolveUserAuthz, canWriteToCalendar } from '@/lib/google-calendar/authz'
 import { loadUserLookup, matchUsers, inferEventType } from '@/lib/org-calendar/match-users'
+import { parseCell } from '@/lib/leave-calendar'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -129,7 +131,242 @@ export async function GET(request: Request) {
     }
   })
 
-  return NextResponse.json({ events, userEmail: user.email })
+  // Phase A — 시트 events 합산 (sheet_source_id 매핑된 팀 + 본부 직속 fallback)
+  let sheetEvents: typeof events = []
+  try {
+    sheetEvents = await fetchSheetEvents({
+      adminClient: admin,
+      from,
+      to,
+      divisionFilterIds: divisionFilter
+        ? divisionFilter.split(',').map(s => s.trim()).filter(Boolean)
+        : null,
+    })
+  } catch (err) {
+    console.warn('[calendar/events] sheet merge failed:', err)
+  }
+
+  return NextResponse.json({ events: [...events, ...sheetEvents], userEmail: user.email })
+}
+
+// ─── Phase A — 시트 events 합산 ─────────────────────────────────────────────
+
+interface SheetSourceJoinRow {
+  id: string
+  label: string
+  is_active: boolean
+  division: { id: string; name: string }
+}
+
+interface SheetTeamJoinRow {
+  name: string
+  sheet_source_id: string
+  org_divisions: { id: string; name: string }
+}
+
+interface SheetUserProfileRow {
+  email: string
+  display_name: string | null
+  division: string | null
+  team: string | null
+}
+
+interface SheetCacheRow {
+  key: string
+  data: { departments?: Record<string, Array<{ name?: string; cellValue?: string }>> }
+}
+
+interface SheetEventLike {
+  id: string
+  title: string
+  description: string | null
+  location: string | null
+  startAt: string
+  endAt: string
+  isAllDay: boolean
+  matchedUserEmails: string[]
+  inferredType: 'meeting' | 'vacation' | 'birthday' | 'other'
+  rrule: string | null
+  recurringEventId: string | null
+  calendarId: string
+  calendarLabel: string
+  calendarType: 'meeting' | 'vacation' | 'birthday' | 'other'
+  divisionId: string
+  divisionName: string
+  teamId: string | null
+  teamName: string | null
+}
+
+async function fetchSheetEvents(args: {
+  adminClient: SupabaseClient
+  from: string
+  to: string
+  divisionFilterIds: string[] | null
+}): Promise<SheetEventLike[]> {
+  const { adminClient, from, to, divisionFilterIds } = args
+
+  // 1) 활성 source 조회 (division 정보 포함). divisionFilter 있으면 그 본부만.
+  let sourceQuery = adminClient
+    .from('org_sheet_sources')
+    .select('id, label, is_active, division:org_divisions!inner(id, name)')
+    .eq('is_active', true)
+  if (divisionFilterIds && divisionFilterIds.length > 0) {
+    sourceQuery = sourceQuery.in('division_id', divisionFilterIds)
+  }
+  const { data: sourceRows, error: srcErr } = await sourceQuery
+  if (srcErr || !sourceRows || sourceRows.length === 0) return []
+
+  // sourceById — id → { label, divisionId, divisionName }
+  const sourceById = new Map<string, { label: string; divisionId: string; divisionName: string }>()
+  for (const s of sourceRows as unknown as SheetSourceJoinRow[]) {
+    const div = s.division
+    if (!div?.id || !s.id) continue
+    sourceById.set(s.id, { label: s.label ?? '', divisionId: div.id, divisionName: div.name ?? '' })
+  }
+  if (sourceById.size === 0) return []
+
+  // 2) 팀 매핑 (sheet_source_id 매핑된 팀만)
+  const { data: teamRows, error: teamsErr } = await adminClient
+    .from('org_teams')
+    .select('name, sheet_source_id, org_divisions!inner(id, name)')
+    .not('sheet_source_id', 'is', null)
+  if (teamsErr) return []
+
+  // teamKey ("본부명::팀명") → sheet_source_id
+  const teamKeyToSourceId = new Map<string, string>()
+  for (const t of (teamRows ?? []) as unknown as SheetTeamJoinRow[]) {
+    const divName = t.org_divisions?.name
+    if (!divName || !t.name || !t.sheet_source_id) continue
+    if (!sourceById.has(t.sheet_source_id)) continue  // 비활성 source skip
+    teamKeyToSourceId.set(`${divName}::${t.name}`, t.sheet_source_id)
+  }
+
+  // 본부 직속 fallback — 본부명 → 첫 active source id
+  const divisionToSourceId = new Map<string, string>()
+  for (const [sid, info] of sourceById) {
+    if (!divisionToSourceId.has(info.divisionName)) {
+      divisionToSourceId.set(info.divisionName, sid)
+    }
+  }
+
+  // 3) 사용자 매핑 — divisionFilter 본부의 user_profiles 전부 fetch
+  const targetDivisionNames = new Set<string>()
+  for (const info of sourceById.values()) targetDivisionNames.add(info.divisionName)
+
+  let userQuery = adminClient
+    .from('user_profiles')
+    .select('email, display_name, division, team')
+    .eq('is_active', true)
+    .in('division', Array.from(targetDivisionNames))
+  const { data: userRows, error: usersErr } = await userQuery
+  if (usersErr || !userRows) return []
+
+  // source × displayName → matched emails 인덱스 (entry 매칭용 O(1))
+  const sourceNameToEmails = new Map<string, string[]>()
+  for (const u of userRows as SheetUserProfileRow[]) {
+    if (!u.division || !u.display_name) continue
+    let sourceId: string | undefined
+    if (u.team) {
+      sourceId = teamKeyToSourceId.get(`${u.division}::${u.team}`)
+    } else {
+      sourceId = divisionToSourceId.get(u.division)
+    }
+    if (!sourceId) continue
+    const dispName = u.display_name.trim()
+    if (!dispName) continue
+    const key = `${sourceId}::${dispName}`
+    const arr = sourceNameToEmails.get(key)
+    if (arr) arr.push(u.email.toLowerCase())
+    else sourceNameToEmails.set(key, [u.email.toLowerCase()])
+  }
+  if (sourceNameToEmails.size === 0) return []
+
+  // 4) leave_calendar_cache 신규 형식 row fetch (from~to 범위)
+  const { data: cacheRows, error: cacheErr } = await adminClient
+    .from('leave_calendar_cache')
+    .select('key, data')
+    .like('key', 'calendar:%:%')
+  if (cacheErr || !cacheRows) return []
+
+  // 5) row 순회 — date 추출 + range filter + source 매칭 + entry → event 변환
+  const out: SheetEventLike[] = []
+  for (const r of cacheRows as SheetCacheRow[]) {
+    const m = /^calendar:([0-9a-f-]{36}):(\d{4}-\d{2}-\d{2})$/i.exec(r.key)
+    if (!m) continue
+    const sourceId = m[1]
+    const date = m[2]
+    if (date < from || date > to) continue
+    const sourceInfo = sourceById.get(sourceId)
+    if (!sourceInfo) continue
+
+    const departments = r.data?.departments
+    if (!departments) continue
+
+    for (const entries of Object.values(departments)) {
+      if (!Array.isArray(entries)) continue
+      let entryIdx = 0
+      for (const entry of entries) {
+        const sheetName = (entry.name ?? '').trim()
+        if (!sheetName) { entryIdx++; continue }
+        const cellValue = entry.cellValue ?? ''
+        if (!cellValue) { entryIdx++; continue }
+
+        const emails = sourceNameToEmails.get(`${sourceId}::${sheetName}`)
+        if (!emails || emails.length === 0) { entryIdx++; continue }
+
+        const parsed = parseCell(cellValue)
+        const isVacation = !!parsed.leaveType
+
+        // 시각 정보 — parsed.events에 시간이 있으면 그것, 없으면 종일
+        const evChunks = parsed.events ?? []
+        const hasTime = evChunks.length > 0 && (evChunks[0].startTime || evChunks[0].endTime)
+        let startAt: string
+        let endAt: string
+        let isAllDay: boolean
+
+        if (isVacation || !hasTime) {
+          // 종일 — KST 자정 기준
+          startAt = new Date(`${date}T00:00:00+09:00`).toISOString()
+          endAt   = new Date(`${date}T23:59:59+09:00`).toISOString()
+          isAllDay = true
+        } else {
+          const startTime = evChunks[0].startTime ?? '00:00'
+          const endTime = evChunks[0].endTime ?? '23:59'
+          startAt = new Date(`${date}T${startTime}:00+09:00`).toISOString()
+          endAt   = new Date(`${date}T${endTime}:00+09:00`).toISOString()
+          isAllDay = false
+        }
+
+        const title = isVacation
+          ? (cellValue.trim() || '휴가')
+          : (evChunks[0]?.title?.trim() || cellValue.trim())
+
+        out.push({
+          id: `sheet:${sourceId}:${date}:${entryIdx}:${sheetName}`,
+          title,
+          description: cellValue,  // 원본 cellValue 보존 (EventEditModal description 노출용)
+          location: null,
+          startAt,
+          endAt,
+          isAllDay,
+          matchedUserEmails: emails,
+          inferredType: isVacation ? 'vacation' : 'other',
+          rrule: null,
+          recurringEventId: null,
+          calendarId: '',
+          calendarLabel: sourceInfo.label,
+          calendarType: isVacation ? 'vacation' : 'other',
+          divisionId: sourceInfo.divisionId,
+          divisionName: sourceInfo.divisionName,
+          teamId: null,
+          teamName: null,
+        })
+        entryIdx++
+      }
+    }
+  }
+
+  return out
 }
 
 interface PostBody {
