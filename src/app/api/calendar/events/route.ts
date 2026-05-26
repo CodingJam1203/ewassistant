@@ -350,22 +350,23 @@ async function fetchSheetEvents(args: {
         // Phase B.6 매칭 정책:
         //   1) override 있으면 그 user만 매칭 (본부 무관)
         //   2) override 없고 본부 내 N=1 자동 매칭 → 그 user
-        //   3) N=0 또는 N≥2 → 매칭 보류 (matchedUserEmails=[], 본부 일정 row로)
+        //   3) N=0 또는 N≥2 → 매칭 보류
+        // Phase B.6 정책 수정 (사용자 의도) — 시트 events는 매칭된 사용자에게만 노출.
+        // 매칭 안 된 시트 entries는 무시 (본부 일정 row에 누적되던 폭주 방지).
+        // 본부 일정 row는 GCal 본부 캘린더(team_id NULL)의 매칭 없는 events만 받음.
         const normSheetName = normalizeName(sheetName)
         let emails: string[] = []
         const overrideUserId = overrideIndex.get(`${sourceId}::${normSheetName}`)
         if (overrideUserId) {
           const info = userIdToInfo.get(overrideUserId)
           if (info) emails = [info.email]
-          // override user가 다른 본부면 userIdToInfo에 없음 → 매칭 X (보류). 운영자가 정정 필요.
         } else {
           const matched = sourceNameToUsers.get(`${sourceId}::${normSheetName}`)
           if (matched && matched.length === 1) {
             emails = [matched[0].email]
           }
-          // N=0 또는 N≥2면 emails=[] 유지 → 매칭 보류
         }
-        // 매칭 여부 무관 output에 출력. 매칭 안 된 entry는 emails=[]로 본부 일정 row 분류.
+        if (emails.length === 0) { entryIdx++; continue }  // 매칭 없으면 시트 entry 무시
 
         const parsed = parseCell(cellValue)
         const isVacation = !!parsed.leaveType
