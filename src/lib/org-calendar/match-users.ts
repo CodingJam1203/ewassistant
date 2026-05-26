@@ -21,6 +21,7 @@ interface UserLookupRow {
 interface OrgTagRow {
   division_id: string
   team_id: string | null
+  label: string | null
   alias_patterns: string[] | null
   member_emails: string[] | null
 }
@@ -53,7 +54,7 @@ export async function loadUserLookup(adminClient: SupabaseClient): Promise<UserL
   // 사용자 + tag 병렬 fetch
   const [usersRes, tagsRes] = await Promise.all([
     adminClient.from('user_profiles').select('email, display_name').eq('is_active', true),
-    adminClient.from('org_tags').select('division_id, team_id, alias_patterns, member_emails').eq('is_active', true),
+    adminClient.from('org_tags').select('division_id, team_id, label, alias_patterns, member_emails').eq('is_active', true),
   ])
 
   const byEmail = new Map<string, UserLookupRow>()
@@ -88,14 +89,19 @@ export async function loadUserLookup(adminClient: SupabaseClient): Promise<UserL
       const teamId  = row.team_id  // null이면 본부 공용
       const aliases = row.alias_patterns ?? []
       const emails  = (row.member_emails ?? []).map(e => e.toLowerCase().trim()).filter(Boolean)
-      if (!divId || aliases.length === 0 || emails.length === 0) continue
+      if (!divId || emails.length === 0) continue
+      // label도 묵시적 alias로 등록 — 캘린더 이벤트 제목에 라벨 풀텍스트(`마이스팀 A파트(승현팟)`)를
+      // 그대로 쓰는 케이스 대응. alias_patterns 어느 하나만 있어도 진행하지만, 둘 다 비면 skip.
+      const labelKey = (row.label ?? '').trim()
+      if (aliases.length === 0 && !labelKey) continue
       const scopeKey = makeTagScopeKey(divId, teamId)
       let scopeMap = byTagAlias.get(scopeKey)
       if (!scopeMap) {
         scopeMap = new Map<string, string[]>()
         byTagAlias.set(scopeKey, scopeMap)
       }
-      for (const a of aliases) {
+      const allKeys = labelKey ? [labelKey, ...aliases] : aliases
+      for (const a of allKeys) {
         const key = (a ?? '').trim()
         if (!key) continue
         const existing = scopeMap.get(key) ?? []
@@ -109,14 +115,22 @@ export async function loadUserLookup(adminClient: SupabaseClient): Promise<UserL
   return { byEmail, byName, byNameSuffix, byTagAlias }
 }
 
-/** title에서 대괄호 안 이름 토큰 추출. "[김재민, 박솔내]" → ['김재민', '박솔내'] */
+/**
+ * title에서 대괄호 안 이름 토큰 추출.
+ *   "[김재민, 박솔내]"                          → ['김재민', '박솔내']
+ *   "[마이스팀 A파트(승현팟), 최종현]" → ['마이스팀 A파트(승현팟)', '최종현']
+ *
+ * 토큰에 공백·괄호가 섞여 있어도 그대로 보존 — 이후 단계에서 org_tags의 라벨/alias로
+ * 정확 매칭 시도하므로 사전 sanitize 하지 않는다. 단 길이 2 미만이거나 한글/영문이
+ * 하나도 없는 토큰(빈 칸·숫자·구두점만)은 제거.
+ */
 function extractBracketNames(title: string): string[] {
   const m = title.match(/\[([^\]]+)\]/)
   if (!m) return []
   return m[1]
     .split(/[,+&·\/]/)
     .map(s => s.trim())
-    .filter(s => s.length >= 2 && /^[가-힣A-Za-z]+$/.test(s))
+    .filter(s => s.length >= 2 && /[가-힣A-Za-z]/.test(s))
 }
 
 interface MatchInput {
@@ -158,8 +172,12 @@ export function matchUsers(ev: MatchInput, lookup: UserLookup): string[] {
       for (const u of fullList) matched.add(u.email)
       continue
     }
-    // 2-2) 마지막 2글자 suffix — "솔내" → 풀네임 끝이 "솔내"인 user들 (Apps Script 호환)
-    if (n.length >= 2) {
+    // 2-2) 마지막 2글자 suffix — "솔내" → 풀네임 끝이 "솔내"인 user들 (Apps Script 호환).
+    // 이름 형태(순수 한글/영문) 토큰에만 적용. 공백·괄호가 섞인 라벨 토큰
+    // ("마이스팀 A파트(승현팟)")에 suffix 휴리스틱을 쓰면 "팟)" 같은 의미 없는 suffix가
+    // 우연히 매칭될 수 있으므로 alias 단계로 바로 넘어간다.
+    const isNameLike = /^[가-힣A-Za-z]+$/.test(n)
+    if (isNameLike && n.length >= 2) {
       const suffix = n.slice(-2)
       const sList = lookup.byNameSuffix.get(suffix)
       if (sList && sList.length > 0) {
