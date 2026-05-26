@@ -19,6 +19,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getGoogleCalendarClient, extractCalendarRawId } from './client'
 import type { LeaveTimeline, LeaveTimelineItem } from '@/types/leave-timeline'
+import { getUserCalendarMode, modePushesLeaveToGCal } from '@/lib/org-calendar/calendar-mode'
 
 interface VacationCalendar {
   id: string
@@ -164,6 +165,19 @@ export async function syncLeaveTimelineWithGoogle(args: {
   const { adminClient, userEmail, userDisplayName, leaveDate, prev, next } = args
   const debug: NonNullable<SyncVacationResult['debug']> = {
     calendarMatched: false, inserted: 0, updated: 0, deleted: 0, errors: [],
+  }
+
+  // Phase B — 사용자 mode가 sheet_only/none이면 GCal push skip.
+  // 휴가는 N-Click 내부(work_logs.leave_timeline)에만 저장, Google API 호출 X.
+  try {
+    const mode = await getUserCalendarMode(adminClient, userEmail)
+    if (!modePushesLeaveToGCal(mode)) {
+      debug.errors.push(`mode_skipped:${mode}`)
+      return { changed: false, updatedTimeline: null, skipped: true, debug }
+    }
+  } catch (err) {
+    // mode 조회 실패는 silent — 기존 동작(GCal 시도) 유지로 fail-safe
+    console.warn('[vacation-sync] mode lookup failed, defaulting to GCal push:', err)
   }
 
   const vacationCal = await getUserVacationCalendar(adminClient, userEmail)

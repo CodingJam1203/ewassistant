@@ -19,7 +19,8 @@
  * full_day면 actualWork=0, EW="휴가" 강제. 따라서 종일 분류는 신중해야 함.
  */
 
-import { Plane } from 'lucide-react'
+import { Plane, AlertCircle } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import {
   type LeaveTimeline,
 } from '@/types/leave-timeline'
@@ -32,6 +33,20 @@ interface LeaveTimelineInputProps {
   disabled?: boolean
 }
 
+// Phase B — 사용자 mode가 sheet_only일 때 시트 동기화 안내. 모든 LeaveTimelineInput mount에서 1회 fetch (5분 cache).
+function useUserCalendarMode(): string | null {
+  const [mode, setMode] = useState<string | null>(null)
+  useEffect(() => {
+    let canceled = false
+    fetch('/api/my/calendar-mode')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!canceled && d) setMode(d.mode) })
+      .catch(() => { /* silent */ })
+    return () => { canceled = true }
+  }, [])
+  return mode
+}
+
 /** 시간 select 옵션 — 30분 단위, '휴가 없음' + 00:30 ~ 08:00 (lib 공용) */
 const TIME_OPTIONS = LEAVE_TIME_OPTIONS
 
@@ -42,6 +57,7 @@ function timelineToMinutes(timeline: LeaveTimeline): number {
 
 export default function LeaveTimelineInput({ value, onChange, disabled }: LeaveTimelineInputProps) {
   const currentMinutes = timelineToMinutes(value)
+  const userMode = useUserCalendarMode()
 
   const handleMinutesChange = (newMinutes: number) => {
     const leaveType = minutesToLeaveType(newMinutes)
@@ -53,7 +69,18 @@ export default function LeaveTimelineInput({ value, onChange, disabled }: LeaveT
   }
 
   return (
-    <div className="flex items-center gap-2 flex-wrap">
+    <div className="space-y-1.5">
+      {/* Phase B — sheet_only mode 사용자에게 시트 동기화 안내 */}
+      {userMode === 'sheet_only' && (
+        <div className="flex items-start gap-1.5 text-[11px] text-warning-text bg-warning-bg border border-warning-border rounded-md px-2 py-1.5 leading-snug">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span>
+            이 팀은 시트로 운영됩니다. 휴가는 N-Click에 저장되지만 시트와 자동 동기화되지 않습니다.
+            <strong className="font-semibold"> 시트에도 직접 휴가를 등록해주세요.</strong>
+          </span>
+        </div>
+      )}
+      <div className="flex items-center gap-2 flex-wrap">
       <Plane className="h-3.5 w-3.5 text-warning-text shrink-0" aria-hidden />
       <span className="text-[12px] text-text-muted">휴가 시간:</span>
       {/* 2026-05-19 v1.23: native select → CustomDropdown */}
@@ -68,6 +95,7 @@ export default function LeaveTimelineInput({ value, onChange, disabled }: LeaveT
           label: opt.label,
         }))}
       />
+      </div>
     </div>
   )
 }
