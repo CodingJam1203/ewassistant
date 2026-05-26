@@ -361,6 +361,7 @@ export default function CalendarMatrixPage() {
   const [divisions, setDivisions] = useState<ApiDivision[]>([])
   const [events, setEvents] = useState<ApiEvent[]>([])
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [userMode, setUserMode] = useState<'gcal_only' | 'gcal_plus_sheet' | 'sheet_only' | 'none'>('gcal_only')
   const [myTeamName, setMyTeamName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -386,10 +387,10 @@ export default function CalendarMatrixPage() {
   // mount 시 silent refresh 1회만 실행하도록 가드
   const didMountSyncRef = useRef(false)
 
-  // Phase 4.3 — 등록/수정 모달
+  // Phase 4.3 — 등록/수정 모달. Phase B — readOnly flag (시트 chip 또는 sheet_only/none mode)
   const [modalState, setModalState] = useState<
-    | { mode: 'create'; initial: EventEditInitial }
-    | { mode: 'edit'; initial: EventEditInitial }
+    | { mode: 'create'; initial: EventEditInitial; readOnly?: boolean }
+    | { mode: 'edit'; initial: EventEditInitial; readOnly?: boolean }
     | null
   >(null)
 
@@ -428,6 +429,7 @@ export default function CalendarMatrixPage() {
       setDivisions(usersData.divisions ?? [])
       setEvents(eventsData.events ?? [])
       setUserEmail(usersData.userEmail ?? eventsData.userEmail ?? null)
+      setUserMode(eventsData.userMode ?? 'gcal_only')
       setMyTeamName(usersData.myTeamName ?? null)
       // 첫 load 시에만 사용자 본부를 default로 설정. 이후 사용자가 dropdown으로 바꿔도 유지.
       setSelectedDivisionId(prev => {
@@ -727,10 +729,14 @@ export default function CalendarMatrixPage() {
     })
   }, [])
 
-  /** chip(이벤트) 클릭 — 수정 모드. 셀 click(날짜 prefill)은 후속 작업으로 남겨둠. */
+  /** chip(이벤트) 클릭 — 수정 모드. 셀 click(날짜 prefill)은 후속 작업으로 남겨둠.
+   *  Phase B — 시트 chip(id 'sheet:' prefix) 또는 sheet_only/none mode면 readOnly로 열기. */
   const handleEventClick = useCallback((ev: ApiEvent) => {
+    const isSheetChip = ev.id.startsWith('sheet:')
+    const isReadOnlyMode = userMode === 'sheet_only' || userMode === 'none'
     setModalState({
       mode: 'edit',
+      readOnly: isSheetChip || isReadOnlyMode,
       initial: {
         id: ev.id,
         title: ev.title,
@@ -743,7 +749,7 @@ export default function CalendarMatrixPage() {
         recurringEventId: ev.recurringEventId,
       },
     })
-  }, [])
+  }, [userMode])
 
   /** 모달에서 저장/삭제 성공 시 — 모달 닫고 force refresh 후 load */
   const handleModalSaved = useCallback(() => {
@@ -808,14 +814,16 @@ export default function CalendarMatrixPage() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* + 일정 등록 — Phase 4.3 */}
-          <button
-            type="button"
-            onClick={handleCreateClick}
-            className="inline-flex items-center gap-1 h-8 px-3 rounded-[10px] bg-primary-600 text-white text-xs font-medium hover:bg-primary-700"
-          >
-            <Plus className="h-3.5 w-3.5" /> 일정 등록
-          </button>
+          {/* + 일정 등록 — Phase 4.3 + Phase B mode 분기 (sheet_only/none이면 숨김) */}
+          {userMode !== 'sheet_only' && userMode !== 'none' && (
+            <button
+              type="button"
+              onClick={handleCreateClick}
+              className="inline-flex items-center gap-1 h-8 px-3 rounded-[10px] bg-primary-600 text-white text-xs font-medium hover:bg-primary-700"
+            >
+              <Plus className="h-3.5 w-3.5" /> 일정 등록
+            </button>
+          )}
           {/* sync indicator + 수동 새로고침 — 마지막 동기화 KST HH:mm. force=true로 throttle 우회 */}
           <div className="inline-flex items-center gap-1 text-[11px] text-text-muted">
             {syncing ? (
@@ -1104,11 +1112,12 @@ export default function CalendarMatrixPage() {
         </div>
       )}
 
-      {/* Phase 4.3 등록/수정 모달 */}
+      {/* Phase 4.3 등록/수정 모달 + Phase B readOnly */}
       {modalState && (
         <EventEditModal
           isCreate={modalState.mode === 'create'}
           initial={modalState.initial}
+          readOnly={modalState.readOnly}
           onClose={() => setModalState(null)}
           onSaved={handleModalSaved}
         />

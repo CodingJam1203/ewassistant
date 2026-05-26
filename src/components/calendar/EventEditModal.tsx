@@ -62,6 +62,8 @@ interface EventEditModalProps {
   initial: EventEditInitial | null
   onClose: () => void
   onSaved: () => void
+  /** Phase B — true면 모든 input disabled + 저장/삭제 버튼 숨김. 시트 chip 또는 sheet_only/none mode. */
+  readOnly?: boolean
 }
 
 /** 속성 라디오 옵션 — 라벨별 분류 type. 미팅/회의/행사는 모두 meeting(회의 캘린더 prefill). */
@@ -410,7 +412,7 @@ function reconstructTokens(
   return out
 }
 
-export default function EventEditModal({ isCreate, initial, onClose, onSaved }: EventEditModalProps) {
+export default function EventEditModal({ isCreate, initial, onClose, onSaved, readOnly = false }: EventEditModalProps) {
   const [data, setData] = useState<PickerData | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -693,9 +695,16 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3">
       <div className="relative bg-surface rounded-[10px] shadow-xl max-w-2xl w-full max-h-[92vh] flex flex-col">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <h2 className="text-base font-semibold text-text-primary">
-            {isCreate ? '새 일정 등록' : '일정 수정'}
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold text-text-primary">
+              {isCreate ? '새 일정 등록' : readOnly ? '일정 보기' : '일정 수정'}
+            </h2>
+            {readOnly && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-warning-bg text-warning-text border border-warning-border">
+                외부 시트 — 보기 전용
+              </span>
+            )}
+          </div>
           <button type="button" onClick={onClose} className="text-text-secondary hover:text-text-primary" aria-label="닫기">
             <X className="h-4 w-4" />
           </button>
@@ -708,7 +717,7 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
         ) : !data ? (
           <div className="p-8 text-center text-sm text-danger-text">데이터 로드 실패</div>
         ) : (
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className={`flex-1 overflow-y-auto p-4 space-y-3 ${readOnly ? 'pointer-events-none opacity-70 select-text' : ''}`}>
             {/* 태그 */}
             <div>
               <label className="block text-xs font-medium text-text-secondary mb-1">태그 (사람·그룹)</label>
@@ -999,7 +1008,7 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
         )}
 
         <div className="px-4 py-3 border-t border-border flex items-center justify-between gap-2">
-          {!isCreate ? (
+          {!isCreate && !readOnly ? (
             <button
               type="button"
               onClick={handleDelete}
@@ -1016,17 +1025,19 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved }: 
               disabled={saving}
               className="h-9 px-3 text-sm rounded-[10px] border border-border-strong bg-surface text-text-secondary hover:bg-surface-muted disabled:opacity-50"
             >
-              취소
+              {readOnly ? '닫기' : '취소'}
             </button>
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={saving || loading || !data}
-              className="h-9 px-4 text-sm font-medium rounded-[10px] bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 inline-flex items-center gap-1"
-            >
-              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-              {isCreate ? '등록' : '저장'}
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={saving || loading || !data}
+                className="h-9 px-4 text-sm font-medium rounded-[10px] bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 inline-flex items-center gap-1"
+              >
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                {isCreate ? '등록' : '저장'}
+              </button>
+            )}
           </div>
         </div>
 

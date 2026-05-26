@@ -147,7 +147,19 @@ export async function GET(request: Request) {
     console.warn('[calendar/events] sheet merge failed:', err)
   }
 
-  return NextResponse.json({ events: [...events, ...sheetEvents], userEmail: user.email })
+  // Phase B — 사용자 본인 mode 반환. 클라이언트는 이걸로 일정 등록 버튼/모달 readOnly 분기.
+  let userMode: 'gcal_only' | 'gcal_plus_sheet' | 'sheet_only' | 'none' = 'none'
+  try {
+    userMode = await getUserCalendarMode(admin, user.email ?? '')
+  } catch (err) {
+    console.warn('[calendar/events] mode lookup failed:', err)
+  }
+
+  return NextResponse.json({
+    events: [...events, ...sheetEvents],
+    userEmail: user.email,
+    userMode,
+  })
 }
 
 // ─── Phase A — 시트 events 합산 ─────────────────────────────────────────────
