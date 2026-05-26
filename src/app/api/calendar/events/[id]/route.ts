@@ -17,6 +17,7 @@ import { extractCalendarRawId } from '@/lib/google-calendar/client'
 import { pushEventUpdate, pushEventDelete, pushInstanceOverride, pushInstanceDelete, splitMasterFollowing, truncateMasterFollowing, extractRawEventIdFromGoogleEventId, syncMasterById } from '@/lib/google-calendar/events'
 import { resolveUserAuthz, canWriteToCalendar } from '@/lib/google-calendar/authz'
 import { loadUserLookup, matchUsers, inferEventType } from '@/lib/org-calendar/match-users'
+import { getUserCalendarMode, modeBlocksEventWrite } from '@/lib/org-calendar/calendar-mode'
 
 type RecurrenceMode = 'instance' | 'following' | 'all'
 
@@ -64,9 +65,24 @@ export async function PATCH(
   const { id } = await context.params
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
+  // Phase B — 시트 chip (id 'sheet:' prefix)은 N-Click에서 편집 불가
+  if (id.startsWith('sheet:')) {
+    return NextResponse.json({
+      error: '외부 시트의 일정은 N-Click에서 편집할 수 없습니다. 시트에서 직접 수정해주세요.',
+      readOnly: true,
+    }, { status: 403 })
+  }
+
   const admin = createAdminClient()
   const authz = await resolveUserAuthz(admin, user.id, user.email)
   if (!authz) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  // Phase B — calendar_mode 가드 (sheet_only/none은 일정 쓰기 차단)
+  const mode = await getUserCalendarMode(admin, user.email)
+  const guard = modeBlocksEventWrite(mode)
+  if (guard.blocked) {
+    return NextResponse.json({ error: guard.reason, mode }, { status: 403 })
+  }
 
   const loaded = await loadEventAndCalendar(admin, id)
   if (!loaded) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -219,9 +235,24 @@ export async function DELETE(
   const { id } = await context.params
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
+  // Phase B — 시트 chip (id 'sheet:' prefix)은 N-Click에서 삭제 불가
+  if (id.startsWith('sheet:')) {
+    return NextResponse.json({
+      error: '외부 시트의 일정은 N-Click에서 삭제할 수 없습니다. 시트에서 직접 삭제해주세요.',
+      readOnly: true,
+    }, { status: 403 })
+  }
+
   const admin = createAdminClient()
   const authz = await resolveUserAuthz(admin, user.id, user.email)
   if (!authz) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  // Phase B — calendar_mode 가드 (sheet_only/none은 일정 쓰기 차단)
+  const mode = await getUserCalendarMode(admin, user.email)
+  const guard = modeBlocksEventWrite(mode)
+  if (guard.blocked) {
+    return NextResponse.json({ error: guard.reason, mode }, { status: 403 })
+  }
 
   const loaded = await loadEventAndCalendar(admin, id)
   if (!loaded) return NextResponse.json({ error: 'Not found' }, { status: 404 })

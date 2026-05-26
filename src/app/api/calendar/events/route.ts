@@ -16,6 +16,7 @@ import { pushEventInsert, pushEventDelete, syncMasterById } from '@/lib/google-c
 import { resolveUserAuthz, canWriteToCalendar } from '@/lib/google-calendar/authz'
 import { loadUserLookup, matchUsers, inferEventType } from '@/lib/org-calendar/match-users'
 import { parseCell } from '@/lib/leave-calendar'
+import { getUserCalendarMode, modeBlocksEventWrite } from '@/lib/org-calendar/calendar-mode'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
@@ -389,6 +390,13 @@ export async function POST(request: Request) {
   const admin = createAdminClient()
   const authz = await resolveUserAuthz(admin, user.id, user.email)
   if (!authz) return NextResponse.json({ error: 'Forbidden — profile not found' }, { status: 403 })
+
+  // Phase B — calendar_mode 가드 (sheet_only/none은 일정 쓰기 차단)
+  const mode = await getUserCalendarMode(admin, user.email)
+  const guard = modeBlocksEventWrite(mode)
+  if (guard.blocked) {
+    return NextResponse.json({ error: guard.reason, mode }, { status: 403 })
+  }
 
   const body: PostBody = await request.json().catch(() => ({}))
   const calendarId  = (body.calendarId ?? '').trim()
