@@ -47,7 +47,6 @@ import {
   pickLatestWorkLogPerDay,
   type WorkLogState,
 } from '@/lib/work-logs/unified-times'
-import { isMissingCheckout } from '@/lib/work-logs/status-policy'
 
 interface MyHistoryCalendarProps {
   /** 셀 / 상세 모달의 ✏ 수정 버튼이 트리거하는 콜백 (부모가 WorkLogModal 띄움) */
@@ -865,17 +864,21 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
   } else if (state === 'check_in_done') {
     const sa = trimToHHmm(co?.start_time)
     const pe = trimToHHmm(ci?.end_time)
-    // 정책 — 과거 일자 + 출근만 → '퇴근 누락' chip (missing-reports와 일관).
-    //  data.date < todayKst 비교. todayKst는 fmtDate(new Date())로 KST 계산.
-    //  weekend는 보고 의무 없는 날 → 일반 chip 유지 (셀 좌측 badge도 'weekend' 분류).
+    // 정책: 과거 일자 + 출근만 → '퇴근 누락' chip (캘린더 셀 표현 통일).
+    //   - 평일: 'warning' tone — missing-reports 정책상 미보고 (셀 좌측 badge도 함께 뜸).
+    //   - 주말: 'neutral' tone — 보고 의무 외부지만 사용자 행적 인지용 정보 chip.
+    //     (셀 좌측 badge는 submission-status 정책 따라 안 뜸 — layer 분리됨.)
+    // 오늘 일자는 미보고 게이트 외부 → 일반 chip 유지.
     const todayKst = fmtDate(new Date())
-    const isWorkday = !data.isWeekend
-    if (isMissingCheckout(data.date, state, todayKst, isWorkday)) {
+    if (data.date < todayKst) {
+      const isWorkday = !data.isWeekend
       out.push({
-        tone: 'warning',
+        tone: isWorkday ? 'warning' : 'neutral',
         icon: <Clock className="h-3 w-3" aria-hidden />,
         text: `출근 ${sa} — 퇴근 누락${loc ? ' / ' + loc : ''}`,
-        title: '퇴근보고 누락 (과거 일자 + 출근만 보고)',
+        title: isWorkday
+          ? '퇴근보고 누락 (평일 보고 의무 대상)'
+          : '퇴근보고 누락 (주말 — 의무 외부, 정보성 표시)',
       })
     } else {
       // 오늘 또는 미래 일자 — 기존 "출근완료, 퇴근 전" 표시
