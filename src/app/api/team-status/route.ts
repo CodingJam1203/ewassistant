@@ -159,7 +159,13 @@ function computeStatus(
     return { color: 'yellow', status_text: '보고 완료', status: 'reported' }
   }
 
-  // daily_status만 있고 check_in 없음 (비정상 상태)
+  // daily_status만 있고 check_in 없음.
+  //   - daily.status='not_reported' = check-in-cancel 또는 partial delete의 wholeRowDelete로
+  //     명시적으로 비워진 상태. 미제출과 동급으로 취급해야 카드가 "미제출" 빨강으로 깨끗히 표시됨.
+  //   - 그 외 (예: daily에 partial 데이터만 남은 비정상 상태) → "확인 필요" 유지.
+  if (daily?.status === 'not_reported') {
+    return { color: 'red', status_text: '미제출', status: 'not_reported' }
+  }
   return { color: 'yellow', status_text: '확인 필요', status: 'reported' }
 }
 
