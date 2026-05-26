@@ -462,38 +462,26 @@ export default function CheckInModal({
   // 양쪽 다 비면 서버가 자동으로 row 전체 soft-delete.
   // none(미보고 첫 작성)은 work_log_id 자체가 없어 자동으로 가드됨.
   const handleDeleteCheckIn = async () => {
-    if (!workLogId || deleting) {
-      console.log('[CheckIn delete] skip — workLogId:', workLogId, 'deleting:', deleting)
-      return
-    }
+    if (!workLogId || deleting) return
     const confirmMsg = caseMode === 'future'
       ? `${date} 사전 출근보고를 취소하시겠습니까?\n같은 날 다른 보고가 있으면 유지됩니다.`
       : `${date} 출근보고를 삭제하시겠습니까?\n같은 날 퇴근보고가 있으면 유지됩니다.`
     const ok = window.confirm(confirmMsg)
-    console.log('[CheckIn delete] confirm result:', ok)
     if (!ok) return
     setDeleting(true)
     setError(null)
     try {
-      console.log('[CheckIn delete] fetching DELETE workLogId=', workLogId)
       const res = await fetch(`/api/work-logs/${workLogId}?scope=check_in`, {
         method: 'DELETE',
       })
-      const text = await res.text()
-      let data: { error?: string; success?: boolean; scope?: string | null; wholeRowDelete?: boolean } = {}
-      try { data = text ? JSON.parse(text) : {} } catch {
-        console.warn('[CheckIn delete] response not JSON:', text.slice(0, 200))
-      }
-      console.log('[CheckIn delete] response status=', res.status, 'body=', data)
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(`삭제 실패 (HTTP ${res.status}): ${data.error ?? text.slice(0, 100) ?? '서버 오류'}`)
+        setError(data.error ?? '삭제 중 오류가 발생했습니다.')
         return
       }
-      console.log('[CheckIn delete] success — calling onSuccess()')
       onSuccess()
-    } catch (err) {
-      console.error('[CheckIn delete] network/parse error:', err)
-      setError(`네트워크 오류: ${err instanceof Error ? err.message : String(err)}`)
+    } catch {
+      setError('네트워크 오류가 발생했습니다.')
     } finally {
       setDeleting(false)
     }
