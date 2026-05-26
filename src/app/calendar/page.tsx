@@ -583,10 +583,17 @@ export default function CalendarMatrixPage() {
   }, [filteredUsers, filteredEvents, days])
 
   // 본부 단위 이벤트 (teamId == null인 캘린더의 이벤트) — division별 그룹
+  // Phase B.5 — 시트 events이고 화면 사용자에 매칭된 게 있으면 본부 row에서 제외 (사용자 row에 표시되므로 중복 방지)
   const divisionMatrix = useMemo(() => {
     const m = new Map<string, Map<string, EventCellEntry[]>>()
+    const filteredUserEmails = new Set(filteredUsers.map(u => u.email.toLowerCase()))
     for (const ev of filteredEvents) {
       if (ev.teamId !== null) continue  // 본부 단위만
+      // Phase B.5 — 시트 events: 매칭 사용자 있으면 본부 row 제외 (그 사람 row에만 표시)
+      if (ev.id.startsWith('sheet:')) {
+        const hasMatchedInView = ev.matchedUserEmails.some(em => filteredUserEmails.has(em.toLowerCase()))
+        if (hasMatchedInView) continue
+      }
       for (const day of days) {
         const dateIso = toKstIsoDate(day)
         const entry = eventOnDate(ev, dateIso)
@@ -599,7 +606,7 @@ export default function CalendarMatrixPage() {
       }
     }
     return m
-  }, [filteredEvents, days])
+  }, [filteredEvents, filteredUsers, days])
 
   // "기타" 행 먼저 정의 — divisionGroups가 이걸 참조
   // 사용자에 매칭 안 된 events. 팀 단위로 1행씩.

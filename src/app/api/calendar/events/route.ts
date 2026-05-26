@@ -238,20 +238,23 @@ async function fetchSheetEvents(args: {
   }
   if (sourceById.size === 0) return []
 
-  // 2) 팀 매핑 (sheet_source_id 매핑된 팀만)
-  const { data: teamRows, error: teamsErr } = await adminClient
+  // 2) 팀 매핑 (sheet_source_id 매핑된 팀만 + 모든 팀의 id 정보)
+  // teamKey "본부명::팀명" → sheet_source_id (매핑된 팀만)
+  // teamKeyToTeamId "본부명::팀명" → team_id (모든 팀 — Phase B.5 매트릭스 뷰에서 시트 events의 teamId 채움용)
+  const { data: allTeamRows, error: teamsErr } = await adminClient
     .from('org_teams')
-    .select('name, sheet_source_id, org_divisions!inner(id, name)')
-    .not('sheet_source_id', 'is', null)
+    .select('id, name, sheet_source_id, org_divisions!inner(id, name)')
   if (teamsErr) return []
 
-  // teamKey ("본부명::팀명") → sheet_source_id
   const teamKeyToSourceId = new Map<string, string>()
-  for (const t of (teamRows ?? []) as unknown as SheetTeamJoinRow[]) {
+  const teamKeyToTeamId = new Map<string, string>()
+  for (const t of (allTeamRows ?? []) as unknown as Array<SheetTeamJoinRow & { id: string }>) {
     const divName = t.org_divisions?.name
-    if (!divName || !t.name || !t.sheet_source_id) continue
-    if (!sourceById.has(t.sheet_source_id)) continue  // 비활성 source skip
-    teamKeyToSourceId.set(`${divName}::${t.name}`, t.sheet_source_id)
+    if (!divName || !t.name) continue
+    teamKeyToTeamId.set(`${divName}::${t.name}`, t.id)
+    if (t.sheet_source_id && sourceById.has(t.sheet_source_id)) {
+      teamKeyToSourceId.set(`${divName}::${t.name}`, t.sheet_source_id)
+    }
   }
 
   // 본부 직속 fallback — 본부명 → 첫 active source id
@@ -274,25 +277,30 @@ async function fetchSheetEvents(args: {
   const { data: userRows, error: usersErr } = await userQuery
   if (usersErr || !userRows) return []
 
-  // source × displayName → matched emails 인덱스 (entry 매칭용 O(1))
-  const sourceNameToEmails = new Map<string, string[]>()
+  // source × displayName → matched users 인덱스 (entry 매칭용 O(1))
+  // Phase B.5 — 사용자별 team_id도 함께 인덱스. 본부 직속은 team_id null로 유지 → divisionMatrix에 분류
+  interface MatchedUser { email: string; teamId: string | null }
+  const sourceNameToUsers = new Map<string, MatchedUser[]>()
   for (const u of userRows as SheetUserProfileRow[]) {
     if (!u.division || !u.display_name) continue
     let sourceId: string | undefined
+    let teamId: string | null = null
     if (u.team) {
       sourceId = teamKeyToSourceId.get(`${u.division}::${u.team}`)
+      teamId = teamKeyToTeamId.get(`${u.division}::${u.team}`) ?? null
     } else {
+      // 본부 직속 — fallback source. team_id는 null 유지 (본부 일정 row로 분류됨)
       sourceId = divisionToSourceId.get(u.division)
     }
     if (!sourceId) continue
     const dispName = u.display_name.trim()
     if (!dispName) continue
     const key = `${sourceId}::${dispName}`
-    const arr = sourceNameToEmails.get(key)
-    if (arr) arr.push(u.email.toLowerCase())
-    else sourceNameToEmails.set(key, [u.email.toLowerCase()])
+    const arr = sourceNameToUsers.get(key)
+    if (arr) arr.push({ email: u.email.toLowerCase(), teamId })
+    else sourceNameToUsers.set(key, [{ email: u.email.toLowerCase(), teamId }])
   }
-  if (sourceNameToEmails.size === 0) return []
+  if (sourceNameToUsers.size === 0) return []
 
   // 4) leave_calendar_cache 신규 형식 row fetch (from~to 범위)
   const { data: cacheRows, error: cacheErr } = await adminClient
@@ -324,8 +332,11 @@ async function fetchSheetEvents(args: {
         const cellValue = entry.cellValue ?? ''
         if (!cellValue) { entryIdx++; continue }
 
-        const emails = sourceNameToEmails.get(`${sourceId}::${sheetName}`)
-        if (!emails || emails.length === 0) { entryIdx++; continue }
+        const matched = sourceNameToUsers.get(`${sourceId}::${sheetName}`)
+        const emails = matched ? matched.map(u => u.email) : []
+        // Phase B.5 — 매칭 여부 무관 모두 output에 출력. 매칭 안 된 entry는 matchedUserEmails=[]로
+        // 매트릭스 뷰가 "본부 일정 row"에 분류 (정책: 본부 직속 + user_profile 미등록 = 본부 일정).
+        // 시트 events의 teamId는 항상 null. 매트릭스 분기에서 (sheet + 매칭 있음) → 본부 row 제외 처리.
 
         const parsed = parseCell(cellValue)
         const isVacation = !!parsed.leaveType
