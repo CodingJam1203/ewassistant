@@ -19,6 +19,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { UserCalendarLookup, CalendarEventChunk } from '@/types/leave-calendar'
 import type { LeaveType } from '@/types/leave-timeline'
 import { parseCell } from '@/lib/leave-calendar'
+import { normalizeName } from '@/lib/org-calendar/name-match'
 
 /** ISO → KST 'HH:mm' */
 export function toKstTime(iso: string): string {
@@ -257,7 +258,7 @@ async function mergeSheetDataIntoLookup(args: {
   // 1) user_profiles에서 display_name + (division, team) text 컬럼 조회
   const { data: userRows, error: usersErr } = await adminClient
     .from('user_profiles')
-    .select('email, display_name, division, team')
+    .select('id, email, display_name, division, team')
     .in('email', emails)
 
   if (usersErr || !userRows || userRows.length === 0) return
@@ -299,38 +300,46 @@ async function mergeSheetDataIntoLookup(args: {
 
   if (teamKeyToSourceId.size === 0 && divisionToSourceId.size === 0) return
 
-  // 3) user → sheet_source_id + display_name 매핑
-  // - 팀 멤버: (division, team) 매칭으로 sheet_source_id 찾기
-  // - 본부 직속(team NULL): division 단위 fallback
-  const userToTarget = new Map<string, { sourceId: string; displayName: string }>()
-  for (const u of userRows as UserProfileRow[]) {
-    if (!u.division || !u.display_name) continue
+  // 3) user → sheet_source_id + normalizedName 매핑 (Phase B.6 정규화 + 동명이인 처리)
+  const userToTarget = new Map<string, { sourceId: string; normName: string; userId: string }>()
+  const userIdToEmail = new Map<string, string>()
+  for (const u of userRows as Array<UserProfileRow & { id?: string }>) {
+    if (!u.division || !u.display_name || !u.id) continue
 
     let sourceId: string | undefined
     if (u.team) {
-      // 팀 멤버 — 팀의 sheet_source_id 매핑 우선
       sourceId = teamKeyToSourceId.get(`${u.division}::${u.team}`)
     } else {
-      // 본부 직속(team NULL) — 본부 단위 active source fallback
       sourceId = divisionToSourceId.get(u.division)
     }
     if (!sourceId) continue
 
-    userToTarget.set(u.email.toLowerCase(), {
-      sourceId,
-      displayName: u.display_name.trim(),
-    })
+    const normName = normalizeName(u.display_name)
+    if (!normName) continue
+    const lowEmail = u.email.toLowerCase()
+    userToTarget.set(lowEmail, { sourceId, normName, userId: u.id })
+    userIdToEmail.set(u.id, lowEmail)
   }
   if (userToTarget.size === 0) return  // 매핑된 사용자 없음 → Mode 1 zero impact
 
-  // 4) source × name → users 인덱스 (entry 매칭 시 O(1) lookup)
-  //    key: `${sourceId}::${displayName}`, value: 매칭되는 user emails
+  // 4) source × normalizedName → users 인덱스. 본부 내 N≥2 자동 매칭 보류용.
   const sourceNameToEmails = new Map<string, string[]>()
   for (const [email, target] of userToTarget) {
-    const key = `${target.sourceId}::${target.displayName}`
+    const key = `${target.sourceId}::${target.normName}`
     const arr = sourceNameToEmails.get(key)
     if (arr) arr.push(email)
     else sourceNameToEmails.set(key, [email])
+  }
+
+  // Phase B.6 — sheet_name_overrides 조회 (운영자 명시 매핑)
+  const { data: overrideRows } = await adminClient
+    .from('sheet_name_overrides')
+    .select('sheet_source_id, sheet_name, user_id')
+  const overrideIndex = new Map<string, string>()  // `${sourceId}::${normName}` → user_id
+  for (const r of (overrideRows ?? []) as Array<{ sheet_source_id: string; sheet_name: string; user_id: string }>) {
+    const normName = normalizeName(r.sheet_name)
+    if (!normName) continue
+    overrideIndex.set(`${r.sheet_source_id}::${normName}`, r.user_id)
   }
 
   // 5) leave_calendar_cache에서 신규 형식(`calendar:<source_id>:DATE`) row 전부 read
@@ -361,8 +370,21 @@ async function mergeSheetDataIntoLookup(args: {
         const cellValue = entry.cellValue ?? ''
         if (!cellValue) continue
 
-        const matchedEmails = sourceNameToEmails.get(`${sourceId}::${sheetName}`)
-        if (!matchedEmails || matchedEmails.length === 0) continue
+        // Phase B.6 매칭 정책:
+        //   1) override 있으면 그 user만
+        //   2) 본부 내 자동 매칭 N=1 → 그 user
+        //   3) N=0 또는 N≥2 → 보류
+        const normSheetName = normalizeName(sheetName)
+        let matchedEmails: string[] = []
+        const overrideUserId = overrideIndex.get(`${sourceId}::${normSheetName}`)
+        if (overrideUserId) {
+          const oEmail = userIdToEmail.get(overrideUserId)
+          if (oEmail) matchedEmails = [oEmail]
+        } else {
+          const auto = sourceNameToEmails.get(`${sourceId}::${normSheetName}`)
+          if (auto && auto.length === 1) matchedEmails = [auto[0]]
+        }
+        if (matchedEmails.length === 0) continue
 
         const parsed = parseCell(cellValue)
 

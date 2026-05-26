@@ -17,6 +17,7 @@ import { resolveUserAuthz, canWriteToCalendar } from '@/lib/google-calendar/auth
 import { loadUserLookup, matchUsers, inferEventType } from '@/lib/org-calendar/match-users'
 import { parseCell } from '@/lib/leave-calendar'
 import { getUserCalendarMode, modeBlocksEventWrite } from '@/lib/org-calendar/calendar-mode'
+import { normalizeName } from '@/lib/org-calendar/name-match'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
@@ -271,36 +272,50 @@ async function fetchSheetEvents(args: {
 
   let userQuery = adminClient
     .from('user_profiles')
-    .select('email, display_name, division, team')
+    .select('id, email, display_name, division, team')
     .eq('is_active', true)
     .in('division', Array.from(targetDivisionNames))
   const { data: userRows, error: usersErr } = await userQuery
   if (usersErr || !userRows) return []
 
-  // source × displayName → matched users 인덱스 (entry 매칭용 O(1))
-  // Phase B.5 — 사용자별 team_id도 함께 인덱스. 본부 직속은 team_id null로 유지 → divisionMatrix에 분류
-  interface MatchedUser { email: string; teamId: string | null }
+  // source × normalizedName → matched users 인덱스 (entry 매칭용 O(1))
+  // Phase B.6 — display_name 정규화(normalizeName) 후 키 사용. 본부 내 N≥2면 동명이인 보류.
+  interface MatchedUser { email: string; teamId: string | null; userId: string }
   const sourceNameToUsers = new Map<string, MatchedUser[]>()
-  for (const u of userRows as SheetUserProfileRow[]) {
-    if (!u.division || !u.display_name) continue
+  // userIdToInfo: override 적용 시 그 user의 email/teamId 조회용
+  const userIdToInfo = new Map<string, { email: string; teamId: string | null }>()
+  for (const u of userRows as Array<SheetUserProfileRow & { id?: string }>) {
+    if (!u.division || !u.display_name || !u.id) continue
     let sourceId: string | undefined
     let teamId: string | null = null
     if (u.team) {
       sourceId = teamKeyToSourceId.get(`${u.division}::${u.team}`)
       teamId = teamKeyToTeamId.get(`${u.division}::${u.team}`) ?? null
     } else {
-      // 본부 직속 — fallback source. team_id는 null 유지 (본부 일정 row로 분류됨)
       sourceId = divisionToSourceId.get(u.division)
     }
     if (!sourceId) continue
-    const dispName = u.display_name.trim()
-    if (!dispName) continue
-    const key = `${sourceId}::${dispName}`
+    const normName = normalizeName(u.display_name)
+    if (!normName) continue
+    userIdToInfo.set(u.id, { email: u.email.toLowerCase(), teamId })
+    const key = `${sourceId}::${normName}`
     const arr = sourceNameToUsers.get(key)
-    if (arr) arr.push({ email: u.email.toLowerCase(), teamId })
-    else sourceNameToUsers.set(key, [{ email: u.email.toLowerCase(), teamId }])
+    if (arr) arr.push({ email: u.email.toLowerCase(), teamId, userId: u.id })
+    else sourceNameToUsers.set(key, [{ email: u.email.toLowerCase(), teamId, userId: u.id }])
   }
-  if (sourceNameToUsers.size === 0) return []
+  if (sourceNameToUsers.size === 0 && userIdToInfo.size === 0) return []
+
+  // Phase B.6 — sheet_name_overrides 조회 (운영자 명시 매핑). source 전체 fetch 후 메모리 인덱스.
+  // key: `${sourceId}::${normalizedSheetName}` → user_id (override 우선 적용)
+  const { data: overrideRows } = await adminClient
+    .from('sheet_name_overrides')
+    .select('sheet_source_id, sheet_name, user_id')
+  const overrideIndex = new Map<string, string>()
+  for (const r of (overrideRows ?? []) as Array<{ sheet_source_id: string; sheet_name: string; user_id: string }>) {
+    const normName = normalizeName(r.sheet_name)
+    if (!normName) continue
+    overrideIndex.set(`${r.sheet_source_id}::${normName}`, r.user_id)
+  }
 
   // 4) leave_calendar_cache 신규 형식 row fetch (from~to 범위)
   const { data: cacheRows, error: cacheErr } = await adminClient
@@ -332,11 +347,25 @@ async function fetchSheetEvents(args: {
         const cellValue = entry.cellValue ?? ''
         if (!cellValue) { entryIdx++; continue }
 
-        const matched = sourceNameToUsers.get(`${sourceId}::${sheetName}`)
-        const emails = matched ? matched.map(u => u.email) : []
-        // Phase B.5 — 매칭 여부 무관 모두 output에 출력. 매칭 안 된 entry는 matchedUserEmails=[]로
-        // 매트릭스 뷰가 "본부 일정 row"에 분류 (정책: 본부 직속 + user_profile 미등록 = 본부 일정).
-        // 시트 events의 teamId는 항상 null. 매트릭스 분기에서 (sheet + 매칭 있음) → 본부 row 제외 처리.
+        // Phase B.6 매칭 정책:
+        //   1) override 있으면 그 user만 매칭 (본부 무관)
+        //   2) override 없고 본부 내 N=1 자동 매칭 → 그 user
+        //   3) N=0 또는 N≥2 → 매칭 보류 (matchedUserEmails=[], 본부 일정 row로)
+        const normSheetName = normalizeName(sheetName)
+        let emails: string[] = []
+        const overrideUserId = overrideIndex.get(`${sourceId}::${normSheetName}`)
+        if (overrideUserId) {
+          const info = userIdToInfo.get(overrideUserId)
+          if (info) emails = [info.email]
+          // override user가 다른 본부면 userIdToInfo에 없음 → 매칭 X (보류). 운영자가 정정 필요.
+        } else {
+          const matched = sourceNameToUsers.get(`${sourceId}::${normSheetName}`)
+          if (matched && matched.length === 1) {
+            emails = [matched[0].email]
+          }
+          // N=0 또는 N≥2면 emails=[] 유지 → 매칭 보류
+        }
+        // 매칭 여부 무관 output에 출력. 매칭 안 된 entry는 emails=[]로 본부 일정 row 분류.
 
         const parsed = parseCell(cellValue)
         const isVacation = !!parsed.leaveType
