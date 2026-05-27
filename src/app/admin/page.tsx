@@ -42,7 +42,8 @@ function OrgManager({
   org, onOrgChange
 }: {
   org: OrgDivision[]
-  onOrgChange: () => void
+  // fetchOrg가 async라 Promise<void> 반환 — 각 핸들러에서 await으로 list 갱신 완료까지 busy 상태 유지.
+  onOrgChange: () => Promise<void> | void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [expandedDivs, setExpandedDivs] = useState<Set<string>>(new Set())
@@ -74,7 +75,7 @@ function OrgManager({
     if (!res.ok) { alert(data.error); setBusy(false); return }
     setNewDivName('')
     setAddingDiv(false)
-    onOrgChange()
+    await onOrgChange()
     setBusy(false)
   }
 
@@ -89,7 +90,7 @@ function OrgManager({
     const data = await res.json()
     if (!res.ok) { alert(data.error); setBusy(false); return }
     setEditingDiv(null)
-    onOrgChange()
+    await onOrgChange()
     setBusy(false)
   }
 
@@ -102,7 +103,7 @@ function OrgManager({
     const res = await fetch(`/api/admin/org/divisions/${div.id}`, { method: 'DELETE' })
     const data = await res.json()
     if (!res.ok) { alert(data.error); setBusy(false); return }
-    onOrgChange()
+    await onOrgChange()
     setBusy(false)
   }
 
@@ -118,7 +119,7 @@ function OrgManager({
     const data = await res.json()
     if (!res.ok) { alert(data.error); setBusy(false); return }
     setNewTeamName(prev => ({ ...prev, [divisionId]: '' }))
-    onOrgChange()
+    await onOrgChange()
     setBusy(false)
   }
 
@@ -133,7 +134,7 @@ function OrgManager({
     const data = await res.json()
     if (!res.ok) { alert(data.error); setBusy(false); return }
     setEditingTeam(null)
-    onOrgChange()
+    await onOrgChange()
     setBusy(false)
   }
 
@@ -143,7 +144,7 @@ function OrgManager({
     const res = await fetch(`/api/admin/org/teams/${team.id}`, { method: 'DELETE' })
     const data = await res.json()
     if (!res.ok) { alert(data.error); setBusy(false); return }
-    onOrgChange()
+    await onOrgChange()
     setBusy(false)
   }
 
@@ -163,7 +164,7 @@ function OrgManager({
     })
     const data = await res.json()
     if (!res.ok) { alert(data.error ?? '설정 변경 실패'); setBusy(false); return }
-    onOrgChange()
+    await onOrgChange()
     setBusy(false)
   }
 
