@@ -86,8 +86,12 @@ function isEnabled(eventType: EventType): boolean {
 interface MakePayload {
   teamId: string
   channelId: string
-  /** v1.50: 채널 새 메시지(Power Automate) 방식 라우팅은 NULL 허용. */
-  messageId: string | null
+  /**
+   * v1.50: 채널 새 메시지(Power Automate) 방식 라우팅은 DB에서 NULL.
+   * v1.50 hotfix (2026-05-27): 사용자 측 Power Automate 스키마 호환 위해 wire에는
+   * 항상 string(빈 문자열 '') 으로 보냄. routeAndSend 에서 `messageId ?? ''` 코어션.
+   */
+  messageId: string
   /**
    * Teams 본문(HTML 형식).
    * - Make의 Microsoft Teams 모듈에서 Content Type을 HTML로 설정하여 매핑하세요.
@@ -297,11 +301,16 @@ async function routeAndSend(
     const messageText = toPlainText(messageRaw)                  // plain text fallback
     // v1.50: 라우팅별 webhook URL 분기. payload에는 webhookUrl 필드 안 보냄 (Power
     // Automate 워크플로우는 받지 않는 필드).
+    // v1.50 hotfix (2026-05-27): messageId가 NULL인 라우팅(채널 새 메시지 방식)에서
+    // 사용자 측 Power Automate JSON 스키마가 `type: "string"`이라 null 거부 →
+    // ValidationFailed. 우리 측에서 '' 빈 문자열로 보내 schema 통과. 사용자 워크플로우는
+    // messageId가 비면 thread 회신 X / 채널 새 메시지 분기로 처리.
     const { webhookUrl: routeWebhookUrl, ...targetForPayload } = target
     await sendToMake(
       eventType,
       {
         ...targetForPayload,
+        messageId: targetForPayload.messageId ?? '',
         message: messageHtml,   // primary: HTML 본문 (Content Type: HTML 권장)
         messageHtml,            // back-compat alias
         messageText,            // plain text fallback
@@ -581,10 +590,12 @@ export async function notifyMissingReport(
     const messageRaw = buildMessage('missing_report_nudge', payload)
     const messageHtml = toTeamsHtml(messageRaw)
     const messageText = toPlainText(messageRaw)
+    const { webhookUrl: routeWebhookUrl, ...targetForPayload } = target
     await sendToMake(
       'missing_report_nudge',
       {
-        ...target,
+        ...targetForPayload,
+        messageId: targetForPayload.messageId ?? '',
         message: messageHtml,
         messageHtml,
         messageText,
@@ -592,6 +603,7 @@ export async function notifyMissingReport(
       },
       payload.division,
       normalizedTeam,
+      routeWebhookUrl ?? null,
     )
     return { ok: true }
   } catch (err) {
