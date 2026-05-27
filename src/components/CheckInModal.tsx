@@ -2,7 +2,7 @@
 import { DateInputWithDow } from '@/components/ui'
 import { dowKo } from '@/lib/utils/date'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { X, Loader2, Calendar, Trash2 } from 'lucide-react'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
 import LeaveTimelineInput from '@/components/LeaveTimelineInput'
@@ -28,6 +28,12 @@ import { useRegisterModalOpen } from '@/contexts/ModalOpenContext'
  *   A. 'none'  : 미제출 미보고 (D-day row 없음 + 사전 보고 없음)
  *      → 출근예정시간 = "미보고" 표시, 받지 않음
  *      → 실제 출근시간 + 퇴근예정시간 + 근무지만 입력
+ *
+ *      A-pre. 'none' + 출근완료 사용 팀 + 당일 + KST 05:00 이전 (v1.49, 2026-05-27):
+ *        → "출근 사전보고" 모드 (콤보 D+1 동작과 일관).
+ *        → 실출근 input 숨김 → checked_in_at 무변경 → Teams 알림 미발송.
+ *          출근예정 + 퇴근예정 + 근무지만 입력. 결과 상태 = 출근전(보고완료).
+ *        → 05시 이후 실제 출근 시 [출근 완료] 버튼으로 prior 모달에서 실출근 입력.
  *
  *   B. 'prior' : 사전 보고만 있음 (전일 퇴근보고에서 다음날 출근예정 작성)
  *      → 사전 등록된 출근예정/퇴근예정/근무지를 안내 (readonly 카드)
@@ -70,6 +76,24 @@ function normalizeStartTimeTo30(input: string | undefined, fallback: string): st
   const mm = parseInt(m[2], 10)
   const flooredMm = mm < 30 ? '00' : '30'
   return `${hh}:${flooredMm}`
+}
+
+/**
+ * KST 현재 시각이 05:00 미만인지 — 'none' 케이스의 "사전 보고" 분기 전용 (v1.49).
+ * 모달 마운트 시점에 한 번 평가해서 state로 박제 (자정 경계 drift 방지).
+ * 콤보(WorkLogForm)는 07시 work-date 경계와 별개 — 직접 출근보고는 05시.
+ * 이유: 새벽 근무자(00~07시)는 콤보 경로로 들어와 영향 없고, 정규 직원이
+ * 새벽~이른 아침에 직접 출근보고를 누르는 케이스 = 사전 보고 의도.
+ */
+function isKstBeforeFiveAm(): boolean {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Seoul',
+    hour12: false,
+    hour: '2-digit',
+  })
+  const parts = fmt.formatToParts(new Date())
+  const h = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10) % 24
+  return h < 5
 }
 
 /**
@@ -137,6 +161,8 @@ export default function CheckInModal({
   // 케이스 A: 출근예정시간 "미보고" 잠금 상태 (true=미보고, false=수정 모드)
   // submit 시 true면 planned_start_time = NULL로 저장 (미보고 유지)
   const [plannedStartUnreported, setPlannedStartUnreported] = useState(true)
+  // v1.49 — 모달 마운트 시점 KST 05시 이전 판정 (mount 1회만, drift 방지)
+  const [isEarlyMorningKst] = useState<boolean>(() => isKstBeforeFiveAm())
 
   // 첫 fetch flag — initialStartTime prop 보호용 (날짜 변경 시 prefill 재적용에서 첫 진입과 구분)
   const isFirstFetchRef = useRef(true)
@@ -257,6 +283,11 @@ export default function CheckInModal({
         } else if (mode === 'future') {
           // future 모드 — 실제 출근시간 입력 안 받음. 빈 값으로 둠.
           setActualCheckInTime('')
+        } else if (mode === 'none' && useCheckInComplete && isEarlyMorningKst && date === todayKstStr) {
+          // v1.49 — 사전 출근보고 모드 (KST 05:00 이전 + 미보고 + 출근완료 사용 팀 + 당일).
+          // 실출근 input UI hide → 빈 값 유지 → submit 시 checked_in_at 무변경 → 알림 미발송.
+          // 05시 이후 prior 모달에서 실제 출근 시각을 따로 입력 = 출근완료 분리.
+          setActualCheckInTime('')
         } else {
           // none/prior — 자동 prefill:
           //   prior + 기존 actual 있으면(false 팀의 lazy write로 채워진 planned 또는 true 팀이 이미 출근완료한 값) → 그 값 prefill (정정용).
@@ -319,6 +350,19 @@ export default function CheckInModal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date])
 
+  // v1.49 — KST 05시 이전 사전 보고 모드 판정 (mount 시점의 시각 박제 + 현재 caseMode/date 조합).
+  //   조건: 'none' 케이스 + 출근완료 사용 팀 + KST 05:00 이전 + 당일 날짜.
+  //   동작: 실출근 input hide → submit 시 actualCheckInTime='' → 서버 checked_in_at 무변경 → 알림 미발송.
+  //   콤보 D+1과 동일한 패턴 ("출근완료 = 알림 발송 시점" 통합 룰 유지).
+  const todayKstStr = useMemo(() => {
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+    })
+    return fmt.format(new Date())
+  }, [])
+  const isEarlyMorningPreReport =
+    caseMode === 'none' && useCheckInComplete && isEarlyMorningKst && date === todayKstStr
+
   const isAllDayLeave = isFullDayLeave(leaveTimeline)
   const locErrors = isAllDayLeave ? [] : validateWorkLocations(locations)
   const leaveErrors = validateLeaveTimeline(leaveTimeline)
@@ -328,15 +372,18 @@ export default function CheckInModal({
   if (!isAllDayLeave) {
     // case A + plannedStartUnreported=true: startTime은 받지 않으니 검증도 skip
     // case A + plannedStartUnreported=false: 사용자가 토글 풀고 입력 → 검증 함
-    const requireStartTime = caseMode !== 'none' || !plannedStartUnreported
+    // v1.49 — 사전 보고 모드(none + 05시 이전 + 출근완료팀): 출근예정 무조건 입력 받음 → 검증 ON.
+    const requireStartTime = caseMode !== 'none' || isEarlyMorningPreReport || !plannedStartUnreported
     if (requireStartTime) {
       if (!startTime || !isHalfHour(startTime)) timeErrors.push('출근예정시간을 30분 단위로 선택해주세요.')
     }
     if (!endTime || !isHalfHour(endTime)) timeErrors.push('퇴근예정시간을 30분 단위로 선택해주세요.')
-    // today·future 모드는 실출근 input을 UI에서 hide(today=v1.44 자동 출근완료 차단,
-    // future=실출근 무의미) → submit 시에도 safeActualCheckIn은 빈 문자열로 강제됨(381~384).
-    // 검증도 동일하게 skip — 그렇지 않으면 [수정 저장] 버튼이 항상 disabled.
-    if (caseMode !== 'future' && caseMode !== 'today' && (!actualCheckInTime || !isHalfHour(actualCheckInTime))) {
+    // today·future·v1.49 사전보고 모드는 실출근 input을 UI에서 hide.
+    //   today=v1.44 자동 출근완료 차단, future=실출근 무의미, 사전보고=출근완료 분리.
+    //   submit 시에도 safeActualCheckIn은 빈 문자열로 강제됨.
+    //   검증도 동일하게 skip — 그렇지 않으면 submit 버튼이 항상 disabled.
+    if (caseMode !== 'future' && caseMode !== 'today' && !isEarlyMorningPreReport
+        && (!actualCheckInTime || !isHalfHour(actualCheckInTime))) {
       timeErrors.push('실제 출근시간을 30분 단위로 선택해주세요.')
     }
   }
@@ -380,17 +427,13 @@ export default function CheckInModal({
       // 안전망 — caseMode='none' (미보고 첫 작성) + 당일 날짜라면, prefill 누락/race로
       // actualCheckInTime이 비어있어도 NOW로 채워 보냄. 그래야 서버가 checked_in_at을
       // 세팅하고 상태가 A → C로 바로 진행 (B 상태 노출 방지).
-      const todayKstStr = (() => {
-        const fmt = new Intl.DateTimeFormat('en-CA', {
-          timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
-        })
-        return fmt.format(new Date())
-      })()
+      // v1.49 — 사전 보고 모드는 위 NOW fallback도 skip → 빈 값 유지 → checked_in_at 무변경.
       const isTodaySubmission = date === todayKstStr
       const safeActualCheckIn =
-        caseMode === 'future' || caseMode === 'today'
-          ? ''  // v1.44 — today/future는 실제 출근시간 보내지 않음(서버 checked_in_at 무변경).
-                // today는 UI hide + state 빈값이지만 만일에 대비한 강제 가드.
+        caseMode === 'future' || caseMode === 'today' || isEarlyMorningPreReport
+          ? ''  // v1.44/v1.49 — today/future/사전보고는 실제 출근시간 보내지 않음(서버 checked_in_at 무변경).
+                // today/future는 UI hide + state 빈값이지만 만일에 대비한 강제 가드.
+                // 사전보고는 알림 미발송도 자동 — 서버 가드(checkedInAtIso) 그대로 활용.
           : actualCheckInTime ||
             (caseMode === 'none' && isTodaySubmission && !effectiveIsAllDay
               ? nowKstHHmmCeil() : '')
@@ -399,11 +442,15 @@ export default function CheckInModal({
       //   - plannedStartUnreported=true (미보고 유지): start_time은 legacy NOT NULL 만족용으로
       //     실제출근 시각 fallback. 서버에서 planned_start_time = NULL로 처리.
       //   - plannedStartUnreported=false (토글 풀고 직접 입력): start_time = 사용자 입력값.
-      const planned_start_time_unreported = caseMode === 'none' && plannedStartUnreported
+      //   - v1.49 사전 보고: 출근예정 무조건 입력 → planned_start_time_unreported=false 강제.
+      const planned_start_time_unreported =
+        caseMode === 'none' && plannedStartUnreported && !isEarlyMorningPreReport
       const submitStartTime = caseMode === 'none'
-        ? (plannedStartUnreported
-            ? (safeActualCheckIn || '09:00')
-            : startTime)
+        ? (isEarlyMorningPreReport
+            ? startTime  // v1.49 사전 보고: 사용자 입력값 그대로
+            : (plannedStartUnreported
+                ? (safeActualCheckIn || '09:00')
+                : startTime))
         : (effectiveIsAllDay ? null : startTime)
 
       // C2 정책: 사용자가 N-Click에서 시간을 명시 입력했으면 Google 캘린더 자동 매핑된
@@ -493,6 +540,7 @@ export default function CheckInModal({
     caseMode === 'today'  ? '출근보고 수정'
     : caseMode === 'prior' ? '출근 완료'
     : caseMode === 'future' ? '사전 출근보고'
+    : isEarlyMorningPreReport ? '출근 사전보고'
     : '출근보고 작성'
   const dateWithDow = (() => {
     const dow = dowKo(date)
@@ -502,19 +550,25 @@ export default function CheckInModal({
     caseMode === 'today'  ? `${dateWithDow} — 모든 항목 자유롭게 수정`
     : caseMode === 'prior' ? `${dateWithDow} — 사전 등록된 정보 + 실제 출근시간 입력`
     : caseMode === 'future' ? `${dateWithDow} — 이 날의 출근 예정 정보를 미리 등록합니다`
+    : isEarlyMorningPreReport ? `${dateWithDow} — 새벽 사전 보고 (실제 출근 후 별도로 [출근 완료] 처리)`
     : `${dateWithDow} — 시간과 근무장소를 입력해주세요`
 
   const submitLabel =
     caseMode === 'today'  ? '수정 저장'
     : caseMode === 'prior' ? '출근 완료'
     : caseMode === 'future' ? '사전 출근보고 등록'
+    : isEarlyMorningPreReport ? '사전 보고 제출'
     : '출근보고 작성'
 
-  // v1.36 — 출근예정시간 영역 숨김.
+  // v1.36 / v1.49 — 출근예정시간 영역 숨김.
   //   - 출근완료(prior): 항상 숨김 (실출근 | 퇴근예정만). startTime은 prefill값 그대로 submit.
-  //   - 미보고 첫출근(none): 출근완료 사용 팀만 숨김. plannedStartUnreported=true 유지 → NULL 저장.
+  //   - 미보고 첫출근(none) + 출근완료팀:
+  //       · 일반(05시 이후): 숨김. plannedStartUnreported=true 유지 → NULL 저장.
+  //       · v1.49 사전 보고(05시 이전): 노출 (시간 입력 받아야 의미 있음).
   //   - today(수정)·future(사전)는 노출 유지.
-  const hideExpectedStart = caseMode === 'prior' || (caseMode === 'none' && useCheckInComplete)
+  const hideExpectedStart =
+    caseMode === 'prior' ||
+    (caseMode === 'none' && useCheckInComplete && !isEarlyMorningPreReport)
 
   return (
     <>
@@ -674,26 +728,46 @@ export default function CheckInModal({
               )}
 
               {/* 케이스 A (none): 출근예정시간 = 미보고 표시 + 수정하기 토글. 실제출근 + 퇴근예정 + 근무지.
-                  순서: 실제출근 → 출근예정(미보고 토글)/퇴근예정 → 근무장소. */}
+                  순서: 실제출근 → 출근예정(미보고 토글)/퇴근예정 → 근무장소.
+                  v1.49 — 사전 보고 모드(05시 이전 + 출근완료팀 + 당일):
+                    · 실제출근 input hide (submit 시 actualCheckInTime='' → checked_in_at 무변경 → 알림 미발송)
+                    · 출근예정 input 노출 (hideExpectedStart=false로 자동 분기, 미보고 토글 UI 자체 제거)
+                    · "05시 이후 [출근 완료] 처리 필요" 안내 문구. */}
               {caseMode === 'none' && (
                 <>
-                  <div>
-                    <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">실제 출근시간 *</label>
-                    <HalfHourTimeSelect
-                      value={actualCheckInTime}
-                      onChange={setActualCheckInTime}
-                      allowNextDay
-                      ariaLabel="실제 출근시간"
-                    />
-                  </div>
+                  {isEarlyMorningPreReport && (
+                    <div className="rounded-[10px] border border-info-border bg-info-bg px-3 py-2">
+                      <p className="text-[12px] text-info-text">
+                        새벽 시간대(05시 이전) 사전 보고입니다. 실제 출근하신 뒤 [출근 완료] 버튼으로 출근시간을 따로 등록해 주세요.
+                      </p>
+                    </div>
+                  )}
+                  {!isEarlyMorningPreReport && (
+                    <div>
+                      <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">실제 출근시간 *</label>
+                      <HalfHourTimeSelect
+                        value={actualCheckInTime}
+                        onChange={setActualCheckInTime}
+                        allowNextDay
+                        ariaLabel="실제 출근시간"
+                      />
+                    </div>
+                  )}
 
                   <div className={hideExpectedStart ? '' : 'grid grid-cols-2 gap-3'}>
                     {!hideExpectedStart && (
                     <div>
                       <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
-                        출근예정시간{!plannedStartUnreported && ' *'}
+                        출근예정시간{(!plannedStartUnreported || isEarlyMorningPreReport) && ' *'}
                       </label>
-                      {plannedStartUnreported ? (
+                      {/* v1.49 사전 보고 모드: 미보고 토글 UI 제거 — 출근예정 무조건 입력 받음. */}
+                      {isEarlyMorningPreReport ? (
+                        <HalfHourTimeSelect
+                          value={startTime}
+                          onChange={setStartTime}
+                          ariaLabel="출근예정시간"
+                        />
+                      ) : plannedStartUnreported ? (
                         <div className="h-10 rounded-[10px] border border-border bg-surface-muted px-3 flex items-center justify-between gap-2">
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-text-secondary/15 text-text-secondary text-[11px] font-semibold">
                             미보고
@@ -737,7 +811,7 @@ export default function CheckInModal({
                       />
                     </div>
                   </div>
-                  {!hideExpectedStart && !plannedStartUnreported && (
+                  {!hideExpectedStart && !plannedStartUnreported && !isEarlyMorningPreReport && (
                     <p className="text-[11px] text-info-text -mt-2">
                       출근예정시간을 입력하시면 미보고 상태가 해제되어 일반 출근보고로 등록됩니다.
                     </p>
