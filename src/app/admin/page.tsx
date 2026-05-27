@@ -17,6 +17,10 @@ interface OrgTeam {
   division_id: string
   name: string
   use_check_in_complete?: boolean
+  /** v1.51: 팀별 cron 알림 ON/OFF (default true) */
+  notify_morning_07?: boolean
+  notify_reminder_20?: boolean
+  notify_reminder_22?: boolean
 }
 interface OrgDivision {
   id: string
@@ -167,6 +171,27 @@ function OrgManager({
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ notify_on_advance_checkin: next }),
+    })
+    const data = await res.json()
+    if (!res.ok) { alert(data.error ?? '설정 변경 실패'); setBusy(false); return }
+    await onOrgChange()
+    setBusy(false)
+  }
+
+  /** v1.51 — 팀의 cron 알림 ON/OFF 토글 (3종 중 하나) */
+  const toggleTeamCronFlag = async (
+    team: OrgTeam,
+    flagKey: 'notify_morning_07' | 'notify_reminder_20' | 'notify_reminder_22',
+    label: string,
+  ) => {
+    const current = team[flagKey] ?? true
+    const next = !current
+    if (!confirm(`"${team.name}" 팀의 ${label} 알림을 ${next ? 'ON' : 'OFF'}로 변경하시겠습니까?`)) return
+    setBusy(true)
+    const res = await fetch(`/api/admin/org/teams/${team.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [flagKey]: next }),
     })
     const data = await res.json()
     if (!res.ok) { alert(data.error ?? '설정 변경 실패'); setBusy(false); return }
@@ -325,6 +350,30 @@ function OrgManager({
                           >
                             {(team.use_check_in_complete ?? true) ? '출근완료 ON' : '출근완료 OFF'}
                           </button>
+                          {/* v1.51 — 팀별 cron 알림 ON/OFF 토글 3종 */}
+                          {([
+                            { key: 'notify_morning_07'  as const, label: '07', desc: '07시 아침요약' },
+                            { key: 'notify_reminder_20' as const, label: '20', desc: '20시 리마인더' },
+                            { key: 'notify_reminder_22' as const, label: '22', desc: '22시 리마인더' },
+                          ]).map(({ key, label, desc }) => {
+                            const on = team[key] ?? true
+                            return (
+                              <button
+                                key={key}
+                                onClick={() => toggleTeamCronFlag(team, key, desc)}
+                                disabled={busy}
+                                className={
+                                  'text-[10px] px-1.5 py-0.5 rounded-full border transition-colors ' +
+                                  (on
+                                    ? 'border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100'
+                                    : 'border-border bg-surface-muted text-text-muted hover:text-text-primary line-through')
+                                }
+                                title={`${desc} 알림 ${on ? 'ON' : 'OFF'} (클릭해서 변경)`}
+                              >
+                                {label}시
+                              </button>
+                            )
+                          })}
                           <button
                             onClick={() => { setEditingTeam(team.id); setEditTeamName(team.name) }}
                             className="opacity-0 group-hover:opacity-100 text-text-disabled hover:text-primary-600 p-0.5 transition-all"

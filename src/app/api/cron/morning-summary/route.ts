@@ -25,6 +25,7 @@ import type { LeaveType, LeaveTimeline } from '@/types/leave-timeline'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import { isWeekendDate } from '@/lib/utils/date'
 import { isKoreanHoliday } from '@/lib/kr-holidays'
+import { loadTeamCronFlags, isCronFlagOn } from '@/lib/notifications/cron-flags'
 import type { WorkLocations } from '@/types/work-locations-v2'
 
 /** planned_work_locations(WorkLocations 배열) → 표시용 string ("사무실 → 재택") */
@@ -227,6 +228,9 @@ export async function GET(request: Request) {
     teamGroups.get(key)!.users.push(u)
   }
 
+  // v1.51 — 팀별 cron 알림 ON/OFF 플래그 lookup (notify_morning_07)
+  const teamCronFlags = await loadTeamCronFlags(adminClient)
+
   // ─── 팀별 사용자 분류 + 발송 ───────────────────────────────────────────────
   const promises = Array.from(teamGroups.values()).map(group => {
     const leaveSection: Array<{ name: string; label: string; leaveType: LeaveType }> = []
@@ -309,6 +313,9 @@ export async function GET(request: Request) {
         isOvertime: actualMin > OVERTIME_THRESHOLD_MIN,
       }
     })
+
+    // v1.51 — 팀별 cron 알림 OFF면 그 팀 skip.
+    if (!isCronFlagOn(teamCronFlags, group.division, group.team, 'notify_morning_07')) return null
 
     // 비근무일(토/일/한국 공휴일) + 출근보고 작성자(completedSection) 0명 → 그 팀 알림 스킵.
     // v1.46: 공휴일(대체공휴일 포함) 추가 — 평일이지만 공휴일이라 출근 안 함이 디폴트인 케이스 노이즈 제거.

@@ -13,6 +13,7 @@ import { fetchOrgCalendarLookup } from '@/lib/org-calendar/lookup'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import { isWeekendDate } from '@/lib/utils/date'
 import { isKoreanHoliday } from '@/lib/kr-holidays'
+import { loadTeamCronFlags, isCronFlagOn } from '@/lib/notifications/cron-flags'
 import type { WorkLocations } from '@/types/work-locations-v2'
 
 /** planned_work_locations(WorkLocations 배열) → 표시용 string ("사무실 → 재택") */
@@ -112,6 +113,9 @@ export async function GET(request: Request) {
     teamGroups.get(key)!.users.push(u)
   }
 
+  // v1.51 — 팀별 cron 알림 ON/OFF 플래그 lookup (notify_reminder_22)
+  const teamCronFlags = await loadTeamCronFlags(adminClient)
+
   // 내일자 캘린더 일정 조회 (Google Calendar, email 기반 — 휴가 제외 일반 events만)
   // Phase 1.5f: Sheets(getDepartmentDailyParsed) → org_calendar_events. lookup의 events는 vacation 제외.
   const calLookup = await fetchOrgCalendarLookup({
@@ -141,6 +145,9 @@ export async function GET(request: Request) {
         hasReport: !!c,
       }
     })
+
+    // v1.51 — 팀별 cron 알림 OFF면 그 팀 skip.
+    if (!isCronFlagOn(teamCronFlags, group.division, group.team, 'notify_reminder_22')) return null
 
     // 비근무일(토/일/한국 공휴일) 출근일 + 출근보고 작성자 0명 → 그 팀 알림 스킵.
     // v1.46: 공휴일(대체공휴일 포함) 추가.

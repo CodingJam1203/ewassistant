@@ -2,9 +2,12 @@ import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/admin-check'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-// PATCH /api/admin/org/teams/[id] — 팀명·use_check_in_complete·sheet_source_id·calendar_mode 수정
+// PATCH /api/admin/org/teams/[id] — 팀명·use_check_in_complete·sheet_source_id·calendar_mode·cron 알림 플래그 수정
 const VALID_CALENDAR_MODES = ['gcal_only', 'gcal_plus_sheet', 'sheet_only', 'none'] as const
 type CalendarMode = typeof VALID_CALENDAR_MODES[number]
+
+const CRON_FLAG_KEYS = ['notify_morning_07', 'notify_reminder_20', 'notify_reminder_22'] as const
+type CronFlagKey = typeof CRON_FLAG_KEYS[number]
 
 export async function PATCH(
   request: Request,
@@ -15,7 +18,15 @@ export async function PATCH(
 
   const { id } = await params
   const body = await request.json()
-  const updates: { name?: string; use_check_in_complete?: boolean; sheet_source_id?: string | null; calendar_mode?: CalendarMode } = {}
+  const updates: {
+    name?: string
+    use_check_in_complete?: boolean
+    sheet_source_id?: string | null
+    calendar_mode?: CalendarMode
+    notify_morning_07?: boolean
+    notify_reminder_20?: boolean
+    notify_reminder_22?: boolean
+  } = {}
 
   if ('name' in body) {
     if (typeof body.name !== 'string' || !body.name.trim()) {
@@ -55,6 +66,16 @@ export async function PATCH(
       }, { status: 400 })
     }
     updates.calendar_mode = v as CalendarMode
+  }
+
+  // v1.51 — cron 알림 ON/OFF 플래그 (morning-summary 07 / reminder-20 / reminder-22)
+  for (const key of CRON_FLAG_KEYS) {
+    if (key in body) {
+      if (typeof body[key] !== 'boolean') {
+        return NextResponse.json({ error: `${key}는 boolean이어야 합니다.` }, { status: 400 })
+      }
+      updates[key as CronFlagKey] = body[key] as boolean
+    }
   }
 
   if (Object.keys(updates).length === 0) {
