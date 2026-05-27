@@ -511,9 +511,12 @@ export async function POST(request: Request) {
         timeline: timeline ?? undefined,
         plannedWorkLocations: plannedLocations ?? undefined,
         leaveTimeline: leaveTimeline ?? undefined,
-        // v1.27: 알림 헤드라인 'start~end' 표시용. 미보고 토글 ON이면 NULL.
+        // v1.27: 알림 헤드라인 'start~end' 표시용. 미보고 토글 ON이면 출근예정만 NULL.
+        // v1.55 hotfix (2026-05-27): expectedEndTime은 미보고와 무관 — 퇴근예정시간은
+        // form에서 받아 DB의 planned_end_time에도 정상 저장 중. 알림에서만 NULL로 보내
+        // 메시지 빌더가 퇴근예정 라인을 skip하던 버그 fix (당일 미보고 첫 출근 케이스).
         expectedStartTime: plannedStartUnreported ? null : startTime,
-        expectedEndTime:   plannedStartUnreported ? null : endTime,
+        expectedEndTime:   endTime,
         workContent: workContent || null,
         division: profile?.division ?? null,
         // 본부 직속(team 없음) → admin 지정 notify_team으로 라우팅
