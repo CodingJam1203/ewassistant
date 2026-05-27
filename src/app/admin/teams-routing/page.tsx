@@ -48,25 +48,22 @@ const EMPTY_FORM: FormState = {
 }
 
 /**
- * v1.50: Power Automate webhook preset (사용자 환경 URL).
- * 새 워크플로우 추가 시 이 목록만 갱신하면 됨.
- * 빈 값 = default(env MAKE_WEBHOOK_URL) 사용.
+ * v1.50: Webhook 분기 옵션.
+ *
+ * 보안 이력 (v1.53 hotfix, 2026-05-27):
+ *   - 종전 preset에 Power Automate trigger URL을 직접 박아 두었으나 commit으로 노출되어
+ *     GitGuardian에 감지됨. trigger URL은 `sig=` HMAC 서명을 포함하므로 노출되면 누구든
+ *     워크플로우를 호출 가능. 따라서 코드에서 secret을 제거하고 admin이 매번 직접 입력하는
+ *     방식으로 전환. preset은 동작 분기 안내(thread reply / new message) 용도로만 유지.
+ *   - 노출됐던 URL은 Power Automate에서 trigger를 재생성해 무효화해야 함.
+ *
+ * 빈 값(value='') = default(env MAKE_WEBHOOK_URL) 사용 — 회귀 0.
  */
 const WEBHOOK_PRESETS: Array<{ value: string; label: string; hint: string }> = [
   {
     value: '',
     label: 'default (Make / thread reply)',
     hint: 'env MAKE_WEBHOOK_URL 사용. Anchor Message ID 필요.',
-  },
-  {
-    value: 'https://default82a6fbd465754b05bc6821490dfae5.31.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/6836b429515543699a3dd5eabdd12770/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=BniMWWecwuD34T_Bhtertbeh0zFuCN5nXd8VAyJWdTw',
-    label: 'Power Automate — 채널 내 게시글 회신',
-    hint: 'thread reply 방식. Anchor Message ID 필요.',
-  },
-  {
-    value: 'https://default82a6fbd465754b05bc6821490dfae5.31.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/5f7bdffa347447578ebcf05ac0a51f86/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=otIhhNjIM2yb4e7k1CmkR74dziEAWwE7EWc5GWuPj3A',
-    label: 'Power Automate — 채널에 새 메시지',
-    hint: 'new message 방식. Anchor Message ID 비워두기.',
   },
 ]
 const WEBHOOK_CUSTOM_KEY = '__custom__'
