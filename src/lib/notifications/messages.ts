@@ -44,17 +44,6 @@ export function koreanDate(dateStr: string): string {
   return `${yyyy}/${mm}/${dd}(${w})`
 }
 
-/** YYYY-MM-DD -> "5/4(월)" — KST 기준 (서버 timezone 무관) */
-function shortKoreanDate(dateStr: string): string {
-  const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!m) return dateStr
-  const mo = parseInt(m[2], 10)
-  const day = parseInt(m[3], 10)
-  const d = new Date(Date.UTC(parseInt(m[1], 10), mo - 1, day, 12, 0, 0))
-  const w = WEEKDAYS[d.getUTCDay()]
-  return `${mo}/${day}(${w})`
-}
-
 /** ISO string -> KST HH:mm, 앞 0 유지 (MY PAGE trimToHHmm 정책 일치): "09:30" -> "09:30" */
 function kstHHmm(iso: string): string {
   const d = new Date(iso)
@@ -115,7 +104,8 @@ function worklogBody(prefix: string, p: WorklogNotifyPayload): string {
   const actualWorkLine = buildActualWorkLine(p)
 
   return [
-    `${prefix} / ${p.leaveDate}`,
+    // v1.51 — 헤더 날짜에 요일 포함 ("2026-05-27" → "2026/05/27(수)")
+    `${prefix} / ${koreanDate(p.leaveDate)}`,
     `🔹근무유형 : ${p.workTypeLabel || '미입력'}`,
     ...leaveLines,
     ...workLocationLines,
@@ -426,48 +416,48 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
         ].join('\n')
       }
 
-      // v2 chips 우선
+      // v1.51 — advance_checkin_submitted와 동일한 다중 라인 양식으로 통일.
+      //   기존: "정진성 : 5/26(화) 09:30 출근" 한 줄 헤드라인
+      //   신규: 📋이름 출근 보고 / YYYY/MM/DD(요일) 헤더 + 출근예정/실제출근/퇴근예정/근무장소(예정)
       const chips = normalizeWorkLocations(p.plannedWorkLocations)
-      const lines: string[] = []
-      // v1.32: 실제출근시간(checkedInAt) 우선 → 없을 때만 expectedStartTime fallback.
-      // 이 알림은 route에서 checkedInAtIso가 있을 때만 발송되므로 실제출근시간이 항상 존재 →
-      // 헤드라인 '근무시작 {실제출근}~{퇴근예정}'. end = expectedEndTime (있을 때만 ~end 추가)
-      const startStr = p.checkedInAt ? kstHHmm(p.checkedInAt) : (p.expectedStartTime ? fmtTime(p.expectedStartTime) : '')
-      const endStr   = p.expectedEndTime   ? fmtTime(p.expectedEndTime)   : ''
-      const timeStr  = endStr ? `근무시작 ${startStr}~${endStr}` : `${startStr} 출근`
-      lines.push(`${p.name} : ${shortKoreanDate(p.date)} ${timeStr}`)
-      if (p.workContent && p.workContent.trim()) lines.push(`🔹메모 : ${p.workContent.trim()}`)
+      const lines: string[] = [
+        `📋${p.name} 출근 보고 / ${koreanDate(p.date)}`,
+      ]
+      if (p.expectedStartTime) lines.push(`🔹출근예정 : ${fmtTime(p.expectedStartTime)}`)
+      // 실제출근 — route가 checkedInAtIso 있을 때만 이 알림을 발송하므로 거의 항상 존재.
+      // 출근완료 시점을 명시적으로 보여줘 헤더(=발송 트리거)와 함께 의미 명확화.
+      if (p.checkedInAt) lines.push(`🔹실제출근 : ${kstHHmm(p.checkedInAt)}`)
+      if (p.expectedEndTime) lines.push(`🔹퇴근예정 : ${fmtTime(p.expectedEndTime)}`)
+
+      // 근무장소(예정) — v2 chips 우선, legacy timeline fallback, 단일 라벨 마지막 fallback
+      if (chips && chips.length > 0) {
+        lines.push(`🔹근무장소(예정) : ${formatChipsArrow(chips)}`)
+      } else {
+        const tl = p.timeline
+        const wlCount = tl ? getWorkLocations(tl).length : 0
+        if (tl && wlCount >= 2) {
+          const formatted = formatTimelineForTeams(tl)
+          lines.push('🔹근무장소(예정)', ...formatted.lines)
+        } else if (tl && wlCount === 1) {
+          const formatted = formatTimelineForTeams(tl)
+          lines.push(`🔹근무장소(예정) : ${formatted.lines[0]}`)
+        } else {
+          lines.push(`🔹근무장소(예정) : ${p.workLocation || '미입력'}`)
+        }
+      }
+
+      // 휴가/반차 — 반차 케이스
       if (leaveLines.length > 0) {
         lines.push(...(leaveLines.length === 1
             ? [`🔹휴가/반차 : ${leaveLines[0]}`]
             : ['🔹휴가/반차', ...leaveLines]))
       }
-      if (chips && chips.length > 0) {
-        lines.push(`🔹근무장소 : ${formatChipsArrow(chips)}`)
-        lines.push(cta())
-        return lines.join('\n')
-      }
 
-      // legacy timeline fallback
-      const tl = p.timeline
-      const hasMultiLoc = !!(tl && getWorkLocations(tl).length >= 2)
-      if (hasMultiLoc && tl) {
-        const formatted = formatTimelineForTeams(tl)
-        lines.push('🔹근무장소', ...formatted.lines)
-        lines.push(cta())
-        return lines.join('\n')
-      }
-      if (leaveLines.length > 0) {
-        lines.push(`🔹근무장소 : ${p.workLocation || '미입력'}`)
-        lines.push(cta())
-        return lines.join('\n')
-      }
-      // legacy 단일 라벨 fallback — 같은 start~end 정책 유지 (v1.32: 실제출근 우선)
-      const startStrFb = p.checkedInAt ? kstHHmm(p.checkedInAt) : (p.expectedStartTime ? fmtTime(p.expectedStartTime) : '')
-      const endStrFb   = p.expectedEndTime   ? fmtTime(p.expectedEndTime)   : ''
-      const timeStrFb  = endStrFb ? `근무시작 ${startStrFb}~${endStrFb}` : `${startStrFb} 출근`
-      const memoFb = p.workContent && p.workContent.trim() ? `\n🔹메모 : ${p.workContent.trim()}` : ''
-      return `${p.name} : ${shortKoreanDate(p.date)} ${timeStrFb} ${p.workLocation || '미입력'}${memoFb}`
+      // 메모
+      if (p.workContent && p.workContent.trim()) lines.push(`🔹메모 : ${p.workContent.trim()}`)
+
+      lines.push(cta())
+      return lines.join('\n')
     }
 
     case 'location_changed': {
