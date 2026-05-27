@@ -84,7 +84,8 @@ function isEnabled(eventType: EventType): boolean {
 interface MakePayload {
   teamId: string
   channelId: string
-  messageId: string
+  /** v1.50: 채널 새 메시지(Power Automate) 방식 라우팅은 NULL 허용. */
+  messageId: string | null
   /**
    * Teams 본문(HTML 형식).
    * - Make의 Microsoft Teams 모듈에서 Content Type을 HTML로 설정하여 매핑하세요.
@@ -133,11 +134,13 @@ async function sendToMake(
   eventType: EventType,
   payload: MakePayload,
   department: string,
-  teamName: string
+  teamName: string,
+  /** v1.50: 라우팅별 webhook URL override. NULL이면 env MAKE_WEBHOOK_URL 사용. */
+  overrideWebhookUrl?: string | null,
 ): Promise<void> {
-  const webhookUrl = envOverride('MAKE_WEBHOOK_URL')
+  const webhookUrl = overrideWebhookUrl || envOverride('MAKE_WEBHOOK_URL')
   if (!webhookUrl) {
-    console.log('[Teams] MAKE_WEBHOOK_URL not set — skipping ' + eventType)
+    console.log('[Teams] webhook URL not configured (routing + default) — skipping ' + eventType)
     return
   }
 
@@ -290,17 +293,21 @@ async function routeAndSend(
     const messageRaw = buildMessage(eventType, messagePayload)   // markdown 원문
     const messageHtml = toTeamsHtml(messageRaw)                  // HTML(<a>, <br>)
     const messageText = toPlainText(messageRaw)                  // plain text fallback
+    // v1.50: 라우팅별 webhook URL 분기. payload에는 webhookUrl 필드 안 보냄 (Power
+    // Automate 워크플로우는 받지 않는 필드).
+    const { webhookUrl: routeWebhookUrl, ...targetForPayload } = target
     await sendToMake(
       eventType,
       {
-        ...target,
+        ...targetForPayload,
         message: messageHtml,   // primary: HTML 본문 (Content Type: HTML 권장)
         messageHtml,            // back-compat alias
         messageText,            // plain text fallback
         eventType,
       },
       department,
-      normalizedTeam
+      normalizedTeam,
+      routeWebhookUrl ?? null,
     )
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)

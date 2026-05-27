@@ -584,7 +584,20 @@ export default function SheetSourcesPage() {
             {divisions.map(div => {
               const divTeams = teamsByDivision.get(div.id) ?? []
               const divSources = sourcesByDivision.get(div.id) ?? []
-              if (divTeams.length === 0) return null
+              // v1.50: 팀 0개 본부도 표시 — admin이 본부 추가 후 다음 단계를 인식할 수 있게.
+              if (divTeams.length === 0) {
+                return (
+                  <div key={div.id} className="px-5 py-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-semibold text-text-primary">{div.name}</h4>
+                    </div>
+                    <p className="text-[12px] text-text-muted">
+                      이 본부에 팀이 없습니다. <strong>[관리자 메인 → 조직 구조 관리]</strong>에서 팀을 먼저 추가하세요.
+                      {divSources.length > 0 && ' 등록된 시트 source는 위에 보입니다. 팀 추가 후 여기서 mode/source 매핑.'}
+                    </p>
+                  </div>
+                )
+              }
               return (
                 <div key={div.id} className="px-5 py-4">
                   <div className="flex items-center justify-between mb-3 flex-wrap gap-2">

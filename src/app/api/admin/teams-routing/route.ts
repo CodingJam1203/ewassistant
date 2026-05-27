@@ -13,13 +13,17 @@ import { requireAdmin } from '@/lib/admin-check'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { invalidateRoutingCache } from '@/lib/notifications/teams-routing'
 
+// v1.50 (2026-05-27):
+//   - message_id optional (채널 새 메시지 방식 라우팅은 thread root 미사용)
+//   - webhook_url 신규 (NULL이면 default MAKE_WEBHOOK_URL, 있으면 그 URL로 발송)
 const ROUTING_INPUT = z.object({
   department:  z.string().trim().min(1).max(64),
   team_name:   z.string().trim().min(1).max(64),
   report_type: z.enum(['출근보고', '퇴근보고']),
   team_id:     z.string().trim().min(1).max(128),
   channel_id:  z.string().trim().min(1).max(256),
-  message_id:  z.string().trim().min(1).max(64),
+  message_id:  z.string().trim().max(64).optional().nullable(),
+  webhook_url: z.string().trim().url().max(1024).optional().nullable(),
   is_active:   z.boolean().optional(),
   notes:       z.string().trim().max(500).optional().nullable(),
 })
@@ -64,13 +68,18 @@ export async function POST(request: Request) {
     )
   }
 
+  // 빈 문자열은 NULL로 정규화 (DB 측 NULL 허용에 맞춤)
+  const insertRow = {
+    ...parsed.data,
+    message_id:  parsed.data.message_id  ? parsed.data.message_id  : null,
+    webhook_url: parsed.data.webhook_url ? parsed.data.webhook_url : null,
+    updated_by: admin.id,
+  }
+
   const client = createAdminClient()
   const { data, error } = await client
     .from('teams_routing')
-    .insert({
-      ...parsed.data,
-      updated_by: admin.id,
-    })
+    .insert(insertRow)
     .select()
     .single()
 

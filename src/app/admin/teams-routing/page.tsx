@@ -23,7 +23,10 @@ interface RoutingRow {
   report_type: '출근보고' | '퇴근보고'
   team_id: string
   channel_id: string
-  message_id: string
+  /** v1.50: NULL 허용 (채널 새 메시지 방식 라우팅은 thread root 미사용) */
+  message_id: string | null
+  /** v1.50: 라우팅별 webhook URL. NULL이면 default MAKE_WEBHOOK_URL 사용. */
+  webhook_url: string | null
   is_active: boolean
   notes: string | null
   created_at: string
@@ -39,6 +42,7 @@ const EMPTY_FORM: FormState = {
   team_id: '',
   channel_id: '',
   message_id: '',
+  webhook_url: '',
   is_active: true,
   notes: null,
 }
@@ -192,7 +196,7 @@ export default function TeamsRoutingAdminPage() {
                     </Td>
                     <Td><Mono>{row.team_id}</Mono></Td>
                     <Td><Mono>{row.channel_id}</Mono></Td>
-                    <Td><Mono>{row.message_id}</Mono></Td>
+                    <Td><Mono>{row.message_id || <span className="text-text-muted">(빈 값 — webhook 방식)</span>}</Mono></Td>
                     <Td className="text-center">
                       <button
                         onClick={() => handleToggleActive(row)}
@@ -301,7 +305,8 @@ function RoutingFormModal({
           report_type: row.report_type,
           team_id: row.team_id,
           channel_id: row.channel_id,
-          message_id: row.message_id,
+          message_id: row.message_id ?? '',
+          webhook_url: row.webhook_url ?? '',
           is_active: row.is_active,
           notes: row.notes,
         }
@@ -405,14 +410,22 @@ function RoutingFormModal({
               className={`${inputCls} font-mono text-xs`}
             />
           </Field>
-          <Field label="Anchor Message ID *" hint="해당 채널의 thread root 메시지 ID (숫자)">
+          <Field label="Anchor Message ID" hint="Thread reply 방식 라우팅만 필요. 채널 새 메시지(Power Automate) 방식이면 비워두세요. (v1.50)">
             <input
               type="text"
-              required
-              value={form.message_id}
+              value={form.message_id ?? ''}
               onChange={e => setForm({ ...form, message_id: e.target.value })}
-              placeholder="1767335177747"
+              placeholder="1767335177747 (또는 빈 값)"
               className={`${inputCls} font-mono text-xs`}
+            />
+          </Field>
+          <Field label="Webhook URL (선택)" hint="비워두면 default Make webhook으로 발송. Power Automate 등 다른 도구는 그 URL 입력. (v1.50)">
+            <input
+              type="text"
+              value={form.webhook_url ?? ''}
+              onChange={e => setForm({ ...form, webhook_url: e.target.value })}
+              placeholder="https://...powerplatform.com/.../triggers/manual/paths/invoke?..."
+              className={`${inputCls} font-mono text-[11px]`}
             />
           </Field>
           <Field label="메모 (선택)">

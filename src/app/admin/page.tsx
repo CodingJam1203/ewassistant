@@ -18,7 +18,13 @@ interface OrgTeam {
   name: string
   use_check_in_complete?: boolean
 }
-interface OrgDivision { id: string; name: string; teams: OrgTeam[] }
+interface OrgDivision {
+  id: string
+  name: string
+  teams: OrgTeam[]
+  /** v1.50: 본부별 사전등록 알림 정책. true면 planned_* 첫 등록 시점에 Teams 알림 발송. */
+  notify_on_advance_checkin?: boolean
+}
 
 interface UserProfile {
   email: string
@@ -148,6 +154,26 @@ function OrgManager({
     setBusy(false)
   }
 
+  /** 본부의 notify_on_advance_checkin 토글 (v1.50) */
+  const toggleDivisionAdvanceNotify = async (div: OrgDivision) => {
+    const current = div.notify_on_advance_checkin ?? false
+    const next = !current
+    const msg = next
+      ? `"${div.name}" 본부는 앞으로 사용자가 출근 예정시간을 처음 등록하는 순간 Teams 알림이 발송됩니다.\n(당일/D+1/미래 무관, 출근완료 알림과 별개로 추가 발송)\n\n계속하시겠습니까?`
+      : `"${div.name}" 본부는 앞으로 출근 등록 즉시 알림을 발송하지 않습니다.\n(기존 출근완료/수정 알림은 그대로 유지)\n\n계속하시겠습니까?`
+    if (!confirm(msg)) return
+    setBusy(true)
+    const res = await fetch(`/api/admin/org/divisions/${div.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notify_on_advance_checkin: next }),
+    })
+    const data = await res.json()
+    if (!res.ok) { alert(data.error ?? '설정 변경 실패'); setBusy(false); return }
+    await onOrgChange()
+    setBusy(false)
+  }
+
   /** 팀의 use_check_in_complete 토글 */
   const toggleTeamCheckInComplete = async (team: OrgTeam) => {
     const current = team.use_check_in_complete ?? true
@@ -222,6 +248,24 @@ function OrgManager({
 
                 {editingDiv !== div.id && (
                   <div className="flex items-center gap-1">
+                    {/* v1.50 — 본부별 사전등록 알림 토글 */}
+                    <button
+                      onClick={() => toggleDivisionAdvanceNotify(div)}
+                      disabled={busy}
+                      className={
+                        'text-[10px] px-1.5 py-0.5 rounded-full border transition-colors mr-1 ' +
+                        ((div.notify_on_advance_checkin ?? false)
+                          ? 'border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100'
+                          : 'border-border bg-surface-muted text-text-muted hover:text-text-primary')
+                      }
+                      title={
+                        (div.notify_on_advance_checkin ?? false)
+                          ? '출근 등록 즉시 알림 ON (클릭해서 OFF)'
+                          : '출근 등록 즉시 알림 OFF (클릭해서 ON)'
+                      }
+                    >
+                      {(div.notify_on_advance_checkin ?? false) ? '출근등록 알림 ON' : '출근등록 알림 OFF'}
+                    </button>
                     <button
                       onClick={() => { setEditingDiv(div.id); setEditDivName(div.name) }}
                       className="text-text-muted hover:text-primary-600 transition-colors p-1"

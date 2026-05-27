@@ -14,7 +14,7 @@ export async function GET() {
 
     const { data: divisions, error: divError } = await supabase
       .from('org_divisions')
-      .select('id, name, sort_order')
+      .select('id, name, sort_order, notify_on_advance_checkin')
       .order('sort_order', { ascending: true })
       .order('name', { ascending: true })
 

@@ -14,7 +14,10 @@ import { createAdminClient } from '@/lib/supabase/admin'
 export interface TeamsReplyTarget {
   teamId: string
   channelId: string
-  messageId: string
+  /** v1.50: 채널 새 메시지(Power Automate) 방식 라우팅은 NULL — thread root 미사용. */
+  messageId: string | null
+  /** v1.50: 라우팅별 webhook URL. NULL이면 default env MAKE_WEBHOOK_URL 사용. */
+  webhookUrl?: string | null
 }
 
 export interface NotificationContext {
@@ -119,7 +122,7 @@ async function loadRoutesFromDb(): Promise<RoutingEntry[] | null> {
     const admin = createAdminClient()
     const { data, error } = await admin
       .from('teams_routing')
-      .select('department, team_name, report_type, team_id, channel_id, message_id, is_active')
+      .select('department, team_name, report_type, team_id, channel_id, message_id, webhook_url, is_active')
       .eq('is_active', true)
     if (error) {
       console.warn('[teams-routing] DB load failed, using fallback:', error.message)
@@ -132,7 +135,8 @@ async function loadRoutesFromDb(): Promise<RoutingEntry[] | null> {
       target: {
         teamId:    r.team_id,
         channelId: r.channel_id,
-        messageId: r.message_id,
+        messageId: r.message_id ?? null,
+        webhookUrl: r.webhook_url ?? null,
       },
     }))
   } catch (err) {

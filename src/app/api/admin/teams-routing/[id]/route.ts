@@ -13,13 +13,15 @@ import { requireAdmin } from '@/lib/admin-check'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { invalidateRoutingCache } from '@/lib/notifications/teams-routing'
 
+// v1.50: message_id NULL 허용, webhook_url 신규.
 const ROUTING_PATCH = z.object({
   department:  z.string().trim().min(1).max(64).optional(),
   team_name:   z.string().trim().min(1).max(64).optional(),
   report_type: z.enum(['출근보고', '퇴근보고']).optional(),
   team_id:     z.string().trim().min(1).max(128).optional(),
   channel_id:  z.string().trim().min(1).max(256).optional(),
-  message_id:  z.string().trim().min(1).max(64).optional(),
+  message_id:  z.string().trim().max(64).optional().nullable(),
+  webhook_url: z.string().trim().url().max(1024).optional().nullable(),
   is_active:   z.boolean().optional(),
   notes:       z.string().trim().max(500).optional().nullable(),
 })
@@ -53,10 +55,19 @@ export async function PATCH(
     return NextResponse.json({ error: '변경할 필드가 없습니다.' }, { status: 400 })
   }
 
+  // 빈 문자열 → NULL 정규화 (DB NULL 허용 컬럼)
+  const updates: Record<string, unknown> = { ...parsed.data, updated_by: admin.id }
+  if (parsed.data.message_id !== undefined) {
+    updates.message_id = parsed.data.message_id ? parsed.data.message_id : null
+  }
+  if (parsed.data.webhook_url !== undefined) {
+    updates.webhook_url = parsed.data.webhook_url ? parsed.data.webhook_url : null
+  }
+
   const client = createAdminClient()
   const { data, error } = await client
     .from('teams_routing')
-    .update({ ...parsed.data, updated_by: admin.id })
+    .update(updates)
     .eq('id', id)
     .select()
     .single()
