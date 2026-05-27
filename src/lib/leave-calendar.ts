@@ -433,28 +433,43 @@ export function parseCell(raw: string): ParsedCalendarCell {
     return { raw: text, leaveType, events: [] }
   }
 
+  // v1.50 — 줄바꿈 기준 무조건 split 폐기.
+  //   시간 prefix `<HH:mm~HH:mm>` 또는 `<종일>`이 있는 라인만 새 이벤트 시작 신호.
+  //   prefix 없는 후속 라인은 이전 이벤트의 title에 공백으로 누적 (한 셀에 자유 텍스트가
+  //   줄바꿈으로 나뉘어 적힌 케이스 — 예: "SK하이닉스\n(신입면접)" → 1 이벤트).
+  //   첫 라인이 prefix 없으면 새 이벤트 시작 (title=line).
   const events: CalendarEventChunk[] = []
+  let current: CalendarEventChunk | null = null
+  const flush = () => { if (current) { events.push(current); current = null } }
   for (const line of text.split(/\n+/)) {
     const trimmed = line.trim()
     if (!trimmed) continue
     const match = RANGE_REGEX.exec(trimmed)
     if (!match) {
-      events.push({ startTime: null, endTime: null, title: trimmed })
+      // prefix 없음 — 이전 이벤트가 있으면 title에 누적, 없으면 새 이벤트 시작
+      if (current) {
+        current.title = `${current.title} ${trimmed}`.trim()
+      } else {
+        current = { startTime: null, endTime: null, title: trimmed }
+      }
       continue
     }
+    // prefix 있음 — 새 이벤트 시작 (이전 이벤트 flush)
+    flush()
     const range = match[1].trim()
     const title = match[2].trim()
     if (range === '종일' || range.toLowerCase() === 'all-day') {
-      events.push({ startTime: null, endTime: null, title })
+      current = { startTime: null, endTime: null, title }
       continue
     }
     const tm = TIME_RANGE_REGEX.exec(range)
     if (tm) {
-      events.push({ startTime: padHHmm(tm[1]), endTime: padHHmm(tm[2]), title })
+      current = { startTime: padHHmm(tm[1]), endTime: padHHmm(tm[2]), title }
     } else {
-      events.push({ startTime: null, endTime: null, title: trimmed })
+      current = { startTime: null, endTime: null, title: trimmed }
     }
   }
+  flush()
   return { raw: text, leaveType: null, events }
 }
 

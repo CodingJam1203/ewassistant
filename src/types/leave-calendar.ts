@@ -53,6 +53,13 @@ export interface CalendarEventChunk {
   endTime: string | null
   /** 일정 제목/설명 */
   title: string
+  /**
+   * v1.50 — 일정 출처 표식. UI 렌더 분기용.
+   *   - 'sheet': 외부 Google Sheets 시트 cell 파싱 (시간 prefix 없으면 그냥 title만 표시)
+   *   - 'gcal':  Google Calendar (현행대로 (종일) prefix 유지)
+   *   - undefined: legacy 데이터 (gcal로 간주)
+   */
+  source?: 'sheet' | 'gcal'
   /** Phase 1.5e — org_calendar_events row id. chip 클릭 시 EventEditModal로 수정/삭제. */
   id?: string
   /** Phase 1.5e — EventEditModal initial 생성용 */

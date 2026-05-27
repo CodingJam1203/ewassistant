@@ -185,6 +185,7 @@ export async function fetchOrgCalendarLookup(args: {
             startTime: r.is_all_day ? null : toKstTime(r.start_at),
             endTime:   r.is_all_day ? null : toKstTime(r.end_at),
             title:     cleanedTitle,
+            source:    'gcal',
             id: r.id,
             startAt: r.start_at,
             endAt:   r.end_at,
@@ -402,9 +403,9 @@ async function mergeSheetDataIntoLookup(args: {
               lookup.raw = cellValue
             }
           } else {
-            // 일반 일정 — events에 누적
+            // 일반 일정 — events에 누적 (v1.50: 시트 출처 표식 박기)
             for (const ev of parsed.events) {
-              lookup.events.push(ev as CalendarEventChunk)
+              lookup.events.push({ ...(ev as CalendarEventChunk), source: 'sheet' })
             }
           }
         }

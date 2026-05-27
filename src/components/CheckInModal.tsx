@@ -65,7 +65,8 @@ type CaseMode = 'none' | 'prior' | 'today' | 'future'
 function formatEventLine(ev: CalendarEventChunk): string {
   if (ev.startTime && ev.endTime) return `${ev.startTime}~${ev.endTime} ${ev.title}`
   if (ev.startTime) return `${ev.startTime}~ ${ev.title}`
-  return `(종일) ${ev.title}`
+  // v1.50 — 시트 출처는 시간 없으면 title만, GCal은 (종일) prefix 유지
+  return ev.source === 'sheet' ? ev.title : `(종일) ${ev.title}`
 }
 
 function normalizeStartTimeTo30(input: string | undefined, fallback: string): string {

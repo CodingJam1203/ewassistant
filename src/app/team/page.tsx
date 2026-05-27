@@ -194,7 +194,9 @@ const MemberCard = memo(function MemberCard({
                   ? `${ev.startTime}~${ev.endTime}  ${ev.title}`
                   : ev.startTime
                     ? `${ev.startTime}~  ${ev.title}`
-                    : `(종일) ${ev.title}`}
+                    : ev.source === 'sheet'
+                      ? ev.title  // v1.50 — 시트 출처는 시간 없으면 title만
+                      : `(종일) ${ev.title}`}
               </li>
             ))}
             {card.calendar_events.length > 3 && (
