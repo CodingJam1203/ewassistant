@@ -10,6 +10,7 @@ import type {
   WorklogUpdateNotifyPayload,
   WorklogDeletedNotifyPayload,
   CheckinNotifyPayload,
+  AdvanceCheckinNotifyPayload,
   LocationChangedNotifyPayload,
   BreakNotifyPayload,
   AccountPendingNotifyPayload,
@@ -372,6 +373,41 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
         `🔹근무내용 : ${p.workContent || '미입력'}`,
         cta(),
       ].join('\n')
+    }
+
+    case 'advance_checkin_submitted': {
+      // v1.50 (2026-05-27) — 본부 플래그 켜진 사용자가 planned_*를 처음 등록한 시점.
+      // 메시지 톤: 출근완료 알림과 별개로 "출근 보고" 헤더(📋). '사전' 단어 사용 X.
+      const p = payload as AdvanceCheckinNotifyPayload
+      const lines: string[] = [
+        `📋${p.name} 출근 보고 / ${koreanDate(p.leaveDate)}`,
+        `🔹출근예정 : ${fmtTime(p.plannedStart)}`,
+        `🔹퇴근예정 : ${fmtTime(p.plannedEnd)}`,
+        `🔹근무장소(예정) : ${p.plannedLocation || '미입력'}`,
+      ]
+      // 일정 — 별도 줄(β), 일정 자체 없으면 라인 생략
+      const events = (p.events ?? []).filter(ev => (ev.title ?? '').trim().length > 0)
+      if (events.length > 0) {
+        lines.push('🔹일정')
+        for (const ev of events) {
+          const s = (ev.startTime ?? '').trim()
+          const e = (ev.endTime ?? '').trim()
+          const range = s && e ? `${s}~${e}` : (s ? `${s}~` : '(종일)')
+          lines.push(`  · ${range} ${ev.title.trim()}`)
+        }
+      }
+      // 휴가 — 인라인 라인, 없으면 생략
+      const leaveLabel = (p.leaveLabel ?? '').trim()
+      if (leaveLabel) {
+        lines.push(`🌴 휴가 : ${leaveLabel}`)
+      }
+      // 메모 — 빈 값이면 라인 자체 생략
+      const memo = (p.memo ?? '').trim()
+      if (memo) {
+        lines.push(`🔹메모 : ${memo}`)
+      }
+      lines.push(cta())
+      return lines.join('\n')
     }
 
     case 'checkin_submitted': {

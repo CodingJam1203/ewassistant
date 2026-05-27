@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateEw } from '@/lib/ew-calculator'
 import { requireActiveUser } from '@/lib/admin-check'
 import { notifyWorkLogSubmitted, notifyCheckoutResubmitted } from '@/lib/notifications/teams'
+import { maybeNotifyAdvanceCheckin } from '@/lib/notifications/advance-checkin'
 import { resolveRoutingTeam } from '@/lib/org'
 
 // 알림 발송(notifyWorkLogSubmitted)이 fire-and-forget 패턴 + sendToMake retry(최대 31.5s).
@@ -577,6 +578,22 @@ export async function POST(request: Request) {
         console.error('[work-logs POST] vacation sync failed (D+1, non-fatal):', vacationSyncErr)
         vacationSyncDPlus1 = { thrown: msg }
       }
+
+      // v1.50 (2026-05-27) — 사전등록 알림 (D+1 분기).
+      // 본부 `notify_on_advance_checkin=true` 일 때만 발송. INSERT/UPDATE 무관.
+      await maybeNotifyAdvanceCheckin({
+        adminClient,
+        userEmail: (user.email ?? '').toLowerCase(),
+        userName: body.name ?? '',
+        division: userDivision,
+        team: userTeam,
+        notifyTeam: userNotifyTeam,
+        leaveDate: nextDate,
+        plannedStart: dPlus1PlannedStart,
+        plannedEnd: dPlus1PlannedEnd,
+        plannedLocation: nextWorkLocation,
+        memo: typeof body.expectedWorkContent === 'string' ? body.expectedWorkContent.trim() || null : null,
+      })
     }
 
     // ─── daily_work_status: 폼의 출퇴근 시간 = 실제 출퇴근으로 저장 ─────────────

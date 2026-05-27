@@ -12,6 +12,7 @@ export type EventType =
   | 'worklog_updated_checkout'  // 퇴근보고 수정 → 퇴근보고 채널
   | 'worklog_deleted'
   | 'checkin_submitted'
+  | 'advance_checkin_submitted' // v1.50 — 본부 플래그 켜진 경우 planned_* 첫 등록 시 발송
   | 'location_changed'
   | 'break_started'
   | 'break_ended'
@@ -117,6 +118,38 @@ export interface WorklogDeletedNotifyPayload {
    * 'check_out' = 퇴근보고 영역만 삭제됨 → 퇴근보고 채널로 발송
    */
   scope?: 'check_in' | 'check_out' | null
+}
+
+/**
+ * v1.50 (2026-05-27) — 사전등록(출근 예정 시각 첫 등록) 알림 payload.
+ *
+ * 정책 (브랜딩전략센터 시작):
+ *   - 본부 플래그 `org_divisions.notify_on_advance_checkin=true`인 사용자가
+ *     planned_*를 처음 등록한 시점에 발송 (당일/D+1/미래 무관).
+ *   - 출근완료(checkin_submitted) 알림과 별개로 둘 다 발송됨 (정책 P1).
+ *
+ * 메시지 톤은 출근완료 알림과 구분되도록 "출근 보고" 헤더(📋).
+ * 일정/휴가는 발송 시점에 사용자 캘린더에서 lookup한 결과.
+ */
+export interface AdvanceCheckinNotifyPayload {
+  name: string
+  /** YYYY-MM-DD — leave_date (사전등록한 출근일). */
+  leaveDate: string
+  /** 'HH:mm' 또는 'HH:mm:ss' — 출근예정 시각 */
+  plannedStart: string
+  /** 'HH:mm' 또는 'HH:mm:ss' — 퇴근예정 시각 */
+  plannedEnd: string
+  /** 예정 근무장소 (chip 첫 값 또는 단일 location) */
+  plannedLocation: string
+  /** 메모(work_content) — 빈 값이면 알림 라인 생략 */
+  memo?: string | null
+  /** 사용자의 leaveDate 일정 (GCal + 시트 합산). 빈 배열이면 라인 생략. */
+  events?: Array<{ startTime: string | null; endTime: string | null; title: string }> | null
+  /** 그 일자의 휴가 라벨 ('종일 휴가' 등). 비어있으면 라인 생략. */
+  leaveLabel?: string | null
+  /** 라우팅용 */
+  division?: string | null
+  team?: string | null
 }
 
 export interface CheckinNotifyPayload {

@@ -25,6 +25,7 @@ import type {
   WorklogUpdateNotifyPayload,
   WorklogDeletedNotifyPayload,
   CheckinNotifyPayload,
+  AdvanceCheckinNotifyPayload,
   LocationChangedNotifyPayload,
   BreakNotifyPayload,
   AccountPendingNotifyPayload,
@@ -41,6 +42,7 @@ const EVENT_ENV_MAP: Record<EventType, string> = {
   worklog_updated_checkout:   'ENABLE_WORKLOG_UPDATE_NOTIFY',
   worklog_deleted:            'ENABLE_WORKLOG_DELETE_NOTIFY',
   checkin_submitted:          'ENABLE_CHECKIN_NOTIFY',
+  advance_checkin_submitted:  'ENABLE_CHECKIN_NOTIFY',  // v1.50 — checkin과 같은 env gate
   location_changed:           'ENABLE_LOCATION_CHANGE_NOTIFY',
   break_started:              'ENABLE_BREAK_NOTIFY',
   break_ended:                'ENABLE_BREAK_NOTIFY',
@@ -453,6 +455,28 @@ export async function notifyCheckinSubmitted(payload: CheckinNotifyPayload): Pro
     )
   } catch (err) {
     console.warn('[Teams] checkin_submitted failed:', err)
+  }
+}
+
+/**
+ * v1.50 (2026-05-27) — 사전등록 알림 발송.
+ *
+ * 본부 플래그 `org_divisions.notify_on_advance_checkin=true`인 경우 사용자가
+ * planned_*를 처음 등록한 시점에 호출. 출근완료 알림과 별개로 둘 다 발송됨.
+ *
+ * 라우팅: 출근보고 채널 (보고유형='출근보고').
+ */
+export async function notifyAdvanceCheckinSubmitted(payload: AdvanceCheckinNotifyPayload): Promise<void> {
+  try {
+    await routeAndSend(
+      'advance_checkin_submitted',
+      payload.division,
+      payload.team,
+      '출근보고',
+      payload,
+    )
+  } catch (err) {
+    console.warn('[Teams] advance_checkin_submitted failed:', err)
   }
 }
 

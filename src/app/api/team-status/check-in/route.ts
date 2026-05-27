@@ -5,6 +5,7 @@ import { getKstTodayDateString } from '@/lib/utils/date'
 import { kstHHmmToIso } from '@/lib/utils/kst-datetime'
 import { calculateEw } from '@/lib/ew-calculator'
 import { notifyCheckinSubmitted } from '@/lib/notifications/teams'
+import { maybeNotifyAdvanceCheckin } from '@/lib/notifications/advance-checkin'
 import { resolveRoutingTeam } from '@/lib/org'
 
 // 알림 발송(notifyCheckinSubmitted)이 fire-and-forget + sendToMake retry(최대 31.5s).
@@ -517,6 +518,25 @@ export async function POST(request: Request) {
         division: profile?.division ?? null,
         // 본부 직속(team 없음) → admin 지정 notify_team으로 라우팅
         team: resolveRoutingTeam(profile?.team, profile?.notify_team) || null,
+      })
+    }
+
+    // v1.50 (2026-05-27) — 사전등록 알림 (당일 첫 출근보고 / 미래 일자 사전등록).
+    // 본부 `notify_on_advance_checkin=true` 일 때만 발송. willCreateNewLog=true 일 때
+    // (planned_* 첫 등록). 출근완료 알림과 별개로 둘 다 발송 (정책 P1).
+    if (willCreateNewLog && !plannedStartUnreported) {
+      await maybeNotifyAdvanceCheckin({
+        adminClient,
+        userEmail: (user.email ?? '').toLowerCase(),
+        userName: profile?.display_name || body.name || user.email!,
+        division: profile?.division ?? null,
+        team: profile?.team ?? null,
+        notifyTeam: profile?.notify_team ?? null,
+        leaveDate: date,
+        plannedStart: startTime,
+        plannedEnd: endTime,
+        plannedLocation: currentLocation,
+        memo: workContent || null,
       })
     }
 
