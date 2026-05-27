@@ -506,20 +506,11 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
     case 'break_ended': {
       const p = payload as BreakNotifyPayload
       const endHHmm = kstHHmm(p.breakAt)
-      // 휴게 시간 라인 — breakStartedAt 있으면 '실제 시작~종료 (N분 경과, M분 차감 예정)',
-      // 없으면 종료 시각만 (legacy fallback).
-      let timeLine: string
-      if (p.breakStartedAt) {
-        const startHHmm = kstHHmm(p.breakStartedAt)
-        const actual = typeof p.actualMinutes === 'number' ? p.actualMinutes : null
-        const rounded = typeof p.roundedMinutes === 'number' ? p.roundedMinutes : null
-        const suffix = (actual !== null && rounded !== null)
-          ? ` (${actual}분 경과, ${rounded}분 차감 예정)`
-          : ''
-        timeLine = `🔹휴게 시간 : ${startHHmm}~${endHHmm}${suffix}`
-      } else {
-        timeLine = `🔹휴게 종료 시각 : ${endHHmm}`
-      }
+      // 휴게 시간 라인 — breakStartedAt 있으면 '실제 시작~종료', 없으면 종료 시각만 (legacy fallback).
+      // 2026-05-27: 경과분/차감예정 표시 제거 — 사용자 결정. 시간 범위만 노출.
+      const timeLine = p.breakStartedAt
+        ? `🔹휴게 시간 : ${kstHHmm(p.breakStartedAt)}~${endHHmm}`
+        : `🔹휴게 종료 시각 : ${endHHmm}`
       const lines = [
         `🍵${p.name} 휴게 종료 / ${koreanDate(p.date)}`,
         timeLine,
