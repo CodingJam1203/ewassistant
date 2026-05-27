@@ -48,24 +48,23 @@ const EMPTY_FORM: FormState = {
 }
 
 /**
- * v1.50: Webhook 분기 옵션.
+ * v1.54 (2026-05-27): Webhook URL preset 은 server-only env var 에 보관하고 admin endpoint
+ * (`GET /api/admin/webhook-presets`)로 가져온다.
  *
- * 보안 이력 (v1.53 hotfix, 2026-05-27):
- *   - 종전 preset에 Power Automate trigger URL을 직접 박아 두었으나 commit으로 노출되어
- *     GitGuardian에 감지됨. trigger URL은 `sig=` HMAC 서명을 포함하므로 노출되면 누구든
- *     워크플로우를 호출 가능. 따라서 코드에서 secret을 제거하고 admin이 매번 직접 입력하는
- *     방식으로 전환. preset은 동작 분기 안내(thread reply / new message) 용도로만 유지.
- *   - 노출됐던 URL은 Power Automate에서 trigger를 재생성해 무효화해야 함.
+ * 보안 이력:
+ *   - v1.50: const 배열에 Power Automate trigger URL을 직접 박았다가 commit으로 GitHub 노출
+ *     → GitGuardian 감지(v1.53 hotfix에서 코드 제거 + URL rotate).
+ *   - v1.54: env (`POWER_AUTOMATE_WEBHOOK_REPLY` / `_NEW`)로 옮기고 admin endpoint로
+ *     fetch — 코드/client bundle/git history 어디에도 secret 안 박힘.
  *
- * 빈 값(value='') = default(env MAKE_WEBHOOK_URL) 사용 — 회귀 0.
+ * fallback: fetch 실패 시 default 항목 1개만 보임 (env MAKE_WEBHOOK_URL).
  */
-const WEBHOOK_PRESETS: Array<{ value: string; label: string; hint: string }> = [
-  {
-    value: '',
-    label: 'default (Make / thread reply)',
-    hint: 'env MAKE_WEBHOOK_URL 사용. Anchor Message ID 필요.',
-  },
-]
+type WebhookPreset = { value: string; label: string; hint: string }
+const DEFAULT_WEBHOOK_PRESET: WebhookPreset = {
+  value: '',
+  label: 'default (Make / thread reply)',
+  hint: 'env MAKE_WEBHOOK_URL 사용. Anchor Message ID 필요.',
+}
 const WEBHOOK_CUSTOM_KEY = '__custom__'
 
 interface OrgTeam { id: string; division_id: string; name: string }
@@ -349,12 +348,29 @@ function RoutingFormModal({
     [org, form.department],
   )
 
-  // v1.50: webhook preset 선택 상태. 'custom'이면 직접 입력 mode.
-  const initialPresetKey = (() => {
-    const matched = WEBHOOK_PRESETS.find(p => p.value === (row?.webhook_url ?? ''))
-    return matched ? matched.value : WEBHOOK_CUSTOM_KEY
-  })()
-  const [webhookPresetKey, setWebhookPresetKey] = useState<string>(initialPresetKey)
+  // v1.54: webhook preset — admin endpoint에서 fetch (secret은 server env에만 보관).
+  const [webhookPresets, setWebhookPresets] = useState<WebhookPreset[]>([DEFAULT_WEBHOOK_PRESET])
+  useEffect(() => {
+    fetch('/api/admin/webhook-presets')
+      .then(r => r.ok ? r.json() : { presets: [DEFAULT_WEBHOOK_PRESET] })
+      .then((j: { presets?: WebhookPreset[] }) => {
+        setWebhookPresets(j.presets && j.presets.length > 0 ? j.presets : [DEFAULT_WEBHOOK_PRESET])
+      })
+      .catch(() => setWebhookPresets([DEFAULT_WEBHOOK_PRESET]))
+  }, [])
+
+  // v1.50: webhook preset 선택 상태. 'custom'이면 직접 입력 mode. webhookPresets fetch가
+  // 완료되기 전에는 default와의 단순 비교만 가능 — fetch 끝난 뒤 useEffect로 다시 매칭.
+  const [webhookPresetKey, setWebhookPresetKey] = useState<string>(() => {
+    const url = row?.webhook_url ?? ''
+    return url === '' ? '' : WEBHOOK_CUSTOM_KEY
+  })
+  useEffect(() => {
+    // preset 목록이 늦게 도착해도 기존 row의 webhook_url을 자동 매칭.
+    const url = row?.webhook_url ?? ''
+    const matched = webhookPresets.find(p => p.value === url)
+    if (matched) setWebhookPresetKey(matched.value)
+  }, [webhookPresets, row])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -470,7 +486,7 @@ function RoutingFormModal({
           <Field
             label="Webhook URL (v1.50)"
             hint={
-              WEBHOOK_PRESETS.find(p => p.value === webhookPresetKey)?.hint
+              webhookPresets.find(p => p.value === webhookPresetKey)?.hint
               ?? '직접 입력 mode — 아래에 URL을 직접 붙여넣기'
             }
           >
@@ -485,7 +501,7 @@ function RoutingFormModal({
               }}
               className={inputCls}
             >
-              {WEBHOOK_PRESETS.map(p => (
+              {webhookPresets.map(p => (
                 <option key={p.value || '__default__'} value={p.value}>{p.label}</option>
               ))}
               <option value={WEBHOOK_CUSTOM_KEY}>직접 입력…</option>
