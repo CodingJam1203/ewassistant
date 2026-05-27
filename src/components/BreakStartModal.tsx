@@ -93,6 +93,8 @@ export default function BreakStartModal({
         body: JSON.stringify({
           date,
           startTime,
+          // 휴게 종료 예정시각 — DB 저장 X, 알림 메시지 표시용(안내). v1.32 (2026-05-27)
+          endPlanned,
           memo: memo.trim() || null,
         }),
       })

@@ -486,22 +486,49 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
 
     case 'break_started': {
       const p = payload as BreakNotifyPayload
-      return [
+      const startHHmm = kstHHmm(p.breakAt)
+      // 휴게 시간 라인 — endPlanned 있으면 '시작~종료(예정)', 없으면 시작 시각만
+      const timeLine = p.breakEndPlanned
+        ? `🔹휴게 시간 : ${startHHmm}~${p.breakEndPlanned}(예정)`
+        : `🔹휴게 시작 시각 : ${startHHmm}`
+      const lines = [
         `☕${p.name} 휴게 시작 / ${koreanDate(p.date)}`,
-        `🔹휴게 시작 시각 : ${kstHHmm(p.breakAt)}`,
+        timeLine,
         `🔹근무지 : ${p.workLocation || '미입력'}`,
-        cta(),
-      ].join('\n')
+      ]
+      // 메모는 빈 값이면 라인 자체 생략 (사용자 결정 2026-05-27 — 타이트한 표시)
+      const memo = (p.memo ?? '').trim()
+      if (memo) lines.push(`🔹메모 : ${memo}`)
+      lines.push(cta())
+      return lines.join('\n')
     }
 
     case 'break_ended': {
       const p = payload as BreakNotifyPayload
-      return [
+      const endHHmm = kstHHmm(p.breakAt)
+      // 휴게 시간 라인 — breakStartedAt 있으면 '실제 시작~종료 (N분 경과, M분 차감 예정)',
+      // 없으면 종료 시각만 (legacy fallback).
+      let timeLine: string
+      if (p.breakStartedAt) {
+        const startHHmm = kstHHmm(p.breakStartedAt)
+        const actual = typeof p.actualMinutes === 'number' ? p.actualMinutes : null
+        const rounded = typeof p.roundedMinutes === 'number' ? p.roundedMinutes : null
+        const suffix = (actual !== null && rounded !== null)
+          ? ` (${actual}분 경과, ${rounded}분 차감 예정)`
+          : ''
+        timeLine = `🔹휴게 시간 : ${startHHmm}~${endHHmm}${suffix}`
+      } else {
+        timeLine = `🔹휴게 종료 시각 : ${endHHmm}`
+      }
+      const lines = [
         `🍵${p.name} 휴게 종료 / ${koreanDate(p.date)}`,
-        `🔹휴게 종료 시각 : ${kstHHmm(p.breakAt)}`,
+        timeLine,
         `🔹근무지 : ${p.workLocation || '미입력'}`,
-        cta(),
-      ].join('\n')
+      ]
+      const memo = (p.memo ?? '').trim()
+      if (memo) lines.push(`🔹메모 : ${memo}`)
+      lines.push(cta())
+      return lines.join('\n')
     }
 
     case 'account_pending': {

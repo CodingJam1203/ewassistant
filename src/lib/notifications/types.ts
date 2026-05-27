@@ -162,10 +162,34 @@ export interface LocationChangedNotifyPayload {
 export interface BreakNotifyPayload {
   name: string
   date: string
+  /** 휴게 시작 알림이면 breakAt = 시작 ISO. 종료 알림이면 breakAt = 종료 ISO. */
   breakAt: string
   workLocation: string
   division?: string | null
   team?: string | null
+  /**
+   * 시작 알림 전용 — 휴게 종료 예정 시각 (HH:mm). 표시용. (v1.32, 2026-05-27)
+   * BreakStartModal에서 사용자가 입력한 값 그대로 전달.
+   */
+  breakEndPlanned?: string | null
+  /**
+   * 종료 알림 전용 — 휴게 실제 시작 ISO. 메시지의 '시작~종료' 범위 표시용. (v1.32)
+   */
+  breakStartedAt?: string | null
+  /**
+   * 종료 알림 전용 — 실제 경과 분. (v1.32)
+   * calculateBreakAutoMinutesFromIso 결과 그대로.
+   */
+  actualMinutes?: number | null
+  /**
+   * 종료 알림 전용 — 30분 ceil 차감 예정 분. (v1.32)
+   * 정책: 휴게는 30분 단위로 ceil 후 퇴근보고 차감.
+   */
+  roundedMinutes?: number | null
+  /**
+   * 메모 (work_logs.work_content). 빈 값이면 메시지 라인 자체 생략. (v1.32)
+   */
+  memo?: string | null
 }
 
 export interface AccountPendingNotifyPayload {

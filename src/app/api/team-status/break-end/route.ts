@@ -10,6 +10,7 @@ export const maxDuration = 60
 import {
   calculateBreakAutoMinutesFromIso,
   accumulateBreakAuto,
+  ceilTo30Min,
 } from '@/lib/leave-timeline'
 
 export async function POST(request: Request) {
@@ -104,6 +105,20 @@ export async function POST(request: Request) {
     })
 
     // Teams 휴게 종료 알림 — 2026-05-19 v1.21: await + maxDuration=60
+    // v1.32 (2026-05-27): 알림에 실제 휴게 시간 범위 + 경과/차감 예정 + 메모 함께 표시.
+    //   계산 로직은 위에서 이미 한 결과 그대로 재사용 — 추가 계산 없음.
+    let memoForNotify: string | null = null
+    if (existing.work_log_id) {
+      try {
+        const { data: wlForMemo } = await adminClient
+          .from('work_logs')
+          .select('work_content')
+          .eq('id', existing.work_log_id)
+          .maybeSingle()
+        const wc = (wlForMemo?.work_content as string | null) ?? ''
+        memoForNotify = wc.trim() || null
+      } catch { /* 무시 — best-effort */ }
+    }
     await notifyBreakEnded({
       name: profile?.display_name || user.email!,
       date,
@@ -112,6 +127,10 @@ export async function POST(request: Request) {
       division: profile?.division ?? null,
       // 본부 직속(team 없음) → admin 지정 notify_team으로 라우팅
       team: resolveRoutingTeam(profile?.team, profile?.notify_team) || null,
+      breakStartedAt: (existing.break_started_at as string | null) ?? null,
+      actualMinutes: breakSessionMinutes,
+      roundedMinutes: breakSessionMinutes > 0 ? ceilTo30Min(breakSessionMinutes) : 0,
+      memo: memoForNotify,
     })
 
     return NextResponse.json(daily)
