@@ -47,6 +47,33 @@ const EMPTY_FORM: FormState = {
   notes: null,
 }
 
+/**
+ * v1.50: Power Automate webhook preset (사용자 환경 URL).
+ * 새 워크플로우 추가 시 이 목록만 갱신하면 됨.
+ * 빈 값 = default(env MAKE_WEBHOOK_URL) 사용.
+ */
+const WEBHOOK_PRESETS: Array<{ value: string; label: string; hint: string }> = [
+  {
+    value: '',
+    label: 'default (Make / thread reply)',
+    hint: 'env MAKE_WEBHOOK_URL 사용. Anchor Message ID 필요.',
+  },
+  {
+    value: 'https://default82a6fbd465754b05bc6821490dfae5.31.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/6836b429515543699a3dd5eabdd12770/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=BniMWWecwuD34T_Bhtertbeh0zFuCN5nXd8VAyJWdTw',
+    label: 'Power Automate — 채널 내 게시글 회신',
+    hint: 'thread reply 방식. Anchor Message ID 필요.',
+  },
+  {
+    value: 'https://default82a6fbd465754b05bc6821490dfae5.31.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/5f7bdffa347447578ebcf05ac0a51f86/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=otIhhNjIM2yb4e7k1CmkR74dziEAWwE7EWc5GWuPj3A',
+    label: 'Power Automate — 채널에 새 메시지',
+    hint: 'new message 방식. Anchor Message ID 비워두기.',
+  },
+]
+const WEBHOOK_CUSTOM_KEY = '__custom__'
+
+interface OrgTeam { id: string; division_id: string; name: string }
+interface OrgDivision { id: string; name: string; teams: OrgTeam[] }
+
 export default function TeamsRoutingAdminPage() {
   const [rows, setRows] = useState<RoutingRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -315,6 +342,23 @@ function RoutingFormModal({
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
+  // v1.50: 본부/팀 드롭다운 — /api/org에서 가져옴.
+  const [org, setOrg] = useState<OrgDivision[]>([])
+  useEffect(() => {
+    fetch('/api/org').then(r => r.ok ? r.json() : []).then(setOrg).catch(() => {})
+  }, [])
+  const availableTeams = useMemo(
+    () => org.find(d => d.name === form.department)?.teams ?? [],
+    [org, form.department],
+  )
+
+  // v1.50: webhook preset 선택 상태. 'custom'이면 직접 입력 mode.
+  const initialPresetKey = (() => {
+    const matched = WEBHOOK_PRESETS.find(p => p.value === (row?.webhook_url ?? ''))
+    return matched ? matched.value : WEBHOOK_CUSTOM_KEY
+  })()
+  const [webhookPresetKey, setWebhookPresetKey] = useState<string>(initialPresetKey)
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
@@ -360,24 +404,31 @@ function RoutingFormModal({
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <Field label="본부 *">
-              <input
-                type="text"
+              <select
                 required
                 value={form.department}
-                onChange={e => setForm({ ...form, department: e.target.value })}
-                placeholder="HR임팩트본부"
+                onChange={e => setForm({ ...form, department: e.target.value, team_name: '' })}
                 className={inputCls}
-              />
+              >
+                <option value="">선택…</option>
+                {org.map(d => (
+                  <option key={d.id} value={d.name}>{d.name}</option>
+                ))}
+              </select>
             </Field>
-            <Field label="팀 *">
-              <input
-                type="text"
+            <Field label="팀 *" hint={form.department ? undefined : '본부 먼저 선택'}>
+              <select
                 required
                 value={form.team_name}
                 onChange={e => setForm({ ...form, team_name: e.target.value })}
-                placeholder="HR비즈니스팀"
+                disabled={!form.department || availableTeams.length === 0}
                 className={inputCls}
-              />
+              >
+                <option value="">{form.department && availableTeams.length === 0 ? '(이 본부에 팀 없음)' : '선택…'}</option>
+                {availableTeams.map(t => (
+                  <option key={t.id} value={t.name}>{t.name}</option>
+                ))}
+              </select>
             </Field>
           </div>
           <Field label="보고유형 *">
@@ -419,14 +470,38 @@ function RoutingFormModal({
               className={`${inputCls} font-mono text-xs`}
             />
           </Field>
-          <Field label="Webhook URL (선택)" hint="비워두면 default Make webhook으로 발송. Power Automate 등 다른 도구는 그 URL 입력. (v1.50)">
-            <input
-              type="text"
-              value={form.webhook_url ?? ''}
-              onChange={e => setForm({ ...form, webhook_url: e.target.value })}
-              placeholder="https://...powerplatform.com/.../triggers/manual/paths/invoke?..."
-              className={`${inputCls} font-mono text-[11px]`}
-            />
+          <Field
+            label="Webhook URL (v1.50)"
+            hint={
+              WEBHOOK_PRESETS.find(p => p.value === webhookPresetKey)?.hint
+              ?? '직접 입력 mode — 아래에 URL을 직접 붙여넣기'
+            }
+          >
+            <select
+              value={webhookPresetKey}
+              onChange={e => {
+                const k = e.target.value
+                setWebhookPresetKey(k)
+                if (k !== WEBHOOK_CUSTOM_KEY) {
+                  setForm({ ...form, webhook_url: k })
+                }
+              }}
+              className={inputCls}
+            >
+              {WEBHOOK_PRESETS.map(p => (
+                <option key={p.value || '__default__'} value={p.value}>{p.label}</option>
+              ))}
+              <option value={WEBHOOK_CUSTOM_KEY}>직접 입력…</option>
+            </select>
+            {webhookPresetKey === WEBHOOK_CUSTOM_KEY && (
+              <input
+                type="text"
+                value={form.webhook_url ?? ''}
+                onChange={e => setForm({ ...form, webhook_url: e.target.value })}
+                placeholder="https://...powerplatform.com/.../triggers/manual/paths/invoke?..."
+                className={`${inputCls} font-mono text-[11px] mt-2`}
+              />
+            )}
           </Field>
           <Field label="메모 (선택)">
             <input
