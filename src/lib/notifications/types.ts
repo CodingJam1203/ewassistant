@@ -249,6 +249,9 @@ export interface DailyCheckinReminderData {
     status: string // fallback display string
     /** 다음날 출근보고 작성됨 여부 — 1줄 per person 새 포맷에서 ✅/⚠️ 표식 */
     hasReport?: boolean
+    /** v1.58: 대상일 휴가 — full_day면 미보고 대신 🌴 휴가로 표시(미보고 통계 제외). 반차는 출근보고 필요해 미보고 유지 */
+    leaveType?: 'full_day' | 'morning_half' | 'afternoon_half' | null
+    leaveLabel?: string | null
   }>
   /**
    * 22시 알림에 추가되는 내일 캘린더 일정 (휴가 제외).

@@ -101,6 +101,23 @@ export async function GET(request: Request) {
     }
   }
 
+  // v1.58: 대상일 휴가 map. 종일 휴가(full_day)는 planned_start_time NULL이라 위 checkins에
+  // 안 잡힘 → 별도 조회해 미보고 대신 🌴 휴가로 표시.
+  const leaveMap = new Map<string, { type: 'full_day' | 'morning_half' | 'afternoon_half'; label: string }>()
+  {
+    const { data: leaveRows } = await adminClient
+      .from('work_logs')
+      .select('user_email, leave_timeline')
+      .eq('leave_date', targetDate)
+      .eq('is_deleted', false)
+    for (const r of leaveRows ?? []) {
+      const lt = (r.leave_timeline as Array<{ leaveType?: string; label?: string }> | null)?.[0]
+      if (lt?.leaveType === 'full_day' || lt?.leaveType === 'morning_half' || lt?.leaveType === 'afternoon_half') {
+        if (!leaveMap.has(r.user_email)) leaveMap.set(r.user_email, { type: lt.leaveType, label: lt.label ?? '' })
+      }
+    }
+  }
+
   // 팀별 그루핑.
   // 본부 직속(team 없음)은 admin 지정 notify_team으로 effective team을 잡아 해당 팀 그룹에 합류.
   // division도 notify_team도 없으면 제외.
@@ -122,6 +139,7 @@ export async function GET(request: Request) {
   const promises = Array.from(teamGroups.values()).map(group => {
     const members = group.users.map(u => {
       const c = checkinMap.get(u.email)
+      const lv = leaveMap.get(u.email)
       return {
         name:   u.display_name || u.email,
         division: u.division || '미입력',
@@ -134,6 +152,8 @@ export async function GET(request: Request) {
         attendanceRecordType: c?.attendance_record_type || '미입력',
         status: formatNightlyCheckinStatus(c), // fallback
         hasReport: !!c,
+        leaveType: lv?.type ?? null,
+        leaveLabel: lv?.label ?? null,
       }
     })
     // v1.51 — 팀별 cron 알림 OFF면 그 팀 skip.
