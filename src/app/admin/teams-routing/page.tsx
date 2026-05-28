@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useState, useMemo } from 'react'
-import { Pencil, Trash2, Plus, RefreshCw, Save, X, AlertTriangle } from 'lucide-react'
+import { Pencil, Trash2, Plus, RefreshCw, Save, X, AlertTriangle, Copy } from 'lucide-react'
 
 interface RoutingRow {
   id: string
@@ -76,6 +76,7 @@ export default function TeamsRoutingAdminPage() {
   const [error, setError] = useState<string | null>(null)
   const [editingRow, setEditingRow] = useState<RoutingRow | null>(null)
   const [creating, setCreating] = useState(false)
+  const [copyingRow, setCopyingRow] = useState<RoutingRow | null>(null)
 
   const fetchRows = async () => {
     setLoading(true)
@@ -238,6 +239,13 @@ export default function TeamsRoutingAdminPage() {
                     <Td className="text-center">
                       <div className="flex items-center justify-center gap-2">
                         <button
+                          onClick={() => setCopyingRow(row)}
+                          className="text-text-muted hover:text-primary-600"
+                          title="다른 팀에 복사"
+                        >
+                          <Copy className="h-4 w-4" />
+                        </button>
+                        <button
                           onClick={() => setEditingRow(row)}
                           className="text-text-muted hover:text-primary-600"
                           title="수정"
@@ -284,6 +292,18 @@ export default function TeamsRoutingAdminPage() {
             }
             setEditingRow(null)
             setCreating(false)
+          }}
+        />
+      )}
+
+      {/* 복사 모달 */}
+      {copyingRow && (
+        <RoutingCopyModal
+          source={copyingRow}
+          onClose={() => setCopyingRow(null)}
+          onCopied={() => {
+            setCopyingRow(null)
+            fetchRows()
           }}
         />
       )}
@@ -562,6 +582,191 @@ function RoutingFormModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── 복사 모달 ───────────────────────────────────────────────────────────────
+
+function RoutingCopyModal({
+  source, onClose, onCopied,
+}: {
+  source: RoutingRow
+  onClose: () => void
+  onCopied: () => void
+}) {
+  const [org, setOrg] = useState<OrgDivision[]>([])
+  useEffect(() => {
+    fetch('/api/org').then(r => r.ok ? r.json() : []).then(setOrg).catch(() => {})
+  }, [])
+
+  // 대상 본부 (default = 원본 본부)
+  const [department, setDepartment] = useState(source.department)
+  const availableTeams = useMemo(
+    () => org.find(d => d.name === department)?.teams ?? [],
+    [org, department],
+  )
+
+  const [selectedTeams, setSelectedTeams] = useState<Set<string>>(new Set())
+  const [reportTypes, setReportTypes] = useState<Set<'출근보고' | '퇴근보고'>>(
+    new Set(['출근보고', '퇴근보고']),
+  )
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [result, setResult] = useState<{ inserted: number; skipped: number } | null>(null)
+
+  const toggleTeam = (name: string) => {
+    setSelectedTeams(prev => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name); else next.add(name)
+      return next
+    })
+  }
+  const allSelected = availableTeams.length > 0 && availableTeams.every(t => selectedTeams.has(t.name))
+  const toggleAll = () => {
+    setSelectedTeams(allSelected ? new Set() : new Set(availableTeams.map(t => t.name)))
+  }
+  const toggleReportType = (rt: '출근보고' | '퇴근보고') => {
+    setReportTypes(prev => {
+      const next = new Set(prev)
+      if (next.has(rt)) next.delete(rt); else next.add(rt)
+      return next
+    })
+  }
+
+  const handleCopy = async () => {
+    setSaving(true)
+    setErr(null)
+    setResult(null)
+    try {
+      const res = await fetch('/api/admin/teams-routing/bulk-copy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_id: source.id,
+          department,
+          team_names: Array.from(selectedTeams),
+          report_types: Array.from(reportTypes),
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setErr(json.error ?? '복사 실패'); return }
+      setResult({ inserted: json.inserted ?? 0, skipped: json.skipped ?? 0 })
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '오류')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 overflow-y-auto py-6"
+      onClick={onClose}
+    >
+      <div className="w-full max-w-lg bg-surface rounded-lg shadow-xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <h3 className="text-lg font-semibold text-text-primary">라우팅 복사</h3>
+          <button onClick={onClose} className="text-text-muted hover:text-text-secondary">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          {/* 원본 요약 */}
+          <div className="rounded-md bg-surface-muted border border-border p-3 text-xs text-text-secondary space-y-1">
+            <div className="font-medium text-text-primary">복사 원본</div>
+            <div>{source.department} / {source.team_name} / {source.report_type}</div>
+            <div className="font-mono text-[11px] text-text-muted">
+              channelId {source.channel_id}{source.message_id ? ` · msgId ${source.message_id}` : ' · 채널 새 메시지(webhook) 방식'}
+            </div>
+            <div className="text-[11px] text-text-muted">team_id / channel_id / message_id / webhook_url 이 그대로 복제됩니다.</div>
+          </div>
+
+          {result ? (
+            <div className="rounded-md bg-success-bg border border-success-border p-3 text-sm text-success-text">
+              복사 완료 — 신규 {result.inserted}건 생성{result.skipped > 0 ? `, ${result.skipped}건은 이미 존재해 건너뜀` : ''}.
+              <div className="mt-3 text-right">
+                <button onClick={onCopied} className="text-sm text-white bg-primary-600 hover:bg-primary-700 px-3 py-1.5 rounded">
+                  닫기 + 새로고침
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* 대상 본부 */}
+              <Field label="대상 본부">
+                <select
+                  value={department}
+                  onChange={e => { setDepartment(e.target.value); setSelectedTeams(new Set()) }}
+                  className={inputCls}
+                >
+                  {org.map(d => (
+                    <option key={d.id} value={d.name}>{d.name}</option>
+                  ))}
+                </select>
+              </Field>
+
+              {/* 대상 팀 체크박스 */}
+              <Field label="대상 팀">
+                {availableTeams.length === 0 ? (
+                  <p className="text-xs text-text-muted">이 본부에 팀이 없습니다.</p>
+                ) : (
+                  <div className="border border-border rounded-md p-2 max-h-52 overflow-y-auto space-y-1">
+                    <label className="flex items-center gap-2 text-sm font-medium text-text-primary pb-1 border-b border-border mb-1">
+                      <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                        className="h-4 w-4 rounded border-border-strong text-primary-600" />
+                      전체 선택 ({availableTeams.length}개 팀)
+                    </label>
+                    {availableTeams.map(t => (
+                      <label key={t.id} className="flex items-center gap-2 text-sm text-text-secondary">
+                        <input type="checkbox" checked={selectedTeams.has(t.name)} onChange={() => toggleTeam(t.name)}
+                          className="h-4 w-4 rounded border-border-strong text-primary-600" />
+                        {t.name}
+                        {t.name === source.team_name && department === source.department && (
+                          <span className="text-[10px] text-text-muted">(원본 팀)</span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </Field>
+
+              {/* 보고유형 */}
+              <Field label="복제할 보고유형">
+                <div className="flex items-center gap-4">
+                  {(['출근보고', '퇴근보고'] as const).map(rt => (
+                    <label key={rt} className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={reportTypes.has(rt)} onChange={() => toggleReportType(rt)}
+                        className="h-4 w-4 rounded border-border-strong text-primary-600" />
+                      {rt}
+                    </label>
+                  ))}
+                </div>
+              </Field>
+
+              <p className="text-[11px] text-text-muted">
+                이미 존재하는 (본부 / 팀 / 보고유형) 조합은 자동으로 건너뜁니다.
+              </p>
+
+              {err && (
+                <div className="rounded-md bg-danger-bg border border-danger-border p-2 text-sm text-danger-text">{err}</div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button onClick={onClose} className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5">취소</button>
+                <button
+                  onClick={handleCopy}
+                  disabled={saving || selectedTeams.size === 0 || reportTypes.size === 0}
+                  className="inline-flex items-center gap-1 text-sm text-white bg-primary-600 hover:bg-primary-700 px-3 py-1.5 rounded disabled:opacity-50"
+                >
+                  {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+                  {selectedTeams.size}개 팀 × {reportTypes.size}유형 복사
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )

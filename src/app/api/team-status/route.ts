@@ -9,7 +9,7 @@ import { normalizeWorkLocations } from '@/lib/work-locations-v2'
 import type { LeaveTimeline, LeaveType } from '@/types/leave-timeline'
 import type { CalendarEventChunk } from '@/types/leave-calendar'
 import { computeEffectiveActualStart } from '@/lib/work-log-state'
-import { DIVISION_DIRECT_FILTER } from '@/lib/org'
+import { DIVISION_DIRECT_FILTER, resolveRoutingTeam } from '@/lib/org'
 import { kstHHmmToIso } from '@/lib/utils/kst-datetime'
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
@@ -229,7 +229,7 @@ export async function GET(request: Request) {
     // mineOnly=true → 본인 1명만
     let profileQuery = adminClient
       .from('user_profiles')
-      .select('id, email, display_name, division, team, display_order, is_active')
+      .select('id, email, display_name, division, team, notify_team, display_order, is_active')
       .eq('is_active', true)
 
     if (mineOnly) {
@@ -434,6 +434,16 @@ export async function GET(request: Request) {
             : (workLog.leave_timeline as LeaveTimeline | null | undefined) ?? null)
         : null
 
+      // v1.56: use_check_in_complete 조회용 effective team. 본부 직속(team 없음)은
+      // notify_team으로 흡수 — 알림 라우팅(resolveRoutingTeam)과 동일 철학. 종전엔
+      // profile.team만 써서 본부 직속이 항상 default true로 떨어지던 버그.
+      const effectiveTeamForSettings = resolveRoutingTeam(
+        (profile.team as string | null) ?? null,
+        (profile as { notify_team?: string | null }).notify_team ?? null,
+      )
+      const useCheckInCompleteForUser =
+        teamSettings.get(`${division ?? ''}::${effectiveTeamForSettings}`) ?? true
+
       return {
         email,
         display_name:    displayName,
@@ -474,7 +484,7 @@ export async function GET(request: Request) {
         calendar_leave_label: calLeave.label,
         calendar_events:      calLeave.events,
 
-        use_check_in_complete: teamSettings.get(`${division ?? ''}::${(profile.team as string | null) ?? ''}`) ?? true,
+        use_check_in_complete: useCheckInCompleteForUser,
         // Stage 4 / v1.44: read-time 자동 보정 + lazy write.
         //   computeEffectiveActualStart는 false 팀 + planned 도달 + actual NULL이면 planned 값을 반환.
         //   여기서 effective !== null && actual === null이면 후보로 수집해 응답 후 DB write(lazy).
@@ -484,7 +494,7 @@ export async function GET(request: Request) {
           const rawLeave = workLog ? (workLog.leave_date as string | null) ?? null : null
           const effective = computeEffectiveActualStart(
             { leave_date: rawLeave, planned_start_time: rawPlanned, actual_start_time: rawActual },
-            { use_check_in_complete: teamSettings.get(`${division ?? ''}::${(profile.team as string | null) ?? ''}`) ?? true },
+            { use_check_in_complete: useCheckInCompleteForUser },
           )
           if (effective && !rawActual && workLog?.id && rawLeave) {
             lazyWriteCandidates.push({

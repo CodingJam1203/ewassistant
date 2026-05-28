@@ -842,9 +842,28 @@ export async function GET(request: Request) {
       if (!divName) continue
       teamSettings.set(`${divName}::${t.name}`, t.use_check_in_complete ?? true)
     }
+
+    // v1.56: 본부 직속(work_logs.team=NULL) 인원의 use_check_in_complete는 notify_team으로
+    // 흡수해 조회. work_logs엔 notify_team이 없으므로 등장 user_email로 user_profiles 조회.
+    const emailsInResult = Array.from(
+      new Set((data ?? []).map(r => r.user_email as string | null).filter((e): e is string => !!e)),
+    )
+    const profileTeamMap = new Map<string, { team: string | null; notify_team: string | null }>()
+    if (emailsInResult.length > 0) {
+      const { data: profs } = await adminClient
+        .from('user_profiles')
+        .select('email, team, notify_team')
+        .in('email', emailsInResult)
+      for (const p of (profs ?? []) as Array<{ email: string; team: string | null; notify_team: string | null }>) {
+        profileTeamMap.set(p.email, { team: p.team, notify_team: p.notify_team })
+      }
+    }
+
     const now = new Date()
     const enriched = (data ?? []).map(row => {
-      const useCheckInComplete = teamSettings.get(`${row.division ?? ''}::${row.team ?? ''}`) ?? true
+      const prof = profileTeamMap.get(row.user_email as string)
+      const effTeam = resolveRoutingTeam((row.team as string | null) ?? prof?.team ?? null, prof?.notify_team ?? null)
+      const useCheckInComplete = teamSettings.get(`${row.division ?? ''}::${effTeam}`) ?? true
       return {
         ...row,
         effective_actual_start_time: computeEffectiveActualStart(
