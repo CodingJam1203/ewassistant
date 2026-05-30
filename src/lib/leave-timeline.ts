@@ -48,20 +48,34 @@ export const LEAVE_TIME_OPTIONS: { minutes: number; label: string }[] = (() => {
 
 /**
  * 한국어/캘린더 셀값에서 LeaveType 추출.
- * 우선순위:
- *   1. '오전반차' 정확 매칭
- *   2. '오후반차' 정확 매칭
- *   3. '반차' 단독 → 오전반차로 처리
- *   4. '휴가' 또는 '연차' → 종일 휴가
- *   5. 매칭 안 되면 null (휴가 아님)
+ *
+ * v1.61.9 — Google Calendar (by_title) inferEventType의 VACATION_KEYWORDS와 통일.
+ * 양쪽이 동일 키워드 셋을 인식하도록 매핑.
+ *
+ * 우선순위 (더 구체적인 매칭 먼저):
+ *   1. '오전반차' → morning_half
+ *   2. '오후반차' → afternoon_half
+ *   3. '반반차'   → morning_half (2H 시간단위 — 새 정책상 EW 차감 0, 표시만)
+ *   4. '반차' 단독 → morning_half (default 오전)
+ *   5. full_day 그룹: 휴가 / 연차 / 연월차 / 월차 / 공가 / 안식월 / 오프
+ *   6. 매칭 안 되면 null (휴가 아님)
  */
 export function parseLeaveLabel(raw: string | null | undefined): LeaveType | null {
   const s = (raw ?? '').trim()
   if (!s) return null
   if (s.includes('오전반차')) return 'morning_half'
   if (s.includes('오후반차')) return 'afternoon_half'
-  if (s.includes('반차'))     return 'morning_half'  // 반차만 있으면 오전반차로
-  if (s.includes('휴가') || s.includes('연차')) return 'full_day'
+  if (s.includes('반반차'))   return 'morning_half'  // 2H 시간단위
+  if (s.includes('반차'))     return 'morning_half'  // 단독 → 오전 default
+  if (
+    s.includes('휴가') ||
+    s.includes('연월차') ||  // '연차' 보다 먼저 검사 (연차 포함 substring이지만 isolation은 includes라 무관, 명시성 위해)
+    s.includes('연차') ||
+    s.includes('월차') ||
+    s.includes('공가') ||
+    s.includes('안식월') ||
+    s.includes('오프')
+  ) return 'full_day'
   return null
 }
 
