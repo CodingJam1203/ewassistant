@@ -875,15 +875,44 @@ export default function CheckInModal({
           <LeaveReadOnlyNotice
             value={leaveTimeline}
             labelPrefix={caseMode === 'future' ? '다음 출근일' : '이 날'}
-            onRemove={(idx) => {
-              // 사용자 의도적 제거 — Phase 1.5d touch ref도 같이 켜서 가드 발동 X
-              leaveTimelineUserTouchedRef.current = true
+            onRemove={async (idx) => {
               const removed = leaveTimeline[idx]
-              setLeaveTimeline(leaveTimeline.filter((_, i) => i !== idx))
-              // v1.60.2 — full_day 취소 시 일반 근무 default로 reset.
-              // bulk-leave가 work_location="휴가"로 만든 row 그대로 두면 사용자 혼란.
-              // 시간(09:00~18:00) + 근무장소(사무실)를 다시 채워 일반 출근보고 흐름으로.
-              if (removed?.leaveType === 'full_day') {
+              if (!removed) return
+              // v1.60.4 — confirm 팝업으로 사용자 의도 명시 확인. 확인 시 즉시 DB 반영.
+              const isFullDay = removed.leaveType === 'full_day'
+              const hours = (removed.roundedMinutes ?? 0) / 60
+              const hoursText = Number.isInteger(hours) ? `${hours}` : hours.toFixed(1)
+              const msg = isFullDay
+                ? `${date} 종일 휴가를 취소하시겠습니까?\n시간/근무장소가 기본값(09:00~18:00, 사무실)으로 초기화됩니다.`
+                : `${date} ${removed.label}(${hoursText}H) 일정을 삭제하시겠습니까?`
+              if (!window.confirm(msg)) return
+
+              const nextTimeline = leaveTimeline.filter((_, i) => i !== idx)
+
+              // workLogId 있으면 즉시 PATCH — 사용자가 모달 닫아도 DB 반영 유지.
+              if (workLogId) {
+                try {
+                  const res = await fetch(`/api/work-logs/${workLogId}/leave-timeline`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ leaveTimeline: nextTimeline }),
+                  })
+                  if (!res.ok) {
+                    const j = await res.json().catch(() => null)
+                    alert(`삭제 실패: ${j?.error ?? res.statusText}`)
+                    return
+                  }
+                } catch (e) {
+                  alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`)
+                  return
+                }
+              }
+
+              // form state 동기화 — Phase 1.5d touch ref도 같이 켜서 가드 발동 X
+              leaveTimelineUserTouchedRef.current = true
+              setLeaveTimeline(nextTimeline)
+              if (isFullDay) {
+                // bulk-leave row의 work_location="휴가" 잔재 reset
                 setLocations(defaultWorkLocations())
                 setStartTime('09:00')
                 setEndTime('18:00')

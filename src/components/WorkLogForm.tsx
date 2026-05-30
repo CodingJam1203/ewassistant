@@ -1342,15 +1342,45 @@ export default function WorkLogForm({
             <LeaveReadOnlyNotice
               value={(formValues.leaveTimeline ?? []) as LeaveTimeline}
               labelPrefix="이 날"
-              onRemove={(idx) => {
-                leaveTimelineUserTouchedRef.current = true
+              onRemove={async (idx) => {
                 const current = (formValues.leaveTimeline ?? []) as LeaveTimeline
                 const removed = current[idx]
-                setValue('leaveTimeline', current.filter((_, i) => i !== idx), { shouldValidate: false, shouldDirty: true })
-                // v1.60.2 — full_day 취소 시 일반 근무 default로 reset.
-                // bulk-leave가 work_location="휴가"로 만든 row 그대로 두면 근무장소 chip이
-                // "휴가"로 prefill되어 사용자 혼란. 시간·근무장소 default('사무실', 09:00~18:00)로 복원.
-                if (removed?.leaveType === 'full_day') {
+                if (!removed) return
+                // v1.60.4 — confirm 팝업 + 즉시 DB 반영
+                const isFullDay = removed.leaveType === 'full_day'
+                const hours = (removed.roundedMinutes ?? 0) / 60
+                const hoursText = Number.isInteger(hours) ? `${hours}` : hours.toFixed(1)
+                const dateStr = formValues.leaveDate ?? ''
+                const msg = isFullDay
+                  ? `${dateStr} 종일 휴가를 취소하시겠습니까?\n시간/근무장소가 기본값(09:00~18:00, 사무실)으로 초기화됩니다.`
+                  : `${dateStr} ${removed.label}(${hoursText}H) 일정을 삭제하시겠습니까?`
+                if (!window.confirm(msg)) return
+
+                const nextTimeline = current.filter((_, i) => i !== idx)
+
+                // editingLog.id 있으면 즉시 PATCH
+                if (editingLog?.id) {
+                  try {
+                    const res = await fetch(`/api/work-logs/${editingLog.id}/leave-timeline`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ leaveTimeline: nextTimeline }),
+                    })
+                    if (!res.ok) {
+                      const j = await res.json().catch(() => null)
+                      alert(`삭제 실패: ${j?.error ?? res.statusText}`)
+                      return
+                    }
+                  } catch (e) {
+                    alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`)
+                    return
+                  }
+                }
+
+                // form state 동기화
+                leaveTimelineUserTouchedRef.current = true
+                setValue('leaveTimeline', nextTimeline, { shouldValidate: false, shouldDirty: true })
+                if (isFullDay) {
                   setValue('actualWorkLocations', defaultWorkLocations(), { shouldDirty: true })
                   setValue('plannedWorkLocations', defaultWorkLocations(), { shouldDirty: true })
                   setValue('startTime', '09:00', { shouldDirty: true })
