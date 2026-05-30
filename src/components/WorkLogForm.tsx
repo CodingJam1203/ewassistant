@@ -1345,7 +1345,17 @@ export default function WorkLogForm({
               onRemove={(idx) => {
                 leaveTimelineUserTouchedRef.current = true
                 const current = (formValues.leaveTimeline ?? []) as LeaveTimeline
+                const removed = current[idx]
                 setValue('leaveTimeline', current.filter((_, i) => i !== idx), { shouldValidate: false, shouldDirty: true })
+                // v1.60.2 — full_day 취소 시 일반 근무 default로 reset.
+                // bulk-leave가 work_location="휴가"로 만든 row 그대로 두면 근무장소 chip이
+                // "휴가"로 prefill되어 사용자 혼란. 시간·근무장소 default('사무실', 09:00~18:00)로 복원.
+                if (removed?.leaveType === 'full_day') {
+                  setValue('actualWorkLocations', defaultWorkLocations(), { shouldDirty: true })
+                  setValue('plannedWorkLocations', defaultWorkLocations(), { shouldDirty: true })
+                  setValue('startTime', '09:00', { shouldDirty: true })
+                  setValue('endTime', '18:00', { shouldDirty: true })
+                }
               }}
             />
           </div>

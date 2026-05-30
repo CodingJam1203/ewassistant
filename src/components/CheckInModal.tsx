@@ -878,7 +878,16 @@ export default function CheckInModal({
             onRemove={(idx) => {
               // 사용자 의도적 제거 — Phase 1.5d touch ref도 같이 켜서 가드 발동 X
               leaveTimelineUserTouchedRef.current = true
+              const removed = leaveTimeline[idx]
               setLeaveTimeline(leaveTimeline.filter((_, i) => i !== idx))
+              // v1.60.2 — full_day 취소 시 일반 근무 default로 reset.
+              // bulk-leave가 work_location="휴가"로 만든 row 그대로 두면 사용자 혼란.
+              // 시간(09:00~18:00) + 근무장소(사무실)를 다시 채워 일반 출근보고 흐름으로.
+              if (removed?.leaveType === 'full_day') {
+                setLocations(defaultWorkLocations())
+                setStartTime('09:00')
+                setEndTime('18:00')
+              }
             }}
           />
 

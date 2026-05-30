@@ -1,6 +1,6 @@
 # N-Click 시간 및 보고 정책서
 
-> **최종 갱신** — 2026-05-30 (v1.60.1 — 안내 박스에 종일휴가 취소 버튼·8H 미만 일정 삭제 링크 추가 + calendar source 자동 제거 분기 폐기 + 캘린더 셀 full_day일 때 시간 chip skip)
+> **최종 갱신** — 2026-05-30 (v1.60.2 — `이 휴가 취소` 시 work_location/시간도 default reset)
 > **상태** — Stage 0~7 반영 완료. 단일 `(user_email, leave_date)` row + 4 시간 컬럼 통합 모델.
 > **단일 진실 (SoT)** — 이 문서가 N-Click 시간·보고 관련 모든 의사결정의 기준이다.
 
@@ -371,6 +371,24 @@ v1.60 read-only 안내가 적용된 후 사용자 피드백 — "휴가 취소 �
 | Google 일정 (회의 등) | 노출 | 노출 (full_day와도 공존) |
 
 **작업 영역 일관성** — "휴가 안내 박스" 동일 패턴을 출근완료 / 출근보고 (today·prior·future) / 퇴근보고 / 퇴근보고 D+1 사전등록 영역 모두 적용. CheckInModal·WorkLogForm 메인·WorkLogForm D+1 — 3곳 모두 onRemove 핸들러 전달.
+
+### 3.11 종일휴가 취소 시 폼 default reset (v1.60.2, 2026-05-30)
+
+`bulk-leave`가 만든 종일휴가 work_log row는 `work_location = '휴가'`, `work_location_timeline = NULL`로 저장됨. v1.60.1의 `이 휴가 취소` 액션이 leave_timeline만 제거하면 사용자에겐 근무장소 chip이 "휴가"로 prefill된 상태가 남아 혼란.
+
+**fix** — `LeaveReadOnlyNotice.onRemove` 핸들러에서 `removed.leaveType === 'full_day'`일 때만 시간·근무장소 default로 복원:
+
+| 영역 | reset 값 |
+|---|---|
+| CheckInModal `locations` | `defaultWorkLocations()` (사무실 chip 1개) |
+| CheckInModal `startTime` / `endTime` | `'09:00'` / `'18:00'` |
+| WorkLogForm `actualWorkLocations` | `defaultWorkLocations()` |
+| WorkLogForm `plannedWorkLocations` | `defaultWorkLocations()` |
+| WorkLogForm `startTime` / `endTime` | `'09:00'` / `'18:00'` |
+
+8H 미만 `[일정 삭제]`는 leave_timeline만 제거 — 시간·근무장소는 사용자 입력 그대로 둠 (이미 일반 근무 흐름에 있는 일자).
+
+**알려진 한계** — `이 휴가 취소` / `[일정 삭제]`는 form state만 변경. 사용자가 모달의 제출 버튼(`출근 완료` / `출근 보고` / `제출하고 복사하기` / `수정`)을 눌러야 DB에 반영. 변경 후 모달을 그냥 닫으면 DB는 그대로. → v1.60.3에서 dirty 안내 또는 즉시 PATCH 검토.
 
 ---
 
