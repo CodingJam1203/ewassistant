@@ -616,6 +616,8 @@ export default function WorkLogForm({
   // (시도 후 ref로 재시도 막음). N-Click leaveTimeline이 이미 있거나 사용자 입력이 있으면
   // skip — Google 휴가는 보조 prefill 역할일 뿐.
   const calendarPrefillTriedRef = useRef(false)
+  // v1.60.7 — Spreadsheet calendar prefill 무시 마커. expected-timeline 응답에서 set.
+  const calendarPrefillDismissedRef = useRef(false)
   useEffect(() => {
     if (calendarPrefillTriedRef.current) return
     const date = formValues.leaveDate
@@ -629,6 +631,8 @@ export default function WorkLogForm({
       .then(r => (r.ok ? r.json() : null))
       .then((data: UserCalendarLookup | null) => {
         if (cancelled || !data?.leaveType) return
+        // v1.60.7 — 사용자가 이전에 calendar source를 [일정 삭제]한 일자면 prefill skip.
+        if (calendarPrefillDismissedRef.current) return
         // 다시 한 번 체크 — fetch 사이 사용자가 입력했을 수도 있음
         const stillEmpty = ((formValues.leaveTimeline ?? []) as LeaveTimeline).length === 0
         if (!stillEmpty) return
@@ -679,7 +683,9 @@ export default function WorkLogForm({
         expectedEndTime?: string | null
         checkedInAt?: string | null
         hasExisting?: boolean
+        calendarPrefillDismissed?: boolean
       } | null) => {
+        if (data) calendarPrefillDismissedRef.current = !!data.calendarPrefillDismissed
         if (!data?.hasExisting) {
           // 2026-05-19 v1.8: leaveDate 변경 시 새 일자에 보고가 없으면 default로 reset.
           // 이전 leaveDate의 prefill 값(startTime/endTime)이 끌려가지 않게 명시 reset.
@@ -1402,13 +1408,17 @@ export default function WorkLogForm({
                 const nextTimeline = current.filter((_, i) => i !== idx)
 
                 // editingLog.id 또는 expected-timeline에서 받은 existingWorkLogId 있으면 즉시 PATCH
+                // v1.60.7 — calendar source 항목 삭제면 dismissCalendarPrefill=true 동봉.
                 const targetId = editingLog?.id ?? existingWorkLogIdRef.current
                 if (targetId) {
                   try {
                     const res = await fetch(`/api/work-logs/${targetId}/leave-timeline`, {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ leaveTimeline: nextTimeline }),
+                      body: JSON.stringify({
+                        leaveTimeline: nextTimeline,
+                        dismissCalendarPrefill: removed.source === 'calendar',
+                      }),
                     })
                     if (!res.ok) {
                       const j = await res.json().catch(() => null)

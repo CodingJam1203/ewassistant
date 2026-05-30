@@ -160,7 +160,11 @@ export default function CalendarDayDetailModal({
                               const res = await fetch(`/api/work-logs/${workLogId}/leave-timeline`, {
                                 method: 'PATCH',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ leaveTimeline: next }),
+                                // v1.60.7 — calendar source 삭제면 dismissCalendarPrefill=true
+                                body: JSON.stringify({
+                                  leaveTimeline: next,
+                                  dismissCalendarPrefill: it.source === 'calendar',
+                                }),
                               })
                               if (!res.ok) {
                                 const j = await res.json().catch(() => null)

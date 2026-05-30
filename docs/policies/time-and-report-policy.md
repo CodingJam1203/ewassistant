@@ -1,6 +1,6 @@
 # N-Click 시간 및 보고 정책서
 
-> **최종 갱신** — 2026-05-30 (v1.60.6 — leave-timeline endpoint에 vacation-sync 호출 추가 + work-hours 자동 인정 새 정책 적용)
+> **최종 갱신** — 2026-05-30 (v1.60.7 — Spreadsheet prefill 무시 마커 `calendar_prefill_dismissed` + 안내 박스 시트 단방향 한계 안내)
 > **상태** — Stage 0~7 반영 완료. 단일 `(user_email, leave_date)` row + 4 시간 컬럼 통합 모델.
 > **단일 진실 (SoT)** — 이 문서가 N-Click 시간·보고 관련 모든 의사결정의 기준이다.
 
@@ -421,6 +421,37 @@ v1.60 read-only 안내가 적용된 후 사용자 피드백 — "휴가 취소 �
 | **Google Personal Calendar** | ❌ (service account가 안 건드림) | ❌ | — |
 
 **알려진 한계** — Spreadsheet 단방향 — 사용자 [일정 삭제]가 진짜로 안 보이게 하려면 시트 원본 직접 수정 필요. 다만 v1.60.6 work-hours fix로 통계 영향 0 (8H 미만 차감 X). 시트 수정 안 해도 EW/통계에는 잔재 없음. v1.60.7에서 `calendar_prefill_dismissed` 마커 + v1.61에서 `[캘린더 시트 열기]` deep link 별도 검토.
+
+### 3.13 Spreadsheet prefill 무시 마커 + 안내 카피 보강 (v1.60.7, 2026-05-30)
+
+**원인** — Spreadsheet 단방향 한계로 사용자가 [일정 삭제]를 누른 후 모달 재진입 시 prefill로 같은 항목이 다시 들어옴 → "지운 게 또 나타남" UX 노이즈.
+
+**해결 — work_logs 컬럼 마커**
+
+| 항목 | 사양 |
+|---|---|
+| 마이그 | `043_work_logs_calendar_prefill_dismissed.sql` — `calendar_prefill_dismissed boolean NOT NULL DEFAULT false` |
+| set 시점 | `PATCH /api/work-logs/[id]/leave-timeline` body에 `dismissCalendarPrefill: true` 옵션. 사용자가 안내 박스에서 `removed.source === 'calendar'`인 항목을 삭제할 때 클라이언트가 함께 전송 |
+| 응답 처리 | `team-status/expected-timeline` route — `dismissed=true`면 응답 `leaveTimeline`에서 `source === 'calendar'` 항목 제외. `calendarPrefillDismissed: true` 필드도 같이 반환 |
+| 클라이언트 fallback | CheckInModal · WorkLogForm 의 `calendar-events` fetch effect — `calendarPrefillDismissedRef`가 true면 prefill skip |
+| audit | `recordAudit` `details.dismiss_calendar_prefill` 박제 |
+
+**적용 범위 — `removed.source === 'calendar'` 인 경우만**
+
+- `manual` source 항목 삭제는 dismissed와 무관. 사용자 의도적 등록 → 의도적 삭제 → calendar 무시 마커는 안 set.
+- full_day 종일휴가 취소도 source 따라 동일 분기 — calendar source면 dismissed=true.
+
+**LeaveReadOnlyNotice 카피 보강 (8H 미만, calendar source 한정)**
+
+> 이 날 캘린더에 오전반차(4H) 등록됨. 휴게로 직접 입력해 주셔야 반영됩니다. [일정 삭제]
+> ※ 시트 원본은 자동으로 빠지지 않습니다. 영구 삭제는 캘린더 시트에서 직접 수정해주세요.
+
+manual source 항목엔 시트 안내 멘트 미노출 (사용자 직접 등록한 일정에 시트 운운하면 혼란).
+
+**알려진 한계**
+
+- `dismissed=true` 해제 UI 없음 — 사용자가 다시 calendar prefill을 받고 싶으면 admin DB 수정 필요. v1.61 이후 검토.
+- 사용자가 manual / 휴가 등록 모달로 새 휴가 박으면 dismissed 상태와 무관하게 leave_timeline에 들어감 (그 항목은 source='manual' 이므로 dismissed 영향 X).
 
 ---
 

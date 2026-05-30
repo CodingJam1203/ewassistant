@@ -81,16 +81,26 @@ export async function PATCH(
     nextLeaveTimeline = incoming as LeaveTimeline
   }
 
+  // v1.60.7 — calendar source 항목 삭제 시 사용자가 명시 무시 의도를 표시.
+  // true면 work_logs.calendar_prefill_dismissed=true로 같이 set → 다음 모달 진입 시
+  // expected-timeline route가 source='calendar' 항목을 응답에서 제외.
+  const dismissCalendarPrefill = (body as { dismissCalendarPrefill?: unknown }).dismissCalendarPrefill === true
+
   const prevLeaveTimeline = (Array.isArray(log.leave_timeline)
     ? (log.leave_timeline as LeaveTimeline)
     : []) as LeaveTimeline
 
+  const updatePayload: Record<string, unknown> = {
+    leave_timeline: nextLeaveTimeline,
+    updated_at: new Date().toISOString(),
+  }
+  if (dismissCalendarPrefill) {
+    updatePayload.calendar_prefill_dismissed = true
+  }
+
   const { error: updErr } = await adminClient
     .from('work_logs')
-    .update({
-      leave_timeline: nextLeaveTimeline,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq('id', id)
     .eq('is_deleted', false)
   if (updErr) {
@@ -134,6 +144,7 @@ export async function PATCH(
         user_email: log.user_email,
         prev: log.leave_timeline ?? null,
         next: nextLeaveTimeline,
+        dismiss_calendar_prefill: dismissCalendarPrefill,
       },
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,

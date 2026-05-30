@@ -140,6 +140,9 @@ export default function CheckInModal({
   const [error, setError]   = useState<string | null>(null)
   // partial delete (today 모드 한정) — work_log_id는 prefill 응답에서 받음
   const [workLogId, setWorkLogId] = useState<string | null>(null)
+  // v1.60.7 — Spreadsheet calendar prefill 무시 마커. expected-timeline 응답에서 받음.
+  // calendar-events effect에서 leaveType prefill 시 이 ref가 true면 skip.
+  const calendarPrefillDismissedRef = useRef(false)
   const [deleting, setDeleting] = useState(false)
   // Phase 1.5d (CheckInModal 확장 — 2026-05-21):
   //   종일 휴가 prefill + 근무 의도 신호 동시 입력 시 confirm 모달.
@@ -186,10 +189,13 @@ export default function CheckInModal({
           checkedInAt?: string | null
           workContent?: string | null
           workLogId?: string | null
+          calendarPrefillDismissed?: boolean
         }
         if (cancelled) return
         // work_log_id — today 모드의 partial delete에서 필요
         setWorkLogId(data.workLogId ?? null)
+        // v1.60.7 — dismissed 마커 보관. calendar-events effect에서 prefill 제외 조건으로 사용.
+        calendarPrefillDismissedRef.current = !!data.calendarPrefillDismissed
 
         // 케이스 판별
         // todayKst 비교용 — KST yyyy-mm-dd
@@ -338,7 +344,8 @@ export default function CheckInModal({
         setCalendarLookup(data)
         // functional update — work_logs prefill effect와 race 안전.
         // 이미 leaveTimeline이 set 되어 있으면(work_logs 또는 사용자 입력) 유지.
-        if (data.leaveType) {
+        // v1.60.7 — 사용자가 이전에 calendar source를 [일정 삭제]한 일자면 prefill skip.
+        if (data.leaveType && !calendarPrefillDismissedRef.current) {
           setLeaveTimeline(prev => {
             if (Array.isArray(prev) && prev.length > 0) return prev
             return [buildLeaveItem(data.leaveType!, data.leaveLabel ?? undefined, 'calendar')]
@@ -890,12 +897,17 @@ export default function CheckInModal({
               const nextTimeline = leaveTimeline.filter((_, i) => i !== idx)
 
               // workLogId 있으면 즉시 PATCH — 사용자가 모달 닫아도 DB 반영 유지.
+              // v1.60.7 — calendar source 항목 삭제면 dismissCalendarPrefill=true 같이 보내서
+              // Spreadsheet 무시 마커 set. 다음 prefill 진입 시 그 항목 안 들어옴.
               if (workLogId) {
                 try {
                   const res = await fetch(`/api/work-logs/${workLogId}/leave-timeline`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ leaveTimeline: nextTimeline }),
+                    body: JSON.stringify({
+                      leaveTimeline: nextTimeline,
+                      dismissCalendarPrefill: removed.source === 'calendar',
+                    }),
                   })
                   if (!res.ok) {
                     const j = await res.json().catch(() => null)

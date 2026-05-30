@@ -59,7 +59,7 @@ export async function GET(request: Request) {
     // 이미 D-day에 출근보고를 작성한 적이 있다면 그 값으로 prefill (수정 가능)
     const { data: bodyLog } = await adminClient
       .from('work_logs')
-      .select('id, start_time, end_time, work_location, work_location_timeline, leave_timeline, planned_work_locations, work_content')
+      .select('id, start_time, end_time, work_location, work_location_timeline, leave_timeline, planned_work_locations, work_content, calendar_prefill_dismissed')
       .eq('user_email', user.email!)
       .eq('leave_date', date)
       .eq('is_deleted', false)
@@ -75,9 +75,16 @@ export async function GET(request: Request) {
       const startHHmm = typeof bodyLog.start_time === 'string' ? bodyLog.start_time.slice(0, 5) : null
       const endHHmm   = typeof bodyLog.end_time   === 'string' ? bodyLog.end_time.slice(0, 5)   : null
 
-      const leave = Array.isArray(bodyLog.leave_timeline) ? bodyLog.leave_timeline as LeaveTimeline : null
-      const leaveTimeline: LeaveTimeline | null = leave && leave.length > 0
-        ? leave.map(it => ({ ...it, source: it.source }))
+      // v1.60.7 — Spreadsheet prefill 무시 마커.
+      // dismissed=true면 leaveTimeline의 source='calendar' 항목을 제외해서 응답 (manual은 유지).
+      // 모달이 받은 leaveTimeline 그대로 form state에 prefill → Spreadsheet 잔재 안 보임.
+      const rawLeave = Array.isArray(bodyLog.leave_timeline) ? bodyLog.leave_timeline as LeaveTimeline : null
+      const dismissed = !!bodyLog.calendar_prefill_dismissed
+      const filteredLeave: LeaveTimeline | null = rawLeave && rawLeave.length > 0
+        ? (dismissed ? rawLeave.filter(it => it?.source !== 'calendar') : rawLeave)
+        : null
+      const leaveTimeline: LeaveTimeline | null = filteredLeave && filteredLeave.length > 0
+        ? filteredLeave.map(it => ({ ...it, source: it.source }))
         : null
 
       // legacy timeline 호환 응답
@@ -132,6 +139,8 @@ export async function GET(request: Request) {
         checkedInAt,
         workContent: (bodyLog.work_content as string | null) ?? null,
         workLogId: (bodyLog.id as string | null) ?? null,
+        // v1.60.7 — 클라이언트가 calendar-events fetch 결과를 prefill할 때 이 값을 보고 skip
+        calendarPrefillDismissed: dismissed,
       })
     }
 

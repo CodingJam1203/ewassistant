@@ -74,29 +74,40 @@ export default function LeaveReadOnlyNotice({ value, labelPrefix, onRemove }: Le
           )}
         </div>
       ))}
-      {subFullDays.map(({ item, originalIndex }) => (
-        <div
-          key={`sub-${originalIndex}`}
-          className="flex items-start gap-2 text-[12px] text-info-text bg-info-bg border border-info-border rounded-md px-2 py-1.5 leading-snug"
-        >
-          <Calendar className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden />
-          <span className="flex-1">
-            {buildSubFullDayLeaveNotice(item.label, item.roundedMinutes ?? 0)}
-            {onRemove && (
-              <>
-                {' '}
-                <button
-                  type="button"
-                  onClick={() => onRemove(originalIndex)}
-                  className="text-[11px] font-medium text-info-text underline underline-offset-2 hover:text-info-text/80"
-                >
-                  [일정 삭제]
-                </button>
-              </>
-            )}
-          </span>
-        </div>
-      ))}
+      {subFullDays.map(({ item, originalIndex }) => {
+        // v1.60.7 — Spreadsheet source 일정은 단방향 한계 안내 추가.
+        // 사용자가 [일정 삭제] 누르면 work_logs에서 빠지지만 시트 원본은 그대로.
+        // dismissed 마커로 다음 prefill은 차단되지만 시트에 적힌 상태는 그대로라 사용자가 직접 정정해야 함.
+        const isCalendarSource = item.source === 'calendar'
+        return (
+          <div
+            key={`sub-${originalIndex}`}
+            className="flex items-start gap-2 text-[12px] text-info-text bg-info-bg border border-info-border rounded-md px-2 py-1.5 leading-snug"
+          >
+            <Calendar className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden />
+            <span className="flex-1">
+              {buildSubFullDayLeaveNotice(item.label, item.roundedMinutes ?? 0)}
+              {onRemove && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    onClick={() => onRemove(originalIndex)}
+                    className="text-[11px] font-medium text-info-text underline underline-offset-2 hover:text-info-text/80"
+                  >
+                    [일정 삭제]
+                  </button>
+                </>
+              )}
+              {isCalendarSource && (
+                <span className="block mt-0.5 text-[11px] text-text-muted">
+                  ※ 시트 원본은 자동으로 빠지지 않습니다. 영구 삭제는 캘린더 시트에서 직접 수정해주세요.
+                </span>
+              )}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }
