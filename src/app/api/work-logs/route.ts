@@ -21,7 +21,7 @@ import {
 import {
   validateLeaveTimeline,
   isFullDayLeave,
-  totalLeaveRoundedMinutes,
+  effectiveLeaveDeductionMinutes,
   ceilTo30Min,
 } from '@/lib/leave-timeline'
 import {
@@ -73,7 +73,10 @@ export async function POST(request: Request) {
       leaveTimeline = body.leaveTimeline as LeaveTimeline
     }
     const leaveAllDay = isFullDayLeave(leaveTimeline ?? [])
-    const leaveMinutes = totalLeaveRoundedMinutes(leaveTimeline ?? [])
+    // v1.59 — EW/실근무 차감은 full_day만. 8H 미만(반차/시간단위)은 표시만 남기고 차감 0.
+    // DB snapshot `leave_minutes` 컬럼도 calculateEw에 들어가는 effective 차감 분을 박제.
+    // 통계/알림 표시는 leave_timeline에서 직접 계산하므로 영향 없음.
+    const leaveMinutes = effectiveLeaveDeductionMinutes(leaveTimeline ?? [])
 
     // 다음 출근 예정 휴가
     let expectedLeaveTimeline: LeaveTimeline | null = null

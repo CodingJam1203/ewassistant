@@ -18,8 +18,11 @@ import {
 
 /**
  * 휴가 시간(분) → leaveType 자동 매핑.
- * 정규 근무 길이(480min = 8h)일 때만 full_day. 그 외(30~450min)는 morning_half로 둬서
- * 차감 시간이 EW 계산에 정확히 반영되게 한다. (LeaveTimelineInput·VacationRegisterModal 공용)
+ * 정규 근무 길이(480min = 8h)일 때만 full_day. 그 외(30~450min)는 morning_half.
+ *
+ * v1.59 (2026-05-30): 8H 미만(반차/시간단위) 휴가는 EW/실근무 시간 차감에서 제외됨.
+ * leaveType은 표시(캘린더·둘러보기·상태) 및 Google 캘린더 push 용도로만 사용.
+ * 사용자에게는 "8시간 미만 휴가는 휴게의 형태로 퇴근보고 시 직접 등록" 안내가 노출됨.
  */
 export function minutesToLeaveType(minutes: number): LeaveType | null {
   if (minutes <= 0) return null
@@ -138,11 +141,50 @@ export function validateLeaveTimeline(timeline: LeaveTimeline): LeaveValidationE
 
 // ─── 휴가: 계산 / 표시 ─────────────────────────────────────────────────────────
 
-/** 휴가 항목들의 총 차감 분 */
+/**
+ * 휴가 항목들의 총 분 합계.
+ *
+ * 용도 — 통계/표시/알림(work-hours 통계, Teams 메시지 등). EW 계산용 차감 분은 별개 함수
+ * [[effectiveLeaveDeductionMinutes]] 를 써야 한다 (v1.59부터 8H 미만은 EW에서 0).
+ */
 export function totalLeaveRoundedMinutes(timeline: LeaveTimeline | null | undefined): number {
   if (!Array.isArray(timeline)) return 0
   return timeline.reduce((sum, it) => sum + (it.roundedMinutes ?? 0), 0)
 }
+
+/**
+ * EW/실근무 계산용 휴가 차감 분 (v1.59, 2026-05-30).
+ *
+ * 정책 — full_day(8H 종일 휴가)만 실근무에서 시간 차감. morning_half / afternoon_half /
+ * 시간단위 휴가는 캘린더·둘러보기·상태에 표시는 유지하되 EW 계산에서는 0분으로 처리.
+ * 8H 미만 휴가는 사용자가 퇴근보고 시 휴게로 직접 등록하는 워크플로우로 통일.
+ *
+ * calculateEw 호출처에서 input.leaveMinutes 값으로 이 함수의 결과를 넘겨야 한다.
+ * 통계/알림 표시는 [[totalLeaveRoundedMinutes]] 를 그대로 사용한다.
+ */
+export function effectiveLeaveDeductionMinutes(timeline: LeaveTimeline | null | undefined): number {
+  if (!Array.isArray(timeline)) return 0
+  return timeline.reduce(
+    (sum, it) => sum + (it.leaveType === 'full_day' ? (it.roundedMinutes ?? 0) : 0),
+    0,
+  )
+}
+
+/**
+ * 8H 미만 휴가(반차/시간단위)가 timeline에 있는지 — 안내 멘트 노출 분기용.
+ * full_day와 무관 (full_day는 별개 경로). v1.59.
+ */
+export function hasSubFullDayLeave(timeline: LeaveTimeline | null | undefined): boolean {
+  if (!Array.isArray(timeline)) return false
+  return timeline.some(it => it.leaveType !== 'full_day' && (it.roundedMinutes ?? 0) > 0)
+}
+
+/**
+ * v1.59 안내 멘트 — LeaveTimelineInput / 보고 모달 / 캘린더 prefill 후 노출.
+ * 한 문자열로 공통 사용해서 카피 일관성 유지.
+ */
+export const SUB_FULL_DAY_LEAVE_NOTICE =
+  '8시간 미만의 휴가는 EW 시간에서 차감되지 않습니다. 휴게의 형태로 퇴근보고 시 직접 등록해주세요.'
 
 /** 휴가 시간 범위 중 어느 하나라도 점심시간(12:00~13:00)을 포함하는지 */
 export function leaveIncludesLunch(timeline: LeaveTimeline | null | undefined): boolean {

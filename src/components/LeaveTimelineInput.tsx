@@ -19,12 +19,18 @@
  * full_day면 actualWork=0, EW="휴가" 강제. 따라서 종일 분류는 신중해야 함.
  */
 
-import { Plane, AlertCircle } from 'lucide-react'
+import { Plane, AlertCircle, Info } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import {
   type LeaveTimeline,
 } from '@/types/leave-timeline'
-import { buildLeaveItem, minutesToLeaveType, LEAVE_TIME_OPTIONS } from '@/lib/leave-timeline'
+import {
+  buildLeaveItem,
+  minutesToLeaveType,
+  LEAVE_TIME_OPTIONS,
+  hasSubFullDayLeave,
+  SUB_FULL_DAY_LEAVE_NOTICE,
+} from '@/lib/leave-timeline'
 import CustomDropdown from '@/components/ui/CustomDropdown'
 
 interface LeaveTimelineInputProps {
@@ -58,6 +64,9 @@ function timelineToMinutes(timeline: LeaveTimeline): number {
 export default function LeaveTimelineInput({ value, onChange, disabled }: LeaveTimelineInputProps) {
   const currentMinutes = timelineToMinutes(value)
   const userMode = useUserCalendarMode()
+  // v1.59 (2026-05-30) — 8H 미만 휴가(반차/시간단위)는 EW에서 차감 안 되니 사용자에게 안내.
+  // 사용자가 직접 등록했든 캘린더에서 자동 매핑됐든(prefill) value에 반영되어 있으면 노출 → (a)(b)(c) 3시점 자동 커버.
+  const showSubFullDayNotice = hasSubFullDayLeave(value)
 
   const handleMinutesChange = (newMinutes: number) => {
     const leaveType = minutesToLeaveType(newMinutes)
@@ -96,6 +105,13 @@ export default function LeaveTimelineInput({ value, onChange, disabled }: LeaveT
         }))}
       />
       </div>
+      {/* v1.59 — 8H 미만 휴가 안내. 캘린더 자동 매핑(prefill) / 사용자 수동 등록 모두 같은 멘트 노출. */}
+      {showSubFullDayNotice && (
+        <div className="flex items-start gap-1.5 text-[11px] text-info-text bg-info-bg border border-info-border rounded-md px-2 py-1.5 leading-snug">
+          <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span>{SUB_FULL_DAY_LEAVE_NOTICE}</span>
+        </div>
+      )}
     </div>
   )
 }

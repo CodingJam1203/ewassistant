@@ -23,7 +23,7 @@ import {
 import {
   validateLeaveTimeline,
   isFullDayLeave,
-  totalLeaveRoundedMinutes,
+  effectiveLeaveDeductionMinutes,
 } from '@/lib/leave-timeline'
 import {
   snapMinutes,
@@ -180,7 +180,8 @@ export async function POST(request: Request) {
           || (timeline ? buildLocationSummary(timeline) : workLocation)
           || workLocation)
 
-    const leaveMinutes = totalLeaveRoundedMinutes(leaveTimeline ?? [])
+    // v1.59 — full_day만 EW 차감. 8H 미만 휴가는 표시만 유지 (효과 0).
+    const leaveMinutes = effectiveLeaveDeductionMinutes(leaveTimeline ?? [])
 
     const calcResult = calculateEw({
       name,

@@ -1,6 +1,6 @@
 # N-Click 시간 및 보고 정책서
 
-> **최종 갱신** — 2026-05-28 (v1.58 — reminder 알림에 종일 휴가자 미보고→휴가 분리)
+> **최종 갱신** — 2026-05-30 (v1.59 — 휴가 EW 차감 모델 단순화: 8H 종일만 차감, 반차/시간단위는 표시만 + 8H 미만 안내 멘트)
 > **상태** — Stage 0~7 반영 완료. 단일 `(user_email, leave_date)` row + 4 시간 컬럼 통합 모델.
 > **단일 진실 (SoT)** — 이 문서가 N-Click 시간·보고 관련 모든 의사결정의 기준이다.
 
@@ -249,6 +249,49 @@ work_logs UPSERT 시 leave_timeline 변경분을 사용자 본부의 vacation �
 **RAW 탭 표시 — `work_log_submissions.report_type` CHECK 확장**
 
 기존 5개(`check_in/check_out/check_in_update/check_out_update/check_in_complete`) → 8개 (`check_in_delete/check_out_delete/work_log_delete` 추가). 마이그레이션 `035_work_log_submissions_partial_delete_types.sql`. RAW 탭에 빨간 `danger` 배지로 "출근보고 삭제 / 퇴근보고 삭제 / 전체 삭제" 표시.
+
+### 3.8 휴가 EW 차감 모델 — 8H 종일만 차감 (v1.59, 2026-05-30)
+
+**원인** — 8H 미만 시간단위 휴가가 전체 근무시간 계산과 섞여 사용자 혼동. 정진성 5/29 케이스: 오전반차(`source='calendar'`) + 13:00~18:00 출근 보고 → preview에서 휴가 4:00 차감되어 실근무 0:00 표시.
+
+**정책**
+
+| 휴가 형태 | leaveType | EW/실근무 차감 | 표시 (캘린더·둘러보기·상태) | Google 캘린더 push |
+|---|---|---|---|---|
+| 종일 휴가 (8H) | `full_day` | ✅ 480분 차감 (기존 유지) | ✅ | ✅ `[이름] 8H 휴가` 종일 |
+| 오전/오후 반차 | `morning_half` / `afternoon_half` | ❌ **0분 (차감 X)** | ✅ | ✅ `[이름] 4H 휴가` 종일 |
+| 시간단위 휴가 | `morning_half` 매핑 | ❌ **0분 (차감 X)** | ✅ | ✅ `[이름] XH 휴가` 종일 |
+
+**구현 위치**
+
+| 항목 | 정책 | 구현 위치 | 상태 |
+|---|---|---|---|
+| EW 차감용 합계 헬퍼 | `full_day` 항목의 `roundedMinutes`만 sum | `src/lib/leave-timeline.ts:effectiveLeaveDeductionMinutes` | ✅ |
+| 표시/통계용 합계 헬퍼 | 모든 휴가 항목 sum (기존 유지) | `src/lib/leave-timeline.ts:totalLeaveRoundedMinutes` | ✅ |
+| EW 호출처 — POST/PATCH `/api/work-logs` | `leaveMinutes`에 `effectiveLeaveDeductionMinutes` 결과 전달 | `route.ts:76`, `[id]/route.ts:198` | ✅ |
+| EW 호출처 — POST `/api/team-status/check-in` | 동일 | `check-in/route.ts:184` | ✅ |
+| EW 호출처 — `WorkLogForm` preview + submit | `leaveMinutesTotal` / `submittedLeaveMinutes` 둘 다 effective | `WorkLogForm.tsx:593, 919` | ✅ |
+| Google 캘린더 push (vacation-sync) | 변경 없음 — 모든 휴가를 종일 이벤트로 push (8H 미만 포함) | `vacation-sync.ts:buildVacationEventBody` | ✅ (기존 유지) |
+| `bulk-leave` API 휴가 일괄 등록 | `leaveMinutes` 명시 입력 그대로 — 사용자 의도라 effective 적용 안 함 | `bulk-leave/route.ts:78-80, 168` | ✅ (기존 유지) |
+
+**8H 미만 휴가 안내 멘트**
+
+- 카피 — `SUB_FULL_DAY_LEAVE_NOTICE` (`leave-timeline.ts`): "8시간 미만의 휴가는 EW 시간에서 차감되지 않습니다. 휴게의 형태로 퇴근보고 시 직접 등록해주세요."
+- 노출 위치 — `LeaveTimelineInput` 컴포넌트의 inline notice. value(timeline)에 8H 미만 항목이 있으면 자동 노출.
+- 사용자 액션 — (a) 사용자가 LeaveTimelineInput에서 직접 8H 미만 휴가 등록 / (b) CheckInModal·WorkLogForm 폼 진입 후 제출 직전 (LeaveTimelineInput이 폼 내내 보이므로 자연 노출) / (c) Google 캘린더에서 8H 미만 휴가가 자동 prefill됐을 때 — **3시점 모두 동일 멘트로 커버**.
+- 구현 위치 — `src/components/LeaveTimelineInput.tsx:hasSubFullDayLeave(value)` 분기 + `Info` 아이콘 + `info-bg` 색.
+
+**종일 휴가(full_day) 충돌 가드** — 기존 정책 그대로
+
+- 종일 휴가 row에 실제 근무 보고 시 — 근무 우선, 휴가 자동 삭제 (사용자 confirm 필요)
+- 구현 — `CheckInModal.tsx:411-424`, `WorkLogForm.tsx:890-913` (`baselineHadFullDay` + `userExplicitLeaveIntent` 이중 가드 + confirm modal)
+- 별도 이슈로 baseline 갱신 누락·콤보 D+1 가드 미발동 의심 분기 있음 (Notion `[버그] 종일휴가 충돌 가드 재검증`) — v1.59 작업과 분리.
+
+**정진성 5/29 케이스 박제**
+
+- 증상 — 오전반차(calendar source) + 13:00~18:00 실제 출근 보고 시 preview에 휴가 4:00 차감, 실근무 0:00 표시.
+- 원인 — preview 단계의 `leaveMinutesTotal`이 `totalLeaveRoundedMinutes` 기반이라 반차도 EW에서 차감. submit 시점엔 `submittedLeave.filter(source!=='calendar')`로 calendar source가 제거되지만 사용자가 보는 preview와 갭 발생.
+- v1.59 해결 — preview·submit 모두 `effectiveLeaveDeductionMinutes` 사용 → calendar source 반차가 timeline에 살아있어도 EW 차감 0 → preview 정상 (5h − 점심 1h = 실근무 4:00).
 
 ---
 

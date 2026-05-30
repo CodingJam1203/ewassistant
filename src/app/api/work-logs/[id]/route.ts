@@ -46,7 +46,7 @@ import {
 import {
   validateLeaveTimeline,
   isFullDayLeave,
-  totalLeaveRoundedMinutes,
+  effectiveLeaveDeductionMinutes,
   ceilTo30Min,
 } from '@/lib/leave-timeline'
 import {
@@ -195,7 +195,8 @@ export async function PATCH(
       (leaveTimelinePatch ?? null) as LeaveTimeline | null
       ?? []
     const leaveAllDay = isFullDayLeave(effectiveLeaveTimeline)
-    const leaveMinutesEff = totalLeaveRoundedMinutes(effectiveLeaveTimeline)
+    // v1.59 — full_day만 EW 차감. 8H 미만은 표시만 유지.
+    const leaveMinutesEff = effectiveLeaveDeductionMinutes(effectiveLeaveTimeline)
 
     // ─── v2 chips PATCH ─────────────────────────────────────────────────────
     let actualWorkLocationsPatch: WorkLocations | null | undefined = undefined
