@@ -175,12 +175,17 @@ function workLogToSubmissionPair(row: WorkLogRow): {
   // (SubmissionsRawTable.workLogToFinalRows와 동일 기준 적용 — 일관성 확보.)
   // legacy start_time/end_time fallback이 work_location 등 본문 컬럼을
   // 출근보고로 fake-fill하는 문제 차단 (2026-05-26 fix).
+  // v1.60.3 — leave_timeline이 채워진 row(=휴가 등록 모달 bulk-leave 생성)도 보고 작성으로
+  // 인식. 안 그러면 buildDisplayItems의 extractLeaveBadge가 null을 반환해 캘린더 셀에
+  // 휴가 chip이 안 뜸. bulk-leave는 planned_*_time/attendance_record_type을 출근보고
+  // 마커로 안 채우므로 leave_timeline 자체를 보고 작성 신호로 처리.
   const hasCheckIn =
     row.planned_start_time !== null ||
     row.planned_end_time !== null ||
     (Array.isArray(row.planned_work_locations) && row.planned_work_locations.length > 0) ||
     !!row.expected_start_date ||
-    row.attendance_record_type === '출근보고 진행 (주말출근, 휴가 포함)'
+    row.attendance_record_type === '출근보고 진행 (주말출근, 휴가 포함)' ||
+    (Array.isArray(row.leave_timeline) && row.leave_timeline.length > 0)
   const checkIn: SubmissionRow | null = hasCheckIn ? {
     ...baseCommon,
     report_type: 'check_in',
