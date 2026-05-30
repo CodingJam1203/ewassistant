@@ -93,6 +93,9 @@ export async function POST(request: Request) {
     // minimal row INSERT — dismissed 마커 전용. 다른 view에서 보고로 오인되지 않게 본문 비움.
     // attendance_record_type / planned_*_time / work_location_timeline 모두 null.
     // work_location은 NOT NULL이라 빈 문자열.
+    // v1.61.4 — work_logs 테이블의 NOT NULL 컬럼들을 minimal 값으로 채움.
+    // 다른 view에서 보고로 오인되지 않게 attendance_record_type=null, leave_timeline=null,
+    // ew_value/copy_text/work_location은 빈 문자열, *_time 컬럼은 0 interval.
     const { data: inserted, error: insErr } = await adminClient
       .from('work_logs')
       .insert({
@@ -102,12 +105,18 @@ export async function POST(request: Request) {
         team: userTeam,
         name: displayName,
         work_type_label: '(평일) 기본 근무',
+        work_type_code: 1,
         leave_date: date,
-        // legacy NOT NULL 만족용 minimum
         start_time: '09:00',
         end_time: '18:00',
         break_time: '00:00:00',
         work_location: '',
+        deduction_time: '0 minutes',
+        actual_work_time: '0 minutes',
+        ew_start: '',
+        ew_end: '',
+        ew_value: '',
+        copy_text: '',
         leave_timeline: null,
         late_or_attendance_status: '아니오',
         calendar_prefill_dismissed: true,
