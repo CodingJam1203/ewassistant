@@ -1,6 +1,6 @@
 # N-Click 시간 및 보고 정책서
 
-> **최종 갱신** — 2026-05-30 (v1.61 — admin Spreadsheet URL 등록 + 안내 박스 [캘린더 시트 열기] deep link)
+> **최종 갱신** — 2026-05-30 (v1.61.1 — 시트/Google 캘린더 자동 인식 휴가도 모달에서 [이 휴가 취소] 가능 — work_log row 없으면 dismiss-only minimal row 자동 생성)
 > **상태** — Stage 0~7 반영 완료. 단일 `(user_email, leave_date)` row + 4 시간 컬럼 통합 모델.
 > **단일 진실 (SoT)** — 이 문서가 N-Click 시간·보고 관련 모든 의사결정의 기준이다.
 
@@ -481,6 +481,24 @@ manual source 항목엔 시트 안내 멘트 미노출 (사용자 직접 등록�
 CalendarDayDetailModal의 휴가 박스에서는 박스 하단에 한 번만 노출 (각 항목별 반복 X).
 
 **알려진 한계** — URL은 본부 단위(`org_sheet_sources.division_id` 1건). 팀별로 다른 시트는 v1.62 이후 검토.
+
+### 3.15 시트/Google 캘린더 자동 인식 휴가도 모달 안에서 취소 가능 (v1.61.1, 2026-05-30)
+
+**원인** — v1.60.7 dismissed 마커는 work_log row가 있어야 동작. 신규 작성 모드(row 없음)에서 시트 자동 인식 휴가를 모달에서 무시할 경로가 없었음. CalendarDayDetailModal의 "Google 캘린더" 박스도 read-only — N-Click 휴가 박스(`[이 휴가 취소]` 액션 있음)와 UI 비대칭. 사용자 피드백: "구글캘린더 인식 휴가도 N-Click 휴가처럼 확인 및 취소가 가능해야".
+
+**해결 — 신규 endpoint + 모달 액션 통합**
+
+| 항목 | 사양 |
+|---|---|
+| 신규 endpoint | `POST /api/work-logs/dismiss-calendar-prefill` body `{ date }`. row 있으면 leave_timeline에서 `source='calendar'` 항목 제거 + `dismissed=true`. row 없으면 minimal row INSERT (`leave_timeline=null`, `dismissed=true`, `attendance_record_type=null`) |
+| CalendarDayDetailModal | "Google 캘린더" 박스에 `[이 휴가 취소]` 버튼 — 동일 endpoint 호출. 응답 후 `onLeaveTimelinePatched` callback으로 캘린더 refetch |
+| CheckInModal onRemove fallback | `workLogId` 없고 `removed.source === 'calendar'`이면 dismiss endpoint 호출. 응답의 `workLogId`를 setState로 보관 |
+| WorkLogForm onRemove fallback | 동일 패턴. `existingWorkLogIdRef`에 보관 |
+| vacation-sync | row 있는 경로는 leave_timeline diff로 Google events.delete 자동. minimal row INSERT 경로는 sync 없음 (prev 비어있음) |
+
+**Minimal row 정책** — `attendance_record_type=null` → 둘러보기·미보고 view에서 "보고됨"으로 잘못 잡히지 않음. `leave_timeline=null` → 캘린더 셀 chip 사라짐. `work_location=''` (legacy NOT NULL). `calendar_prefill_dismissed=true` → 다음 prefill 차단.
+
+**audit** — `work_log_dismiss_calendar_prefill` action으로 `was_existing` / `prev` / `next` 박제.
 
 ---
 

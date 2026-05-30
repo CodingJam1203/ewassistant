@@ -1429,6 +1429,25 @@ export default function WorkLogForm({
                     alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`)
                     return
                   }
+                } else if (removed.source === 'calendar' && dateStr) {
+                  // v1.61.1 — 신규 작성 모드 + calendar source → dismiss endpoint
+                  try {
+                    const res = await fetch('/api/work-logs/dismiss-calendar-prefill', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ date: dateStr }),
+                    })
+                    if (!res.ok) {
+                      const j = await res.json().catch(() => null)
+                      alert(`삭제 실패: ${j?.error ?? res.statusText}`)
+                      return
+                    }
+                    const data = await res.json() as { workLogId?: string }
+                    if (data.workLogId) existingWorkLogIdRef.current = data.workLogId
+                  } catch (e) {
+                    alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`)
+                    return
+                  }
                 }
 
                 // form state 동기화

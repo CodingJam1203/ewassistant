@@ -899,6 +899,8 @@ export default function CheckInModal({
               // workLogId 있으면 즉시 PATCH — 사용자가 모달 닫아도 DB 반영 유지.
               // v1.60.7 — calendar source 항목 삭제면 dismissCalendarPrefill=true 같이 보내서
               // Spreadsheet 무시 마커 set. 다음 prefill 진입 시 그 항목 안 들어옴.
+              // v1.61.1 — workLogId 없는 신규 작성 모드이고 calendar source면 dismiss endpoint로
+              // minimal row 생성 + 마커 set (자동 row INSERT).
               if (workLogId) {
                 try {
                   const res = await fetch(`/api/work-logs/${workLogId}/leave-timeline`, {
@@ -914,6 +916,25 @@ export default function CheckInModal({
                     alert(`삭제 실패: ${j?.error ?? res.statusText}`)
                     return
                   }
+                } catch (e) {
+                  alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`)
+                  return
+                }
+              } else if (removed.source === 'calendar') {
+                // v1.61.1 — 신규 작성 모드 + calendar source → dismiss endpoint
+                try {
+                  const res = await fetch('/api/work-logs/dismiss-calendar-prefill', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date }),
+                  })
+                  if (!res.ok) {
+                    const j = await res.json().catch(() => null)
+                    alert(`삭제 실패: ${j?.error ?? res.statusText}`)
+                    return
+                  }
+                  const data = await res.json() as { workLogId?: string }
+                  if (data.workLogId) setWorkLogId(data.workLogId)
                 } catch (e) {
                   alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`)
                   return

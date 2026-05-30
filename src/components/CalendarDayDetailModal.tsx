@@ -321,9 +321,35 @@ export default function CalendarDayDetailModal({
           {calendar?.enabled && (calendar.leaveLabel || (calendar.events && calendar.events.length > 0)) && (
             <Section title="Google 캘린더">
               {calendar.leaveLabel && (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Badge variant="warning" dot>{calendar.leaveLabel}</Badge>
                   <span className="text-[12px] text-text-muted">시트에서 자동 인식</span>
+                  {/* v1.61.1 — N-Click 휴가 박스와 동일하게 [이 휴가 취소] 액션.
+                      work_log row 유무 무관 — endpoint가 자동 처리(존재 시 update, 부재 시 minimal row INSERT) */}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!window.confirm(`${date} 휴가를 취소하시겠습니까?\n시트 원본은 자동으로 빠지지 않습니다.`)) return
+                      try {
+                        const res = await fetch('/api/work-logs/dismiss-calendar-prefill', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ date }),
+                        })
+                        if (!res.ok) {
+                          const j = await res.json().catch(() => null)
+                          alert(`취소 실패: ${j?.error ?? res.statusText}`)
+                          return
+                        }
+                        onLeaveTimelinePatched?.()
+                      } catch (e) {
+                        alert(`취소 실패: ${e instanceof Error ? e.message : String(e)}`)
+                      }
+                    }}
+                    className="ml-auto shrink-0 text-[11px] font-medium text-warning-text underline underline-offset-2 hover:text-warning-text/80"
+                  >
+                    이 휴가 취소
+                  </button>
                 </div>
               )}
               {calendar.events && calendar.events.length > 0 && (
