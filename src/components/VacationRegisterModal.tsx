@@ -206,7 +206,20 @@ export default function VacationRegisterModal({
           <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <Field label="시작일" required>
-                <DateInputWithDow value={startDate} onChange={setStartDate} className="w-full" />
+                <DateInputWithDow
+                  value={startDate}
+                  onChange={(newStart) => {
+                    // v1.61.10 — 시작일 변경 시 종료일 자동 따라가기.
+                    // 종료일이 기존 시작일과 같았으면(단일 날짜 의도) 새 시작일로 동기화.
+                    // 종료일이 기존 시작일 ~ 새 시작일 사이 또는 새 시작일보다 작으면 동기화 (역전 방지).
+                    // 사용자가 명시 늘려둔 기간(종료 > 새 시작)이면 그대로 유지.
+                    setStartDate(newStart)
+                    if (newStart && (endDate === startDate || endDate < newStart)) {
+                      setEndDate(newStart)
+                    }
+                  }}
+                  className="w-full"
+                />
               </Field>
               <Field label="종료일" required>
                 <DateInputWithDow value={endDate} onChange={setEndDate} className="w-full" />

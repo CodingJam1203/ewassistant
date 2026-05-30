@@ -790,13 +790,33 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved, re
                     <input
                       type="date"
                       value={startDate}
-                      onChange={e => setStartDate(e.target.value)}
+                      onChange={e => {
+                        // v1.61.10 — 시작일 변경 시 종료일 자동 동기화 (역전 방지).
+                        // 종료일 == 기존 시작일 또는 종료일 < 새 시작일이면 종료일도 set.
+                        const v = e.target.value
+                        setStartDate(v)
+                        if (v && (endDate === startDate || endDate < v)) {
+                          setEndDate(v)
+                        }
+                      }}
                       className="block w-full h-9 px-2 rounded-[10px] border border-border-strong bg-surface text-sm"
                     />
                     {!isAllDay && (
                       <TimeSelect
                         value={startTime}
-                        onChange={setStartTime}
+                        onChange={(v) => {
+                          // v1.61.10 — 시작 시간 변경 시 종료가 시작 이하이면 시작+1h로 자동 조정.
+                          // 같은 일자 + 종료 ≤ 새 시작 → 종료 = 시작+1h. 다른 일자면 손대지 않음.
+                          setStartTime(v)
+                          if (startDate === endDate && endTime <= v) {
+                            const [hh, mm] = v.split(':').map(Number)
+                            const totalMin = (hh * 60 + mm) + 60  // +1h
+                            const newHh = Math.floor(totalMin / 60) % 24
+                            const newMm = totalMin % 60
+                            const newEnd = `${String(newHh).padStart(2, '0')}:${String(newMm).padStart(2, '0')}`
+                            setEndTime(newEnd)
+                          }
+                        }}
                         minuteStep={30}
                         ariaLabelHour="시작 시"
                         ariaLabelMinute="시작 분"
