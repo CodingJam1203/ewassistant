@@ -107,6 +107,31 @@ export async function PATCH(
     return NextResponse.json({ error: updErr.message }, { status: 500 })
   }
 
+  // v1.61.6 — leave_timeline 비우고 다른 보고 데이터(시간/근무내용)도 없으면 row 자체 soft delete.
+  // 사용자가 휴가만 등록했던 row를 취소한 후 잔재로 남아 다음 bulk-leave가 "이미 있다"고
+  // skip시키던 문제 fix. 보고 데이터 있으면 row 유지 (부분 취소 케이스).
+  if (nextLeaveTimeline === null || nextLeaveTimeline.length === 0) {
+    const { data: postRow } = await adminClient
+      .from('work_logs')
+      .select('actual_start_time, actual_end_time, planned_start_time, planned_end_time, work_content, attendance_record_type')
+      .eq('id', id)
+      .maybeSingle()
+    if (postRow) {
+      const noActual = !postRow.actual_start_time && !postRow.actual_end_time
+      const noPlanned = !postRow.planned_start_time && !postRow.planned_end_time
+      const noContent = !postRow.work_content
+      // bulk-leave가 만든 휴가 전용 row 또는 attendance_record_type=null인 dismiss minimal row만 정리
+      const dismissibleType = !postRow.attendance_record_type
+        || postRow.attendance_record_type === '스킵(누락퇴근보고, 퇴근보고 수정)'
+      if (noActual && noPlanned && noContent && dismissibleType) {
+        await adminClient
+          .from('work_logs')
+          .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+          .eq('id', id)
+      }
+    }
+  }
+
   // v1.60.6 — leave_timeline diff를 Google Vacation Calendar에도 반영 (best-effort).
   // 정책: N-Click ↔ Google Vacation Calendar 양방향 sync — full_day / 8H 미만 모두 push.
   // 사용자가 [이 휴가 취소] / [일정 삭제] 누르면 Google 측 이벤트도 같이 events.delete.
