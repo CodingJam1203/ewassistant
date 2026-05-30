@@ -27,7 +27,7 @@ import {
   type UserMonthSummary,
 } from '@/lib/utils/work-hours'
 import type { LeaveTimeline } from '@/types/leave-timeline'
-import { totalLeaveRoundedMinutes } from '@/lib/leave-timeline'
+import { effectiveLeaveDeductionMinutes } from '@/lib/leave-timeline'
 import { LEAVE_TYPE_DEFINITIONS } from '@/types/leave-timeline'
 import {
   isCalendarEnabled,
@@ -150,7 +150,8 @@ export async function GET(request: Request) {
         division: null,
         team: null,
         actual_work_time: r.actual_work_time,
-        leave_minutes_sum: totalLeaveRoundedMinutes(r.leave_timeline ?? null),
+        // v1.60.6 — 새 정책 일관성. 통계 휴가 합계도 full_day만 (8H 미만은 일정).
+        leave_minutes_sum: effectiveLeaveDeductionMinutes(r.leave_timeline ?? null),
       }))
 
       // Google 캘린더 휴가 자동 인정 — work_log 없는 과거 날짜에만
@@ -165,7 +166,10 @@ export async function GET(request: Request) {
           if (!target) continue
           const parsed = parseCell(target.cellValue)
           if (!parsed.leaveType) continue
-          const minutes = LEAVE_TYPE_DEFINITIONS[parsed.leaveType].defaultDeductionMinutes
+          // v1.60.6 — 자동 인정도 full_day만 통계 합산. 8H 미만(반차/시간단위)은 일정 개념이라
+          // work_log 없는 일자에도 통계 차감 X. work_log 있으면 위 분기에서 leave_timeline 합계로 처리.
+          if (parsed.leaveType !== 'full_day') continue
+          const minutes = LEAVE_TYPE_DEFINITIONS.full_day.defaultDeductionMinutes
           logRows.push({
             email: user.email!,
             display_name: null,
@@ -283,7 +287,8 @@ export async function GET(request: Request) {
 
     const logsByEmail = new Map<string, UserMonthInputRow[]>()
     for (const row of dedupedLogs) {
-      const leaveMin = totalLeaveRoundedMinutes(row.leave_timeline ?? null)
+      // v1.60.6 — 동일 정책 (full_day만 통계 합계)
+      const leaveMin = effectiveLeaveDeductionMinutes(row.leave_timeline ?? null)
       const arr = logsByEmail.get(row.user_email) ?? []
       arr.push({
         email: row.user_email,

@@ -22,6 +22,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdmin, requireActiveUser } from '@/lib/admin-check'
 import { validateLeaveTimeline } from '@/lib/leave-timeline'
 import { recordAudit, extractRequestMeta } from '@/lib/audit-log'
+import { syncLeaveTimelineWithGoogle } from '@/lib/google-calendar/vacation-sync'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 
 export const runtime = 'nodejs'
@@ -46,7 +47,7 @@ export async function PATCH(
   // 권한 — 본인 또는 admin
   const { data: log } = await adminClient
     .from('work_logs')
-    .select('id, user_id, user_email, leave_date, leave_timeline, is_deleted')
+    .select('id, user_id, user_email, name, leave_date, leave_timeline, is_deleted')
     .eq('id', id)
     .maybeSingle()
   if (!log) {
@@ -80,6 +81,10 @@ export async function PATCH(
     nextLeaveTimeline = incoming as LeaveTimeline
   }
 
+  const prevLeaveTimeline = (Array.isArray(log.leave_timeline)
+    ? (log.leave_timeline as LeaveTimeline)
+    : []) as LeaveTimeline
+
   const { error: updErr } = await adminClient
     .from('work_logs')
     .update({
@@ -90,6 +95,29 @@ export async function PATCH(
     .eq('is_deleted', false)
   if (updErr) {
     return NextResponse.json({ error: updErr.message }, { status: 500 })
+  }
+
+  // v1.60.6 — leave_timeline diff를 Google Vacation Calendar에도 반영 (best-effort).
+  // 정책: N-Click ↔ Google Vacation Calendar 양방향 sync — full_day / 8H 미만 모두 push.
+  // 사용자가 [이 휴가 취소] / [일정 삭제] 누르면 Google 측 이벤트도 같이 events.delete.
+  // 실패해도 throw 안 함 (DB 변경은 이미 반영됨). 결과로 google_event_id 채워지면 work_logs 재update.
+  try {
+    const result = await syncLeaveTimelineWithGoogle({
+      adminClient,
+      userEmail: log.user_email ?? user.email!,
+      userDisplayName: (log.name as string | null) ?? user.email!,
+      leaveDate: log.leave_date as string,
+      prev: prevLeaveTimeline,
+      next: nextLeaveTimeline ?? [],
+    })
+    if (result.changed && result.updatedTimeline) {
+      await adminClient
+        .from('work_logs')
+        .update({ leave_timeline: result.updatedTimeline })
+        .eq('id', id)
+    }
+  } catch (err) {
+    console.warn('[leave-timeline PATCH] vacation-sync failed (non-fatal):', err)
   }
 
   // Audit

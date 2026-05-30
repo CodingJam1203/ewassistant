@@ -1,6 +1,6 @@
 # N-Click 시간 및 보고 정책서
 
-> **최종 갱신** — 2026-05-30 (v1.60.2 — `이 휴가 취소` 시 work_location/시간도 default reset)
+> **최종 갱신** — 2026-05-30 (v1.60.6 — leave-timeline endpoint에 vacation-sync 호출 추가 + work-hours 자동 인정 새 정책 적용)
 > **상태** — Stage 0~7 반영 완료. 단일 `(user_email, leave_date)` row + 4 시간 컬럼 통합 모델.
 > **단일 진실 (SoT)** — 이 문서가 N-Click 시간·보고 관련 모든 의사결정의 기준이다.
 
@@ -271,6 +271,7 @@ work_logs UPSERT 시 leave_timeline 변경분을 사용자 본부의 vacation �
 | EW 호출처 — POST/PATCH `/api/work-logs` | `leaveMinutes`에 `effectiveLeaveDeductionMinutes` 결과 전달 | `route.ts:76`, `[id]/route.ts:198` | ✅ |
 | EW 호출처 — POST `/api/team-status/check-in` | 동일 | `check-in/route.ts:184` | ✅ |
 | EW 호출처 — `WorkLogForm` preview + submit | `leaveMinutesTotal` / `submittedLeaveMinutes` 둘 다 effective | `WorkLogForm.tsx:593, 919` | ✅ |
+| **통계 합계 — `work-hours/route.ts`** (v1.60.6) | work_log row 합계 + Spreadsheet 자동 인정 모두 full_day만. `effectiveLeaveDeductionMinutes` 사용 + 자동 인정 분기는 `parsed.leaveType !== 'full_day'`면 continue. | `work-hours/route.ts:153, 168, 286` | ✅ |
 | Google 캘린더 push (vacation-sync) | 변경 없음 — 모든 휴가를 종일 이벤트로 push (8H 미만 포함) | `vacation-sync.ts:buildVacationEventBody` | ✅ (기존 유지) |
 | `bulk-leave` API 휴가 일괄 등록 | `leaveMinutes` 명시 입력 그대로 — 사용자 의도라 effective 적용 안 함 | `bulk-leave/route.ts:78-80, 168` | ✅ (기존 유지) |
 
@@ -389,6 +390,37 @@ v1.60 read-only 안내가 적용된 후 사용자 피드백 — "휴가 취소 �
 8H 미만 `[일정 삭제]`는 leave_timeline만 제거 — 시간·근무장소는 사용자 입력 그대로 둠 (이미 일반 근무 흐름에 있는 일자).
 
 **알려진 한계** — `이 휴가 취소` / `[일정 삭제]`는 form state만 변경. 사용자가 모달의 제출 버튼(`출근 완료` / `출근 보고` / `제출하고 복사하기` / `수정`)을 눌러야 DB에 반영. 변경 후 모달을 그냥 닫으면 DB는 그대로. → v1.60.3에서 dirty 안내 또는 즉시 PATCH 검토.
+
+### 3.12 leave-timeline endpoint vacation-sync + work-hours 자동 인정 정책 (v1.60.6, 2026-05-30)
+
+**원인** — 두 갭 발견:
+1. v1.60.4에서 만든 `PATCH /api/work-logs/[id]/leave-timeline` endpoint가 vacation-sync 호출 안 함 → 사용자가 [이 휴가 취소] / [일정 삭제] 누르면 work_logs에선 빠지지만 Google Vacation Calendar 이벤트는 잔류.
+2. `/api/work-hours/route.ts` 자동 인정 분기가 v1.59 미적용 — Spreadsheet 휴가가 work_log 없는 과거 일자에 자동 합산될 때 `defaultDeductionMinutes` 그대로(`full_day=480`, `morning_half=240`, `afternoon_half=240`) 사용 → 8H 미만도 옛 정책으로 차감.
+
+**Fix 1 — leave-timeline endpoint vacation-sync 호출**
+
+- 위치 — `src/app/api/work-logs/[id]/leave-timeline/route.ts`
+- 흐름: UPDATE 후 `syncLeaveTimelineWithGoogle({adminClient, userEmail, userDisplayName, leaveDate, prev, next})` 호출. best-effort (실패 시 console.warn). google_event_id 채워진 경우 work_logs 재update.
+- 효과 — 사용자가 [이 휴가 취소] / [일정 삭제] 누르면 Google Vacation Calendar에서도 자동 events.delete (full_day · 8H 미만 모두).
+
+**Fix 2 — work-hours 자동 인정 새 정책**
+
+| 분기 | AS-IS (옛) | TO-BE (v1.60.6) |
+|---|---|---|
+| work_log row의 `leave_minutes_sum` 합계 | `totalLeaveRoundedMinutes(leave_timeline)` (모든 leaveType) | **`effectiveLeaveDeductionMinutes(leave_timeline)`** (full_day만) |
+| Spreadsheet 자동 인정 (work_log 없는 과거) | 모든 leaveType의 `defaultDeductionMinutes` 합산 | **`leaveType === 'full_day'`만 합산** — 그 외는 continue |
+
+위치 — `work-hours/route.ts:153, 168, 286`.
+
+**N-Click ↔ 외부 시스템 양방향성 매트릭스 (v1.60.6 기준)**
+
+| 외부 시스템 | N-Click → 외부 | 외부 → N-Click | 사용자 [삭제] 누르면 외부도 빠짐? |
+|---|---|---|---|
+| **Google Spreadsheet** (휴가 시트) | ❌ | ✅ (prefill만 — work_logs.leave_timeline에 source='calendar' 박힘) | ❌ — Sheets 단방향. 사용자가 Sheets에 직접 수정해야. 다음 prefill 시 다시 들어옴 |
+| **Google Vacation Calendar** (`org_calendars.calendar_type='vacation'`) | ✅ vacation-sync.ts (full_day + 8H 미만 모두 종일 이벤트로 push) | ✅ (cron iCal → org_calendar_events) — work_logs 자동 매핑은 X (별도 view) | ✅ v1.60.6 — work_logs.leave_timeline에서 빠지면 vacation-sync로 events.delete 자동 |
+| **Google Personal Calendar** | ❌ (service account가 안 건드림) | ❌ | — |
+
+**알려진 한계** — Spreadsheet 단방향 — 사용자 [일정 삭제]가 진짜로 안 보이게 하려면 시트 원본 직접 수정 필요. 다만 v1.60.6 work-hours fix로 통계 영향 0 (8H 미만 차감 X). 시트 수정 안 해도 EW/통계에는 잔재 없음. v1.60.7에서 `calendar_prefill_dismissed` 마커 + v1.61에서 `[캘린더 시트 열기]` deep link 별도 검토.
 
 ---
 
