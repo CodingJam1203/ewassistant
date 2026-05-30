@@ -1396,13 +1396,19 @@ export default function WorkLogForm({
                 const removed = current[idx]
                 if (!removed) return
                 // v1.60.4 — confirm 팝업 + 즉시 DB 반영
+                // v1.61.2 — calendar source는 시트 단방향이라 "가리기"가 정확.
                 const isFullDay = removed.leaveType === 'full_day'
+                const isCalendarSource = removed.source === 'calendar'
                 const hours = (removed.roundedMinutes ?? 0) / 60
                 const hoursText = Number.isInteger(hours) ? `${hours}` : hours.toFixed(1)
                 const dateStr = formValues.leaveDate ?? ''
                 const msg = isFullDay
-                  ? `${dateStr} 종일 휴가를 취소하시겠습니까?\n시간/근무장소가 기본값(09:00~18:00, 사무실)으로 초기화됩니다.`
-                  : `${dateStr} ${removed.label}(${hoursText}H) 일정을 삭제하시겠습니까?`
+                  ? (isCalendarSource
+                      ? `${dateStr} 종일 휴가를 N-Click 표시에서 가리시겠습니까?\n시간/근무장소가 기본값(09:00~18:00, 사무실)으로 초기화됩니다.\n\n※ 시트 원본은 자동으로 빠지지 않습니다.`
+                      : `${dateStr} 종일 휴가를 취소하시겠습니까?\n시간/근무장소가 기본값(09:00~18:00, 사무실)으로 초기화됩니다.`)
+                  : (isCalendarSource
+                      ? `${dateStr} ${removed.label}(${hoursText}H) 일정을 N-Click 표시에서 가리시겠습니까?\n\n※ 시트 원본은 자동으로 빠지지 않습니다.`
+                      : `${dateStr} ${removed.label}(${hoursText}H) 일정을 삭제하시겠습니까?`)
                 if (!window.confirm(msg)) return
 
                 const nextTimeline = current.filter((_, i) => i !== idx)

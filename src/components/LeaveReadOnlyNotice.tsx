@@ -113,7 +113,7 @@ export default function LeaveReadOnlyNotice({ value, labelPrefix, onRemove }: Le
                     onClick={() => onRemove(originalIndex)}
                     className="text-[11px] font-medium text-info-text underline underline-offset-2 hover:text-info-text/80"
                   >
-                    [일정 삭제]
+                    {isCalendarSource ? '[이 일자에서 가리기]' : '[일정 삭제]'}
                   </button>
                 </>
               )}

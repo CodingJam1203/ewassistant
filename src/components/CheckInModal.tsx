@@ -886,12 +886,18 @@ export default function CheckInModal({
               const removed = leaveTimeline[idx]
               if (!removed) return
               // v1.60.4 — confirm 팝업으로 사용자 의도 명시 확인. 확인 시 즉시 DB 반영.
+              // v1.61.2 — calendar source는 시트 단방향이라 "가리기"가 정확. 카피/안내 분기.
               const isFullDay = removed.leaveType === 'full_day'
+              const isCalendarSource = removed.source === 'calendar'
               const hours = (removed.roundedMinutes ?? 0) / 60
               const hoursText = Number.isInteger(hours) ? `${hours}` : hours.toFixed(1)
               const msg = isFullDay
-                ? `${date} 종일 휴가를 취소하시겠습니까?\n시간/근무장소가 기본값(09:00~18:00, 사무실)으로 초기화됩니다.`
-                : `${date} ${removed.label}(${hoursText}H) 일정을 삭제하시겠습니까?`
+                ? (isCalendarSource
+                    ? `${date} 종일 휴가를 N-Click 표시에서 가리시겠습니까?\n시간/근무장소가 기본값(09:00~18:00, 사무실)으로 초기화됩니다.\n\n※ 시트 원본은 자동으로 빠지지 않습니다.`
+                    : `${date} 종일 휴가를 취소하시겠습니까?\n시간/근무장소가 기본값(09:00~18:00, 사무실)으로 초기화됩니다.`)
+                : (isCalendarSource
+                    ? `${date} ${removed.label}(${hoursText}H) 일정을 N-Click 표시에서 가리시겠습니까?\n\n※ 시트 원본은 자동으로 빠지지 않습니다.`
+                    : `${date} ${removed.label}(${hoursText}H) 일정을 삭제하시겠습니까?`)
               if (!window.confirm(msg)) return
 
               const nextTimeline = leaveTimeline.filter((_, i) => i !== idx)

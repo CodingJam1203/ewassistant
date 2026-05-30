@@ -1,6 +1,6 @@
 # N-Click 시간 및 보고 정책서
 
-> **최종 갱신** — 2026-05-30 (v1.61.1 — 시트/Google 캘린더 자동 인식 휴가도 모달에서 [이 휴가 취소] 가능 — work_log row 없으면 dismiss-only minimal row 자동 생성)
+> **최종 갱신** — 2026-05-30 (v1.61.2 — calendar-events route에 본부 team의 calendar_mode 반영 + 외부 캘린더 UI/카피 mode별 분기)
 > **상태** — Stage 0~7 반영 완료. 단일 `(user_email, leave_date)` row + 4 시간 컬럼 통합 모델.
 > **단일 진실 (SoT)** — 이 문서가 N-Click 시간·보고 관련 모든 의사결정의 기준이다.
 
@@ -499,6 +499,38 @@ CalendarDayDetailModal의 휴가 박스에서는 박스 하단에 한 번만 노
 **Minimal row 정책** — `attendance_record_type=null` → 둘러보기·미보고 view에서 "보고됨"으로 잘못 잡히지 않음. `leave_timeline=null` → 캘린더 셀 chip 사라짐. `work_location=''` (legacy NOT NULL). `calendar_prefill_dismissed=true` → 다음 prefill 차단.
 
 **audit** — `work_log_dismiss_calendar_prefill` action으로 `was_existing` / `prev` / `next` 박제.
+
+### 3.16 calendar-events route에 team의 calendar_mode 반영 + 외부 캘린더 UI/카피 mode별 분기 (v1.61.2, 2026-05-30)
+
+**원인** — `GET /api/team-status/calendar-events`가 사용자 team의 `calendar_mode`를 완전 무시하고 무조건 leave_calendar_cache(시트) lookup. HR임팩트본부(전 팀 `gcal_only`, sheet_source 없음) 사용자도 legacy key `'calendar:YYYY-MM-DD'` 안의 HR임팩트본부 departments 데이터가 강제 노출 — 모달 "Google 캘린더 / 휴가 / 시트에서 자동 인식" + 액션 카피 "이 휴가 취소" + "시트 원본 안 빠집니다"가 모두 misleading. 사용자 피드백: "HR임팩트 본부쪽 팀들은 구글캘린더 양방향 연결인데 왜 시트인 것처럼 삭제 안 된다고 뜨냐".
+
+**Fix — `calendar-events` route에 team mode 분기**
+
+| `calendar_mode` | 시트 lookup |
+|---|---|
+| `sheet_only` / `gcal_plus_sheet` | ✅ 기존대로 lookup |
+| `gcal_only` / `none` | ❌ skip — 응답 `leaveLabel=null`, `events=[]` |
+| NULL (본부 직속 등) | 기존 legacy 동작 유지 |
+
+응답에 `calendarMode` 필드 추가. 클라이언트 UI 분기용.
+
+**UI 카피 일관화 (source별)**
+
+| 영역 | source | 카피 |
+|---|---|---|
+| LeaveReadOnlyNotice 8H 미만 | `manual` | `[일정 삭제]` |
+| LeaveReadOnlyNotice 8H 미만 | `calendar` | `[이 일자에서 가리기]` + 시트 안내 |
+| CalendarDayDetailModal "외부 캘린더" 박스 (구 "Google 캘린더") | — | `이 일자에서 가리기` + 시트 안내 |
+| CheckInModal/WorkLogForm confirm | `manual` | "취소" / "삭제" |
+| 동일 | `calendar` | "N-Click 표시에서 가리시겠습니까? ※ 시트 원본은 자동으로 빠지지 않습니다." |
+
+**기대 결과**
+
+- HR임팩트본부 김재민(`gcal_only`) — 모달에 "외부 캘린더" 박스 자체 안 보임
+- HR커뮤니케이션본부 1팀(`gcal_plus_sheet`) — 시트 데이터 노출 + "가리기" 카피 + 시트 안내
+- HR커뮤니케이션본부 2팀(`none`) — 시트 데이터 노출 X
+
+**알려진 한계** — gcal_only 팀의 Google Vacation Calendar 휴가는 work_logs 자동 매핑 없음. 모달 안에 표시되려면 calendar-events route가 `org_calendar_events`도 lookup 확장 필요 — v1.62 이후 검토.
 
 ---
 

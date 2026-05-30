@@ -37,11 +37,11 @@ export async function GET(request: Request) {
       return NextResponse.json(empty)
     }
 
-    // 사용자 본부/이름 조회 (시트 매칭용)
+    // 사용자 본부/이름 + team의 calendar_mode 조회 (시트 매칭 분기용)
     const adminClient = createAdminClient()
     const { data: profile } = await adminClient
       .from('user_profiles')
-      .select('display_name, division')
+      .select('display_name, division, team')
       .eq('email', user.email!)
       .single()
 
@@ -56,12 +56,51 @@ export async function GET(request: Request) {
       return NextResponse.json(empty)
     }
 
+    // v1.61.2 — 사용자 팀의 calendar_mode 따라 시트 lookup 분기.
+    // gcal_only / none — 시트 lookup skip (사용자에게 시트 데이터 노출 X).
+    // sheet_only / gcal_plus_sheet — 기존대로 시트 lookup.
+    // 본부 직속(team=NULL)이거나 mode가 NULL이면 legacy 동작(시트 lookup 진행).
+    let calendarMode: string | null = null
+    if (profile.team) {
+      const { data: div } = await adminClient
+        .from('org_divisions')
+        .select('id')
+        .eq('name', profile.division)
+        .maybeSingle()
+      if (div) {
+        const { data: team } = await adminClient
+          .from('org_teams')
+          .select('calendar_mode')
+          .eq('division_id', div.id)
+          .eq('name', profile.team)
+          .maybeSingle()
+        calendarMode = (team?.calendar_mode as string | null) ?? null
+      }
+    }
+
+    const sheetLookupAllowed = calendarMode === null
+      || calendarMode === 'sheet_only'
+      || calendarMode === 'gcal_plus_sheet'
+
+    if (!sheetLookupAllowed) {
+      // gcal_only / none → 시트 데이터 노출 X. leaveLabel null + events 빈 배열.
+      const empty: UserCalendarLookup & { calendarMode?: string | null } = {
+        enabled: true,
+        leaveType: null,
+        leaveLabel: null,
+        events: [],
+        raw: null,
+        calendarMode,
+      }
+      return NextResponse.json(empty)
+    }
+
     const lookup = await getUserCalendarLookup({
       date,
       department: profile.division,
       userName: profile.display_name,
     })
-    return NextResponse.json(lookup)
+    return NextResponse.json({ ...lookup, calendarMode })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[calendar-events] error:', message)

@@ -317,19 +317,23 @@ export default function CalendarDayDetailModal({
             )}
           </Section>
 
-          {/* Google 캘린더 */}
+          {/* 외부 캘린더 — v1.61.2: "Google 캘린더" 라벨이 misleading했음 (실제 휴가는 Spreadsheet에서만 옴).
+              시트 단방향이라 N-Click에서 "취소"가 진짜 시트 데이터를 안 빠지게 함. "가리기"가 정확. */}
           {calendar?.enabled && (calendar.leaveLabel || (calendar.events && calendar.events.length > 0)) && (
-            <Section title="Google 캘린더">
+            <Section title="외부 캘린더">
               {calendar.leaveLabel && (
                 <div className="flex items-center gap-2 flex-wrap">
                   <Badge variant="warning" dot>{calendar.leaveLabel}</Badge>
                   <span className="text-[12px] text-text-muted">시트에서 자동 인식</span>
-                  {/* v1.61.1 — N-Click 휴가 박스와 동일하게 [이 휴가 취소] 액션.
-                      work_log row 유무 무관 — endpoint가 자동 처리(존재 시 update, 부재 시 minimal row INSERT) */}
+                  {/* v1.61.1 / v1.61.2 — N-Click 표시에서만 가리는 액션. 시트 원본 단방향이라 진짜
+                      취소는 시트 직접 수정 필요. work_log row 없으면 minimal row 자동 생성으로 마커 박힘. */}
                   <button
                     type="button"
                     onClick={async () => {
-                      if (!window.confirm(`${date} 휴가를 취소하시겠습니까?\n시트 원본은 자동으로 빠지지 않습니다.`)) return
+                      if (!window.confirm(
+                        `${date} 휴가를 N-Click 표시에서 가리시겠습니까?\n\n` +
+                        `※ 시트 원본은 자동으로 빠지지 않습니다. 영구 삭제는 캘린더 시트에서 직접 수정해주세요.`,
+                      )) return
                       try {
                         const res = await fetch('/api/work-logs/dismiss-calendar-prefill', {
                           method: 'POST',
@@ -338,17 +342,17 @@ export default function CalendarDayDetailModal({
                         })
                         if (!res.ok) {
                           const j = await res.json().catch(() => null)
-                          alert(`취소 실패: ${j?.error ?? res.statusText}`)
+                          alert(`가리기 실패: ${j?.error ?? res.statusText}`)
                           return
                         }
                         onLeaveTimelinePatched?.()
                       } catch (e) {
-                        alert(`취소 실패: ${e instanceof Error ? e.message : String(e)}`)
+                        alert(`가리기 실패: ${e instanceof Error ? e.message : String(e)}`)
                       }
                     }}
                     className="ml-auto shrink-0 text-[11px] font-medium text-warning-text underline underline-offset-2 hover:text-warning-text/80"
                   >
-                    이 휴가 취소
+                    이 일자에서 가리기
                   </button>
                 </div>
               )}
