@@ -143,8 +143,14 @@ export interface AdvanceCheckinNotifyPayload {
   plannedLocation: string
   /** 메모(work_content) — 빈 값이면 알림 라인 생략 */
   memo?: string | null
-  /** 사용자의 leaveDate 일정 (GCal + 시트 합산). 빈 배열이면 라인 생략. */
-  events?: Array<{ startTime: string | null; endTime: string | null; title: string }> | null
+  /**
+   * 사용자의 leaveDate 일정 (GCal + 시트 합산). 빈 배열이면 라인 생략.
+   *
+   * v1.61.11 — `source` 추가. 'sheet'(커본·브전센 등 시트 연동 본부)면 알림 텍스트에서
+   * (종일) prefix 제거(시트 자유 텍스트는 시간 파싱 실패 시 title에 시간이 그대로 들어가
+   * `(종일) 11:00 회의` 같은 오표시가 발생). 'gcal'(임팩트본부)은 종전대로 (종일) 유지.
+   */
+  events?: Array<{ startTime: string | null; endTime: string | null; title: string; source?: 'sheet' | 'gcal' }> | null
   /** 그 일자의 휴가 라벨 ('종일 휴가' 등). 비어있으면 라인 생략. */
   leaveLabel?: string | null
   /** 라우팅용 */

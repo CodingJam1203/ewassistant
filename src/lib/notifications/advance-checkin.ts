@@ -61,7 +61,9 @@ export async function maybeNotifyAdvanceCheckin(args: MaybeAdvanceCheckinArgs): 
     if (!divRow?.notify_on_advance_checkin) return
 
     // 2) 사용자 leaveDate 일정 + 휴가 조회 (best-effort)
-    let events: Array<{ startTime: string | null; endTime: string | null; title: string }> = []
+    // v1.61.11 — `source` 필드 함께 매핑. messages builder가 sheet 출처 일정의
+    // (종일) prefix를 떼는 데 사용 (시트 자유 텍스트는 시간 파싱 실패 케이스가 잦음).
+    let events: Array<{ startTime: string | null; endTime: string | null; title: string; source?: 'sheet' | 'gcal' }> = []
     let leaveLabel: string | null = null
     try {
       const lookup = await fetchOrgCalendarLookup({
@@ -76,6 +78,7 @@ export async function maybeNotifyAdvanceCheckin(args: MaybeAdvanceCheckinArgs): 
           startTime: ev.startTime ?? (ev.isAllDay === false && ev.startAt ? toKstTime(ev.startAt) : null),
           endTime:   ev.endTime   ?? (ev.isAllDay === false && ev.endAt   ? toKstTime(ev.endAt)   : null),
           title:     ev.title ?? '',
+          source:    ev.source,
         }))
         leaveLabel = dayLookup.leaveLabel ?? null
       }

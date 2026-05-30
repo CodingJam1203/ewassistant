@@ -382,8 +382,14 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
         for (const ev of events) {
           const s = (ev.startTime ?? '').trim()
           const e = (ev.endTime ?? '').trim()
-          const range = s && e ? `${s}~${e}` : (s ? `${s}~` : '(종일)')
-          lines.push(`  · ${range} ${ev.title.trim()}`)
+          // v1.61.11 — sheet 출처(커본·브전센)는 시간 없으면 prefix 자체 생략(title만).
+          // 시트 자유 텍스트가 시간 파싱 실패 시 title에 시간이 그대로 박혀 `(종일) 11:00 회의`
+          // 같은 오표시가 발생. GCal(임팩트본부)은 명시적 isAllDay라 종전대로 (종일) 유지.
+          const isSheet = ev.source === 'sheet'
+          const range = s && e
+            ? `${s}~${e} `
+            : (s ? `${s}~ ` : (isSheet ? '' : '(종일) '))
+          lines.push(`  · ${range}${ev.title.trim()}`)
         }
       }
       // 휴가 — 인라인 라인, 없으면 생략
