@@ -15,6 +15,7 @@ export const dynamic = 'force-dynamic'
 interface UpdatePayload {
   label?: string
   department_key?: string
+  spreadsheet_url?: string | null
   is_active?: boolean
 }
 
@@ -46,6 +47,14 @@ export async function PATCH(
       return NextResponse.json({ error: 'is_active must be boolean' }, { status: 400 })
     }
     updates.is_active = body.is_active
+  }
+  if ('spreadsheet_url' in body) {
+    // v1.61 — null 또는 https://... 형태. 빈 문자열도 null로 처리.
+    const raw = typeof body.spreadsheet_url === 'string' ? body.spreadsheet_url.trim() : null
+    if (raw && !/^https?:\/\//i.exec(raw)) {
+      return NextResponse.json({ error: 'Spreadsheet URL은 https:// 형태여야 합니다.' }, { status: 400 })
+    }
+    updates.spreadsheet_url = raw || null
   }
 
   if (Object.keys(updates).length === 0) {

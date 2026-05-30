@@ -20,10 +20,10 @@
  * 실제 모달 흐름을 처리.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
-import { X, Pencil, CalendarPlus, Copy, Check, Plane, Clock, MapPin, Plus, LogIn, LogOut } from 'lucide-react'
+import { X, Pencil, CalendarPlus, Copy, Check, Plane, Clock, MapPin, Plus, LogIn, LogOut, ExternalLink } from 'lucide-react'
 import { Badge, Button } from '@/components/ui'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import { cn } from '@/lib/utils/cn'
@@ -98,6 +98,19 @@ export default function CalendarDayDetailModal({
     (Array.isArray(co?.leave_timeline) ? (co!.leave_timeline as LeaveTimeline) : null)
     ?? (Array.isArray(ci?.leave_timeline) ? (ci!.leave_timeline as LeaveTimeline) : null)
     ?? []
+
+  // v1.61 — 사용자 본부의 spreadsheet URL 1회 fetch.
+  const [sheetUrl, setSheetUrl] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/my/sheet-source-url')
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { url?: string | null } | null) => {
+        if (!cancelled && d?.url) setSheetUrl(d.url)
+      })
+      .catch(() => { /* silent */ })
+    return () => { cancelled = true }
+  }, [])
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto py-6 px-4">
@@ -185,6 +198,21 @@ export default function CalendarDayDetailModal({
                   )
                 })}
               </ul>
+              {/* v1.61 — calendar source 항목이 있고 본부 시트 URL 등록되어 있으면 deep link */}
+              {sheetUrl && leaveTimeline.some(it => it.source === 'calendar') && (
+                <div className="mt-2 pt-2 border-t border-warning-border/60 text-[11px] text-text-muted">
+                  ※ 시트 원본은 자동으로 빠지지 않습니다.{' '}
+                  <a
+                    href={sheetUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 font-medium text-warning-text underline underline-offset-2 hover:text-warning-text/80"
+                  >
+                    캘린더 시트 열기
+                    <ExternalLink className="h-3 w-3" aria-hidden />
+                  </a>
+                </div>
+              )}
             </div>
             )
           })()}

@@ -18,6 +18,7 @@ interface SourceRow {
   division_id: string
   label: string
   department_key: string
+  spreadsheet_url: string | null
   is_active: boolean
   last_push_at: string | null
   last_push_error: string | null
@@ -36,7 +37,7 @@ export async function GET() {
     client
       .from('org_sheet_sources')
       .select(`
-        id, division_id, label, department_key, is_active,
+        id, division_id, label, department_key, spreadsheet_url, is_active,
         last_push_at, last_push_error, created_at, updated_at,
         division:org_divisions(id, name, sort_order)
       `)
@@ -92,6 +93,7 @@ export async function GET() {
       divisionId: src.division_id,
       label: src.label,
       departmentKey: src.department_key,
+      spreadsheetUrl: src.spreadsheet_url,
       isActive: src.is_active,
       lastPushAt: src.last_push_at,
       lastPushError: src.last_push_error,
@@ -123,16 +125,22 @@ export async function POST(request: Request) {
   const division_id = typeof body.division_id === 'string' ? body.division_id.trim() : ''
   const label = typeof body.label === 'string' ? body.label.trim() : ''
   const department_key = typeof body.department_key === 'string' ? body.department_key.trim() : ''
+  // v1.61 — 본부 시트 deep link URL (선택). 사용자 안내 박스의 [캘린더 시트 열기] 링크.
+  const spreadsheet_url_raw = typeof body.spreadsheet_url === 'string' ? body.spreadsheet_url.trim() : ''
+  const spreadsheet_url: string | null = spreadsheet_url_raw || null
   const is_active = body.is_active === false ? false : true
 
   if (!division_id) return NextResponse.json({ error: '본부를 선택해주세요.' }, { status: 400 })
   if (!label)       return NextResponse.json({ error: '라벨을 입력해주세요.' }, { status: 400 })
   if (!department_key) return NextResponse.json({ error: 'Apps Script payload key를 입력해주세요. (보통 본부명과 동일)' }, { status: 400 })
+  if (spreadsheet_url && !/^https?:\/\//i.exec(spreadsheet_url)) {
+    return NextResponse.json({ error: 'Spreadsheet URL은 https:// 형태여야 합니다.' }, { status: 400 })
+  }
 
   const client = createAdminClient()
   const { data, error } = await client
     .from('org_sheet_sources')
-    .insert({ division_id, label, department_key, is_active })
+    .insert({ division_id, label, department_key, spreadsheet_url, is_active })
     .select()
     .single()
 

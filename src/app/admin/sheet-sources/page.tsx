@@ -35,6 +35,7 @@ interface SheetSourceRow {
   divisionId: string
   label: string
   departmentKey: string
+  spreadsheetUrl: string | null
   isActive: boolean
   lastPushAt: string | null
   lastPushError: string | null
@@ -74,6 +75,7 @@ interface FormState {
   division_id: string
   label: string
   department_key: string
+  spreadsheet_url: string
   is_active: boolean
 }
 
@@ -81,6 +83,7 @@ const EMPTY_FORM: FormState = {
   division_id: '',
   label: '',
   department_key: '',
+  spreadsheet_url: '',
   is_active: true,
 }
 
@@ -211,6 +214,7 @@ export default function SheetSourcesPage() {
       division_id: s.divisionId,
       label: s.label,
       department_key: s.departmentKey,
+      spreadsheet_url: s.spreadsheetUrl ?? '',
       is_active: s.isActive,
     })
     setShowForm(true)
@@ -234,6 +238,8 @@ export default function SheetSourcesPage() {
       const payload: Record<string, unknown> = {
         label: form.label,
         department_key: form.department_key,
+        // v1.61 — spreadsheet_url (선택, 빈 문자열이면 서버에서 null)
+        spreadsheet_url: form.spreadsheet_url.trim(),
         is_active: form.is_active,
       }
       if (!isEdit) payload.division_id = form.division_id
@@ -451,6 +457,19 @@ export default function SheetSourcesPage() {
                 value={form.department_key}
                 onChange={e => setForm(p => ({ ...p, department_key: e.target.value }))}
                 placeholder="예: HR마케팅본부"
+                className="w-full border border-border-strong rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 font-mono"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-text-secondary mb-1">
+                Spreadsheet URL
+                <span className="ml-1 font-normal text-text-muted">(선택 — 사용자 안내 박스의 [캘린더 시트 열기] 링크)</span>
+              </label>
+              <input
+                type="url"
+                value={form.spreadsheet_url}
+                onChange={e => setForm(p => ({ ...p, spreadsheet_url: e.target.value }))}
+                placeholder="https://docs.google.com/spreadsheets/d/..."
                 className="w-full border border-border-strong rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 font-mono"
               />
             </div>

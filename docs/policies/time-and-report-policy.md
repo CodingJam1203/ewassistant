@@ -1,6 +1,6 @@
 # N-Click 시간 및 보고 정책서
 
-> **최종 갱신** — 2026-05-30 (v1.60.7 — Spreadsheet prefill 무시 마커 `calendar_prefill_dismissed` + 안내 박스 시트 단방향 한계 안내)
+> **최종 갱신** — 2026-05-30 (v1.61 — admin Spreadsheet URL 등록 + 안내 박스 [캘린더 시트 열기] deep link)
 > **상태** — Stage 0~7 반영 완료. 단일 `(user_email, leave_date)` row + 4 시간 컬럼 통합 모델.
 > **단일 진실 (SoT)** — 이 문서가 N-Click 시간·보고 관련 모든 의사결정의 기준이다.
 
@@ -452,6 +452,35 @@ manual source 항목엔 시트 안내 멘트 미노출 (사용자 직접 등록�
 
 - `dismissed=true` 해제 UI 없음 — 사용자가 다시 calendar prefill을 받고 싶으면 admin DB 수정 필요. v1.61 이후 검토.
 - 사용자가 manual / 휴가 등록 모달로 새 휴가 박으면 dismissed 상태와 무관하게 leave_timeline에 들어감 (그 항목은 source='manual' 이므로 dismissed 영향 X).
+
+### 3.14 본부 시트 deep link — admin URL 등록 + 안내 박스 [캘린더 시트 열기] (v1.61, 2026-05-30)
+
+**원인** — v1.60.7 dismissed 마커 도입 후에도 사용자가 진짜 영구 삭제하려면 Google Sheets 원본을 직접 수정해야 함. 안내 박스 카피만으론 사용자가 "어디서 열지?" 모름.
+
+**해결 — 본부별 spreadsheet URL 등록 + UI 자동 deep link**
+
+| 항목 | 사양 |
+|---|---|
+| 마이그 | `044_org_sheet_sources_spreadsheet_url.sql` — `org_sheet_sources.spreadsheet_url TEXT NULL` |
+| admin UI | `/admin/sheet-sources` source 등록/수정 form에 "Spreadsheet URL" 필드. `https://docs.google.com/spreadsheets/...` 형태 검증. nullable |
+| admin route | `POST /api/admin/sheet-sources` + `PATCH /api/admin/sheet-sources/[id]` — body `spreadsheet_url` 처리. https:// prefix 검증 |
+| 사용자 endpoint | `GET /api/my/sheet-source-url` — 본부 매칭 → `is_active=true` + `spreadsheet_url IS NOT NULL` 1건 반환. 30s private + SWR 300s cache |
+| LeaveReadOnlyNotice | calendar source 일정의 안내 카피 끝에 `[캘린더 시트 열기 →]` 텍스트 링크 (sheetUrl 있을 때만) |
+| CalendarDayDetailModal | N-Click 휴가 박스에 calendar source 항목이 있을 때 박스 하단에 동일 deep link |
+
+**노출 조건**
+
+- 항목의 `source === 'calendar'`일 때만 노출 (manual 의도적 등록은 시트 운운 멘트 없음)
+- 본부에 `spreadsheet_url` 등록된 source가 있을 때만 노출 (URL 없으면 카피만 노출)
+
+**카피 (variant 별)**
+
+> 이 날 캘린더에 오전반차(4H) 등록됨. 휴게로 직접 입력해 주셔야 반영됩니다. **[일정 삭제]**  
+> ※ 시트 원본은 자동으로 빠지지 않습니다. 영구 삭제는 캘린더 시트에서 직접 수정해주세요. **[캘린더 시트 열기 ↗]**
+
+CalendarDayDetailModal의 휴가 박스에서는 박스 하단에 한 번만 노출 (각 항목별 반복 X).
+
+**알려진 한계** — URL은 본부 단위(`org_sheet_sources.division_id` 1건). 팀별로 다른 시트는 v1.62 이후 검토.
 
 ---
 

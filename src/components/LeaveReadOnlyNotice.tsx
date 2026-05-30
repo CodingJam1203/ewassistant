@@ -25,11 +25,27 @@
  * 그땐 사용자가 다시 [일정 삭제] 누르면 되니까 워크플로우는 단순.
  */
 
-import { Plane, Calendar } from 'lucide-react'
-import {
-  buildSubFullDayLeaveNotice,
-} from '@/lib/leave-timeline'
+import { Plane, Calendar, ExternalLink } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { buildSubFullDayLeaveNotice } from '@/lib/leave-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
+
+// v1.61 — 사용자 본부의 spreadsheet URL 1회 fetch.
+// 안내 박스에서 calendar source 일정에 [캘린더 시트 열기] deep link 노출.
+function useSheetSourceUrl(): string | null {
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/my/sheet-source-url')
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { url?: string | null } | null) => {
+        if (!cancelled && d?.url) setUrl(d.url)
+      })
+      .catch(() => { /* silent */ })
+    return () => { cancelled = true }
+  }, [])
+  return url
+}
 
 interface LeaveReadOnlyNoticeProps {
   value: LeaveTimeline
@@ -47,6 +63,8 @@ export default function LeaveReadOnlyNotice({ value, labelPrefix, onRemove }: Le
   const entries = (Array.isArray(value) ? value : []).map((item, originalIndex) => ({ item, originalIndex }))
   const fullDays = entries.filter(e => e.item?.leaveType === 'full_day')
   const subFullDays = entries.filter(e => e.item?.leaveType !== 'full_day' && (e.item?.roundedMinutes ?? 0) > 0)
+  // v1.61 — 본부 시트 URL fetch (calendar source 항목 있을 때만 의미)
+  const sheetUrl = useSheetSourceUrl()
   if (fullDays.length === 0 && subFullDays.length === 0) return null
 
   const prefix = labelPrefix ?? '이 날'
@@ -102,6 +120,20 @@ export default function LeaveReadOnlyNotice({ value, labelPrefix, onRemove }: Le
               {isCalendarSource && (
                 <span className="block mt-0.5 text-[11px] text-text-muted">
                   ※ 시트 원본은 자동으로 빠지지 않습니다. 영구 삭제는 캘린더 시트에서 직접 수정해주세요.
+                  {sheetUrl && (
+                    <>
+                      {' '}
+                      <a
+                        href={sheetUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-0.5 font-medium text-info-text underline underline-offset-2 hover:text-info-text/80"
+                      >
+                        캘린더 시트 열기
+                        <ExternalLink className="h-3 w-3" aria-hidden />
+                      </a>
+                    </>
+                  )}
                 </span>
               )}
             </span>
