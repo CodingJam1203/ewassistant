@@ -25,7 +25,7 @@
  *   - Google 휴가 라벨: warning chip (다른 outline 스타일)
  */
 
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import {
   ChevronLeft, ChevronRight, RefreshCw, CalendarPlus, Plane, Clock, Calendar,
 } from 'lucide-react'
@@ -388,18 +388,41 @@ export default function MyHistoryCalendar({
   // 한 명만 새로고침해도 org_calendar_events DB가 갱신되므로 다른 사용자도 fresh 상태로 봄.
   // /api/calendar/refresh 는 일반 사용자 권한으로 호출 가능, force=true로 5분 throttle 우회.
   // sync 실패해도 fetchAll은 진행 (캐시된 DB 상태라도 표시).
+  //
+  // v1.61.12 — Optimistic refresh. 종전엔 sync(5~15s)를 await한 뒤에야 fetchAll이 시작되어
+  // 사용자는 캘린더가 5~18초 freeze 상태로 보였음. 이제 (1) 캐시 fetchAll을 먼저 끝내 즉시
+  // 화면 갱신하고 (2) `/api/calendar/refresh`는 백그라운드로 fire하고 응답 시 silent fetchAll로
+  // 외부(Google Calendar / 시트) 신규 변경분을 자연스럽게 채워넣는다. 클릭 체감은 ~0.5s.
+  // in-flight ref로 중복 sync 막고, unmount 가드로 stale setState 방지.
+  const syncInFlightRef = useRef(false)
+  const unmountedRef = useRef(false)
+  useEffect(() => () => { unmountedRef.current = true }, [])
+  const [syncing, setSyncing] = useState(false)
   const refreshWithSync = useCallback(async () => {
+    // (1) 캐시(DB 현재 상태) 즉시 fetch — 사용자가 N-Click에서 직접 추가/수정한 건 여기서 다 보임
     setLoading(true)
+    await fetchAll()
+    if (unmountedRef.current) return
+    setLoading(false)
+
+    // (2) 백그라운드 sync — Google Calendar / 시트의 외부 변경분 가져오기 (1회만)
+    if (syncInFlightRef.current) return
+    syncInFlightRef.current = true
+    setSyncing(true)
     try {
       await fetch('/api/calendar/refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ force: true }),
       })
+      // (3) silent 재조회 — sync로 들어온 외부 신규 일정 화면에 반영
+      if (!unmountedRef.current) await fetchAll()
     } catch (err) {
-      console.warn('[calendar] manual refresh sync failed (continuing):', err)
+      console.warn('[calendar] background sync failed:', err)
+    } finally {
+      syncInFlightRef.current = false
+      if (!unmountedRef.current) setSyncing(false)
     }
-    await fetchAll()
   }, [fetchAll])
 
   useEffect(() => { fetchAll() }, [fetchAll, refreshKey])
@@ -486,9 +509,15 @@ export default function MyHistoryCalendar({
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={refreshWithSync} disabled={loading} title="Google 캘린더 sync 후 새로고침">
-            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden />
-            새로고침
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={refreshWithSync}
+            disabled={loading}
+            title={syncing ? '외부 캘린더 동기화 중… (현재 화면은 캐시 데이터)' : 'Google 캘린더 sync 후 새로고침'}
+          >
+            <RefreshCw className={cn('h-4 w-4', (loading || syncing) && 'animate-spin')} aria-hidden />
+            {syncing ? '동기화 중…' : '새로고침'}
           </Button>
           <Button variant="primary" size="sm" onClick={() => setVacationOpen(true)}>
             <CalendarPlus className="h-4 w-4" aria-hidden />
