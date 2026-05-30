@@ -270,6 +270,24 @@ async function mergeSheetDataIntoLookup(args: {
 
   const emails = Array.from(byEmail.keys())
 
+  // v1.61.5 — dismissed 마커 일자 세트 조회. 사용자가 안내 박스 [이 일자에서 가리기]
+  // 누른 (email, date) 쌍은 시트 휴가 prefill 차단. work_logs.calendar_prefill_dismissed=true.
+  const dismissedKeys = new Set<string>()
+  try {
+    const { data: dismissedRows } = await adminClient
+      .from('work_logs')
+      .select('user_email, leave_date')
+      .in('user_email', emails)
+      .in('leave_date', dates)
+      .eq('calendar_prefill_dismissed', true)
+      .eq('is_deleted', false)
+    for (const r of (dismissedRows ?? []) as Array<{ user_email: string; leave_date: string }>) {
+      dismissedKeys.add(`${r.user_email.toLowerCase()}::${r.leave_date}`)
+    }
+  } catch (err) {
+    console.warn('[mergeSheetDataIntoLookup] dismissed lookup failed:', err)
+  }
+
   // 1) user_profiles에서 display_name + (division, team) text 컬럼 조회
   const { data: userRows, error: usersErr } = await adminClient
     .from('user_profiles')
@@ -410,6 +428,11 @@ async function mergeSheetDataIntoLookup(args: {
           if (!lookup) continue
 
           if (parsed.leaveType) {
+            // v1.61.5 — dismissed 마커 있는 (email, date)는 시트 휴가 skip.
+            // 사용자가 안내 박스에서 [이 일자에서 가리기] 누른 일자.
+            if (dismissedKeys.has(`${email.toLowerCase()}::${date}`)) {
+              continue
+            }
             // 휴가 — GCal이 이미 설정했으면 skip (GCal 우선)
             if (lookup.leaveType === null) {
               lookup.leaveType = parsed.leaveType
