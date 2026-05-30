@@ -1,6 +1,6 @@
 # N-Click 시간 및 보고 정책서
 
-> **최종 갱신** — 2026-05-30 (v1.61.2 — calendar-events route에 본부 team의 calendar_mode 반영 + 외부 캘린더 UI/카피 mode별 분기)
+> **최종 갱신** — 2026-05-30 (v1.61.3 — UserCalendarLookup에 leaveSource(gcal/sheet) + leaveEventId 추가 → 외부 캘린더 박스 정확 분기 + GCal 휴가 N-Click 취소 시 events.delete 자동 — §3.17 별도 박제 예정)
 > **상태** — Stage 0~7 반영 완료. 단일 `(user_email, leave_date)` row + 4 시간 컬럼 통합 모델.
 > **단일 진실 (SoT)** — 이 문서가 N-Click 시간·보고 관련 모든 의사결정의 기준이다.
 

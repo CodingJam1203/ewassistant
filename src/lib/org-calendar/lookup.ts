@@ -68,6 +68,7 @@ interface OrgCalendarRow {
   inferred_type: string | null
   matched_user_emails: string[] | null
   org_calendar_id: string
+  google_event_id: string | null
   rrule: string | null
   recurring_event_id: string | null
 }
@@ -83,7 +84,16 @@ export interface OrgCalendarLookupResult {
 function emptyByDate(dates: string[]): Record<string, UserCalendarLookup> {
   const rec: Record<string, UserCalendarLookup> = {}
   for (const d of dates) {
-    rec[d] = { enabled: true, leaveType: null, leaveLabel: null, events: [], raw: null }
+    rec[d] = {
+      enabled: true,
+      leaveType: null,
+      leaveLabel: null,
+      leaveSource: null,
+      leaveEventId: null,
+      leaveOrgCalendarId: null,
+      events: [],
+      raw: null,
+    }
   }
   return rec
 }
@@ -117,7 +127,7 @@ export async function fetchOrgCalendarLookup(args: {
 
   const { data: rows, error } = await adminClient
     .from('org_calendar_events')
-    .select('id, title, start_at, end_at, is_all_day, inferred_type, matched_user_emails, org_calendar_id, rrule, recurring_event_id')
+    .select('id, title, start_at, end_at, is_all_day, inferred_type, matched_user_emails, org_calendar_id, google_event_id, rrule, recurring_event_id')
     .lte('start_at', toIso)
     .gte('end_at',   fromIso)
     .overlaps('matched_user_emails', emails)
@@ -179,6 +189,10 @@ export async function fetchOrgCalendarLookup(args: {
             lookup.leaveType = decideLeaveType(evStartMs, evEndMs, r.is_all_day)
             lookup.leaveLabel = cleanedTitle || '휴가'
             lookup.raw = cleanedTitle || null
+            // v1.61.3 — GCal 출처 + events.delete용 식별자 박제
+            lookup.leaveSource = 'gcal'
+            lookup.leaveEventId = r.google_event_id ?? null
+            lookup.leaveOrgCalendarId = r.org_calendar_id
           }
         } else {
           const chunk: CalendarEventChunk = {
@@ -401,6 +415,10 @@ async function mergeSheetDataIntoLookup(args: {
               lookup.leaveType = parsed.leaveType
               lookup.leaveLabel = cellValue.trim()
               lookup.raw = cellValue
+              // v1.61.3 — Sheet 출처. events.delete 불가 (단방향). UI 카피 분기용.
+              lookup.leaveSource = 'sheet'
+              lookup.leaveEventId = null
+              lookup.leaveOrgCalendarId = null
             }
           } else {
             // 일반 일정 — events에 누적 (v1.50: 시트 출처 표식 박기)

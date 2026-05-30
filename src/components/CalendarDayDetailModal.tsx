@@ -317,45 +317,56 @@ export default function CalendarDayDetailModal({
             )}
           </Section>
 
-          {/* 외부 캘린더 — v1.61.2: "Google 캘린더" 라벨이 misleading했음 (실제 휴가는 Spreadsheet에서만 옴).
-              시트 단방향이라 N-Click에서 "취소"가 진짜 시트 데이터를 안 빠지게 함. "가리기"가 정확. */}
+          {/* 외부 캘린더 — v1.61.3: leaveSource로 GCal/시트 정확 분기.
+              - gcal: N-Click [취소] = vacation-sync로 Google Calendar events.delete 자동 (양방향)
+              - sheet: 단방향이라 시트 원본 안 빠짐. "가리기"만 가능 */}
           {calendar?.enabled && (calendar.leaveLabel || (calendar.events && calendar.events.length > 0)) && (
             <Section title="외부 캘린더">
-              {calendar.leaveLabel && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="warning" dot>{calendar.leaveLabel}</Badge>
-                  <span className="text-[12px] text-text-muted">시트에서 자동 인식</span>
-                  {/* v1.61.1 / v1.61.2 — N-Click 표시에서만 가리는 액션. 시트 원본 단방향이라 진짜
-                      취소는 시트 직접 수정 필요. work_log row 없으면 minimal row 자동 생성으로 마커 박힘. */}
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (!window.confirm(
-                        `${date} 휴가를 N-Click 표시에서 가리시겠습니까?\n\n` +
-                        `※ 시트 원본은 자동으로 빠지지 않습니다. 영구 삭제는 캘린더 시트에서 직접 수정해주세요.`,
-                      )) return
-                      try {
-                        const res = await fetch('/api/work-logs/dismiss-calendar-prefill', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ date }),
-                        })
-                        if (!res.ok) {
-                          const j = await res.json().catch(() => null)
-                          alert(`가리기 실패: ${j?.error ?? res.statusText}`)
-                          return
+              {calendar.leaveLabel && (() => {
+                const lvSrc = (calendar as { leaveSource?: 'gcal' | 'sheet' | null }).leaveSource ?? null
+                const lvEventId = (calendar as { leaveEventId?: string | null }).leaveEventId ?? null
+                const isGcal = lvSrc === 'gcal'
+                const sourceHint = isGcal ? 'Google 캘린더 (양방향 동기화)' : '시트에서 자동 인식'
+                const actionLabel = isGcal ? '이 휴가 취소' : '이 일자에서 가리기'
+                const confirmMsg = isGcal
+                  ? `${date} 휴가를 취소하시겠습니까?\n\nGoogle 캘린더에서도 자동으로 삭제됩니다.`
+                  : `${date} 휴가를 N-Click 표시에서 가리시겠습니까?\n\n※ 시트 원본은 자동으로 빠지지 않습니다. 영구 삭제는 캘린더 시트에서 직접 수정해주세요.`
+                return (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="warning" dot>{calendar.leaveLabel}</Badge>
+                    <span className="text-[12px] text-text-muted">{sourceHint}</span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!window.confirm(confirmMsg)) return
+                        try {
+                          const res = await fetch('/api/work-logs/dismiss-calendar-prefill', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              date,
+                              // v1.61.3 — gcal source면 eventId 같이 보내서 events.delete trigger
+                              leaveSource: lvSrc,
+                              leaveEventId: lvEventId,
+                            }),
+                          })
+                          if (!res.ok) {
+                            const j = await res.json().catch(() => null)
+                            alert(`${isGcal ? '취소' : '가리기'} 실패: ${j?.error ?? res.statusText}`)
+                            return
+                          }
+                          onLeaveTimelinePatched?.()
+                        } catch (e) {
+                          alert(`${isGcal ? '취소' : '가리기'} 실패: ${e instanceof Error ? e.message : String(e)}`)
                         }
-                        onLeaveTimelinePatched?.()
-                      } catch (e) {
-                        alert(`가리기 실패: ${e instanceof Error ? e.message : String(e)}`)
-                      }
-                    }}
-                    className="ml-auto shrink-0 text-[11px] font-medium text-warning-text underline underline-offset-2 hover:text-warning-text/80"
-                  >
-                    이 일자에서 가리기
-                  </button>
-                </div>
-              )}
+                      }}
+                      className="ml-auto shrink-0 text-[11px] font-medium text-warning-text underline underline-offset-2 hover:text-warning-text/80"
+                    >
+                      {actionLabel}
+                    </button>
+                  </div>
+                )
+              })()}
               {calendar.events && calendar.events.length > 0 && (
                 <ul className="text-[13px] text-text-primary space-y-0.5 tabular-nums mt-1">
                   {calendar.events.map((ev, i) => {

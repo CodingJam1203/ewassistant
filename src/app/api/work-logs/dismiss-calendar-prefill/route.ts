@@ -37,6 +37,10 @@ export async function POST(request: Request) {
   if (!DATE_REGEX.test(date)) {
     return NextResponse.json({ error: 'date 형식이 올바르지 않습니다 (YYYY-MM-DD).' }, { status: 400 })
   }
+  // v1.61.3 — leaveSource='gcal' + leaveEventId 받으면 vacation-sync helper로 Google
+  // Calendar events.delete 자동 호출 (양방향 fully sync). sheet source이면 무시.
+  const leaveSource = typeof body?.leaveSource === 'string' ? body.leaveSource as 'gcal' | 'sheet' : null
+  const leaveEventId = typeof body?.leaveEventId === 'string' ? body.leaveEventId : null
 
   const adminClient = createAdminClient()
 
@@ -119,15 +123,37 @@ export async function POST(request: Request) {
     workLogId = inserted.id as string
   }
 
-  // vacation-sync — 기존 row의 calendar source 항목이 있었다면 같이 Google events.delete 시도 (best-effort)
-  if (prevLeaveTimeline.length > 0) {
+  // vacation-sync — 두 가지 경로:
+  //  (a) 기존 row의 leave_timeline에 calendar source 항목이 있던 경우 — diff 기반 events.delete
+  //  (b) v1.61.3 — caller가 leaveSource='gcal' + leaveEventId 명시한 경우. work_log row 없거나
+  //      leave_timeline에 항목 없어도, fake prev entry 만들어서 events.delete trigger.
+  //      org_calendar_events에서 fetch된 GCal 휴가를 N-Click 표시에서 가리는 동시에 Google Calendar
+  //      이벤트도 같이 삭제 (사용자가 N-Click에 한 번도 등록 안 한 GCal-only 휴가).
+  const shouldGcalDelete = leaveSource === 'gcal' && leaveEventId
+  const effectivePrev: LeaveTimeline = shouldGcalDelete
+    ? [
+        ...prevLeaveTimeline,
+        {
+          kind: 'leave',
+          leaveType: 'full_day',
+          label: '휴가',
+          startTime: '09:00',
+          endTime: '18:00',
+          actualMinutes: 480,
+          roundedMinutes: 480,
+          source: 'calendar',
+          google_event_id: leaveEventId,
+        },
+      ]
+    : prevLeaveTimeline
+  if (effectivePrev.length > 0) {
     try {
       const result = await syncLeaveTimelineWithGoogle({
         adminClient,
         userEmail: user.email!,
         userDisplayName: displayName,
         leaveDate: date,
-        prev: prevLeaveTimeline,
+        prev: effectivePrev,
         next: nextLeaveTimeline,
       })
       if (result.changed && result.updatedTimeline && workLogId) {

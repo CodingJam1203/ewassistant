@@ -82,6 +82,24 @@ export interface UserCalendarLookup {
   leaveType: LeaveType | null
   /** 휴가의 원본 라벨 (예: '연차', '오전반차') */
   leaveLabel: string | null
+  /**
+   * v1.61.3 — 휴가 데이터 출처.
+   *   'gcal'  : org_calendar_events (Google Vacation Calendar, 양방향)
+   *   'sheet' : leave_calendar_cache (Google Sheets, 단방향)
+   *   null    : 휴가 없음
+   * UI 카피 분기 + dismiss 액션 동작 분기에 사용 (gcal는 events.delete 자동, sheet는 가리기만).
+   */
+  leaveSource?: 'gcal' | 'sheet' | null
+  /**
+   * v1.61.3 — leaveSource='gcal'일 때 org_calendar_events.google_event_id.
+   * dismiss endpoint가 이 id로 vacation-sync helper 호출해 Google Calendar에서 직접 events.delete.
+   */
+  leaveEventId?: string | null
+  /**
+   * v1.61.3 — leaveSource='gcal'일 때 org_calendar_id (vacation-sync의 캘린더 식별).
+   * dismiss endpoint가 이걸로 events.delete 대상 캘린더 식별.
+   */
+  leaveOrgCalendarId?: string | null
   /** 일반 일정 목록 (휴가 키워드 제외) */
   events: CalendarEventChunk[]
   /** 셀 원본 텍스트 (디버그용) */
