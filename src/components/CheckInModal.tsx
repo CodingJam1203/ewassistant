@@ -454,13 +454,10 @@ export default function CheckInModal({
                 : startTime))
         : (effectiveIsAllDay ? null : startTime)
 
-      // C2 정책: 사용자가 N-Click에서 시간을 명시 입력했으면 Google 캘린더 자동 매핑된
-      // leave_timeline(source='calendar')을 제거 — N-Click 입력이 우선.
-      // 사용자가 LeaveTimelineInput에서 직접 추가한 항목(source !== 'calendar')은 유지.
-      const hasUserTimeInput = !!(startTime || endTime || safeActualCheckIn)
-      const finalLeaveTimeline = hasUserTimeInput
-        ? effectiveLeave.filter(item => item?.source !== 'calendar')
-        : effectiveLeave
+      // v1.60.1 — 옛 C2 정책(시간 입력 시 calendar source 자동 제거) 폐기. 새 정책상
+      // 8H 미만 휴가는 일정 개념이라 자동 제거 안 함, 종일 휴가는 별도 confirm modal로
+      // 명시 처리. 사용자가 일정 삭제하려면 안내 박스의 [일정 삭제] 링크 사용.
+      const finalLeaveTimeline = effectiveLeave
 
       const res = await fetch('/api/team-status/check-in', {
         method: 'POST',
@@ -872,12 +869,17 @@ export default function CheckInModal({
             </>
           )}
 
-          {/* v1.60 — 휴가 영역 read-only. 사용자가 직접 등록/수정/삭제하지 않고
-              캘린더 sheet 또는 별도 휴가 등록 모달에서만 처리. 모달 안에선 안내만.
+          {/* v1.60 — 휴가 영역 read-only. 사용자는 캘린더 sheet 또는 별도 휴가 등록 모달에서
+              주로 처리하되, v1.60.1부터 모달 안에서도 종일 휴가 취소·8H 미만 일정 삭제 가능.
               calendar prefill이 leaveTimeline state를 채우면 그대로 안내 박스에 노출. */}
           <LeaveReadOnlyNotice
             value={leaveTimeline}
             labelPrefix={caseMode === 'future' ? '다음 출근일' : '이 날'}
+            onRemove={(idx) => {
+              // 사용자 의도적 제거 — Phase 1.5d touch ref도 같이 켜서 가드 발동 X
+              leaveTimelineUserTouchedRef.current = true
+              setLeaveTimeline(leaveTimeline.filter((_, i) => i !== idx))
+            }}
           />
 
           {/* 메모 */}

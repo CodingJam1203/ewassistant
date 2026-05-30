@@ -906,11 +906,12 @@ export default function WorkLogForm({
       // 이제 confirm 모달에서 "휴가 삭제하고 진행" 동의(userConfirmedStripLeaveRef)했을 때만 제거.
       // confirm이 안 떴거나(휴가 신규 등록·baseline 휴가 없음) 취소하면 full_day 그대로 저장.
       const shouldStripFullDay = userConfirmedStripLeaveRef.current
-      // C2 정책 (2026-05-19): Google 캘린더 자동 매핑(source='calendar') 항목은 항상 제거 (N-Click 우선).
-      const submittedLeave: LeaveTimeline = (shouldStripFullDay
+      // v1.60.1 — 옛 C2 정책(시간 입력 시 calendar source 자동 제거) 폐기. 8H 미만은 일정
+      // 개념이라 자동 제거 안 함. 종일은 confirm modal로 명시 처리. 사용자 의도적 삭제는
+      // 안내 박스의 [일정 삭제]/[이 휴가 취소] 액션으로.
+      const submittedLeave: LeaveTimeline = shouldStripFullDay
         ? rawSubmittedLeave.filter(it => it.leaveType !== 'full_day')
         : rawSubmittedLeave
-      ).filter(it => it?.source !== 'calendar')
 
       const submittedIsAllDay = isFullDayLeave(submittedLeave)
       // 2026-05-19 v1.11: 종일 휴가만 09-18 강제. 반차는 사용자 입력 시간 그대로 사용.
@@ -1334,14 +1335,18 @@ export default function WorkLogForm({
             </div>
           )}
 
-          {/* v1.60 — 휴가 영역 read-only. 사용자가 직접 등록/수정/삭제하지 않고
-              캘린더 sheet 또는 별도 휴가 등록 모달에서만 처리. 모달 안에선 안내만.
+          {/* v1.60 — 휴가 영역 read-only. v1.60.1부터 종일 휴가 취소·8H 미만 일정 삭제 가능.
               workSubType !== null (토·일·공휴일 근무)에선 안내 자체도 hide. */}
           {workSubType === null && (
           <div className="sm:col-span-2">
             <LeaveReadOnlyNotice
               value={(formValues.leaveTimeline ?? []) as LeaveTimeline}
               labelPrefix="이 날"
+              onRemove={(idx) => {
+                leaveTimelineUserTouchedRef.current = true
+                const current = (formValues.leaveTimeline ?? []) as LeaveTimeline
+                setValue('leaveTimeline', current.filter((_, i) => i !== idx), { shouldValidate: false, shouldDirty: true })
+              }}
             />
           </div>
           )}
@@ -1507,10 +1512,14 @@ export default function WorkLogForm({
                 />
               </div>
 
-              {/* v1.60 — D+1 휴가 영역도 read-only. 캘린더 sheet/휴가 등록 모달 경로로 통일. */}
+              {/* v1.60 — D+1 휴가 영역. v1.60.1부터 종일 취소·8H 미만 삭제 가능. */}
               <LeaveReadOnlyNotice
                 value={(formValues.expectedLeaveTimeline ?? []) as LeaveTimeline}
                 labelPrefix="다음 출근일"
+                onRemove={(idx) => {
+                  const current = (formValues.expectedLeaveTimeline ?? []) as LeaveTimeline
+                  setValue('expectedLeaveTimeline', current.filter((_, i) => i !== idx), { shouldValidate: false, shouldDirty: true })
+                }}
               />
 
               <div>

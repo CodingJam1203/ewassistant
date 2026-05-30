@@ -873,9 +873,16 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
     }
   }
 
-  // 2) 4단계 시각 chip — 장소는 actual 우선 fallback planned
+  // v1.60.1 — full_day 휴가 있으면 시간/장소 chip skip. 종일 휴가는 그 자체가 "근무 시간 없음"
+  // 이라 09:00~18:00 같은 시간 chip이 같이 뜨면 사용자가 헷갈림. Google 일정(회의 등)은
+  // 별개라 아래 분기까지 진행. 8H 미만(반차)은 근무와 공존 가능하므로 시간 chip 그대로.
+  const hasFullDayLeave = leaveBadge?.isFullDay === true
+
+  // 2) 4단계 시각 chip — 장소는 actual 우선 fallback planned (full_day면 skip)
   const loc = extractWorkLocation(co) ?? extractWorkLocation(ci)
-  if (state === 'check_out_done') {
+  if (hasFullDayLeave) {
+    // 시간 chip skip — 휴가 chip이 이미 위에서 추가됨
+  } else if (state === 'check_out_done') {
     const s = trimToHHmm(co?.start_time)
     const e = trimToHHmm(co?.end_time)
     out.push({

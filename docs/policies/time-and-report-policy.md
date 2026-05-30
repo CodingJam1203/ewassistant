@@ -1,6 +1,6 @@
 # N-Click 시간 및 보고 정책서
 
-> **최종 갱신** — 2026-05-30 (v1.60 — 출퇴근보고/출근완료 모달에서 휴가 드롭다운 hide, read-only 안내 박스로 대체 + 캘린더/둘러보기 chip 8H 미만 분리 + copyText 안내 suffix)
+> **최종 갱신** — 2026-05-30 (v1.60.1 — 안내 박스에 종일휴가 취소 버튼·8H 미만 일정 삭제 링크 추가 + calendar source 자동 제거 분기 폐기 + 캘린더 셀 full_day일 때 시간 chip skip)
 > **상태** — Stage 0~7 반영 완료. 단일 `(user_email, leave_date)` row + 4 시간 컬럼 통합 모델.
 > **단일 진실 (SoT)** — 이 문서가 N-Click 시간·보고 관련 모든 의사결정의 기준이다.
 
@@ -340,6 +340,37 @@ work_logs UPSERT 시 leave_timeline 변경분을 사용자 본부의 vacation �
 | `leave_date >= today` (미래 row) | deploy 직후 일회성 SQL로 `actual_work_time` / `ew_value` / `copy_text` 재계산 추천. 마이그레이션 스크립트는 별도 — Notion 티켓 참조 |
 
 **LeaveTimelineInput 컴포넌트** — 호출처 0개 됨. 컴포넌트 자체는 보존 (향후 v1.61에서 calendar_events 이관 시 EventEditModal 안에서 재활용 가능성). 정책상 출퇴근보고에서 직접 사용 금지.
+
+### 3.10 휴가 안내 박스 액션 + 시간 chip 일원화 (v1.60.1, 2026-05-30)
+
+v1.60 read-only 안내가 적용된 후 사용자 피드백 — "휴가 취소 경로가 모달에 없어서 헷갈림", "8H 휴가인 날에 09:00~18:00 시간 chip이 같이 떠서 혼란".
+
+**안내 박스 액션 추가 (LeaveReadOnlyNotice 재설계)**
+
+| 항목 | 액션 | 동작 |
+|---|---|---|
+| `full_day` (8H 종일) | **`이 휴가 취소`** 버튼 (warning 톤 underline) | `onRemove(originalIndex)` → 부모 폼의 leaveTimeline state에서 해당 항목 제거. work_log row의 다른 데이터(시간·근무내용 등)는 유지 |
+| 8H 미만 | **`[일정 삭제]`** 링크 (info 톤 underline) | 동일 |
+
+- `onRemove` prop이 없으면 액션 미노출 (순수 read-only 유지). 부모가 명시 전달 시에만 액션 보임.
+- 사용자 의도적 액션 = `leaveTimelineUserTouchedRef` 동시 set → Phase 1.5d 충돌 가드 발동 X.
+- Google Sheets 캘린더 원본은 안 건드림. 다음 prefill에 다시 들어와도 사용자가 또 누르면 됨.
+
+**calendar source 자동 제거 분기 폐기**
+
+- v1.59까지 CheckInModal·WorkLogForm submit 시 `submittedLeave.filter(it => it?.source !== 'calendar')` 분기로 N-Click 입력 우선 정책 (시간 입력 = 캘린더 휴가 무시).
+- v1.60.1부터 **분기 자체 제거** — 8H 미만은 일정 개념이라 시간과 공존 가능, 8H 종일은 별도 confirm modal로 명시 처리. 사용자가 안 보이게 자동 제거되던 동작 폐기.
+- 영향 — 5H 휴가 + 13:00~18:00 근무 보고 케이스에서 5H 휴가 row가 work_log에 유지됨. EW 차감은 effective 정책상 0이라 실근무·EW에 영향 없음. 사용자가 안내 박스에서 [일정 삭제]로 명시 제거 가능.
+
+**캘린더 셀 시간 chip 정책 (`MyHistoryCalendar.buildDisplayItems`)**
+
+| 케이스 | v1.60 (이전) | v1.60.1 |
+|---|---|---|
+| full_day 휴가 row + planned/actual 시간 채워짐 | 휴가 chip + 시간 chip 둘 다 노출 | **휴가 chip만 노출 (시간 chip skip)** |
+| 8H 미만 휴가 + 시간 | 둘 다 노출 (기존 유지) | 둘 다 노출 (기존 유지) |
+| Google 일정 (회의 등) | 노출 | 노출 (full_day와도 공존) |
+
+**작업 영역 일관성** — "휴가 안내 박스" 동일 패턴을 출근완료 / 출근보고 (today·prior·future) / 퇴근보고 / 퇴근보고 D+1 사전등록 영역 모두 적용. CheckInModal·WorkLogForm 메인·WorkLogForm D+1 — 3곳 모두 onRemove 핸들러 전달.
 
 ---
 
