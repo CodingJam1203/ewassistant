@@ -238,7 +238,6 @@ interface UserProfileRow {
 interface TeamRow {
   name: string
   sheet_source_id: string
-  calendar_mode: string | null
   org_divisions: { name: string }
   org_sheet_sources: { is_active: boolean }
 }
@@ -298,10 +297,9 @@ async function mergeSheetDataIntoLookup(args: {
   if (usersErr || !userRows || userRows.length === 0) return
 
   // 2-a) sheet_source_id 매핑된 팀 + 활성 source join (팀 멤버용 매핑)
-  // v1.61.7 — calendar_mode 같이 가져와서 시트 lookup 분기에 사용.
   const { data: teamRows, error: teamsErr } = await adminClient
     .from('org_teams')
-    .select('name, sheet_source_id, calendar_mode, org_divisions!inner(name), org_sheet_sources!inner(is_active)')
+    .select('name, sheet_source_id, org_divisions!inner(name), org_sheet_sources!inner(is_active)')
     .not('sheet_source_id', 'is', null)
     .eq('org_sheet_sources.is_active', true)
 
@@ -316,17 +314,12 @@ async function mergeSheetDataIntoLookup(args: {
   if (sourcesErr) return
 
   // teamKey ("본부명::팀명") → sheet_source_id
-  // v1.61.7 — calendar_mode 같이 보관. 시트 lookup 대상 mode: sheet_only / gcal_plus_sheet 만.
   const teamKeyToSourceId = new Map<string, string>()
-  const teamKeyToMode = new Map<string, string | null>()
   for (const t of (teamRows ?? []) as unknown as TeamRow[]) {
     const divName = t.org_divisions?.name
     if (!divName || !t.name || !t.sheet_source_id) continue
-    const key = `${divName}::${t.name}`
-    teamKeyToSourceId.set(key, t.sheet_source_id)
-    teamKeyToMode.set(key, t.calendar_mode)
+    teamKeyToSourceId.set(`${divName}::${t.name}`, t.sheet_source_id)
   }
-  const SHEET_LOOKUP_MODES = new Set(['sheet_only', 'gcal_plus_sheet'])
 
   // 본부명 → 첫 active source_id (본부 직속 fallback)
   const divisionToSourceId = new Map<string, string>()
@@ -348,14 +341,8 @@ async function mergeSheetDataIntoLookup(args: {
 
     let sourceId: string | undefined
     if (u.team) {
-      const teamKey = `${u.division}::${u.team}`
-      // v1.61.7 — team의 calendar_mode가 sheet_only/gcal_plus_sheet 일 때만 시트 lookup.
-      // gcal_only / none / NULL 모드는 sheet_source_id가 매핑되어 있어도 시트 데이터 X.
-      const mode = teamKeyToMode.get(teamKey) ?? null
-      if (mode !== null && !SHEET_LOOKUP_MODES.has(mode)) continue
-      sourceId = teamKeyToSourceId.get(teamKey)
+      sourceId = teamKeyToSourceId.get(`${u.division}::${u.team}`)
     } else {
-      // 본부 직속(team NULL) — mode 컬럼 없음. 기존 동작 유지 (본부 source 자동 적용).
       sourceId = divisionToSourceId.get(u.division)
     }
     if (!sourceId) continue
