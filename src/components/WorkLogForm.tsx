@@ -722,6 +722,9 @@ export default function WorkLogForm({
   //   근무장소 + 근무내용(메모) + 휴가를 직접 받아 prefill. 부모가 값을 넘긴 정상·재제출·편집 경로,
   //   또는 사용자가 이미 건드린 필드는 절대 안 건드린다.
   const barePrefillTriedRef = useRef(false)
+  // v1.60.5 — expected-timeline fetch에서 받은 그 일자의 기존 work_log id.
+  // 신규 작성 모드(editingLog=null)여도 이 id가 있으면 안내 박스 액션의 즉시 PATCH 대상.
+  const existingWorkLogIdRef = useRef<string | null>(null)
   useEffect(() => {
     if (isEditing) return
     if (barePrefillTriedRef.current) return
@@ -743,8 +746,15 @@ export default function WorkLogForm({
         timeline?: WorkLocationTimeline | null
         leaveTimeline?: LeaveTimeline | null
         workContent?: string | null
+        workLogId?: string | null
       } | null) => {
         if (!data) return
+
+        // v1.60.5 — 신규 작성 모드여도 그 일자에 이미 work_logs row가 있으면 workLogId 보관.
+        // 안내 박스 [이 휴가 취소] / [일정 삭제] 액션의 즉시 PATCH 대상 id로 사용.
+        if (data.workLogId) {
+          existingWorkLogIdRef.current = data.workLogId
+        }
 
         // 1) 근무장소 — 사용자가 안 건드렸을 때만
         if (!formValues.actualWorkLocationsTouched) {
@@ -873,6 +883,39 @@ export default function WorkLogForm({
     setSubmitError(null)
 
     try {
+      // v1.60.5 — 콤보 D+1 사전등록 가드. 사용자가 D+1(내일) 출근보고를 같이 제출하려는데
+      // 그 일자에 이미 종일 휴가가 등록되어 있으면 confirm으로 명시 경고. 사용자 의도
+      // 모르고 휴가 덮어쓰는 사고 방지.
+      // - hideD1Section이면 D+1 입력 영역 자체 hide → skip
+      // - expectedStartDate 없으면 skip
+      // - 사용자 본인이 expectedLeaveTimeline에 full_day 박아넣었으면 skip (의도 명시)
+      if (!hideD1Section && data.expectedStartDate) {
+        const d1Expected = (data.expectedLeaveTimeline ?? []) as LeaveTimeline
+        const userPickedD1FullDay = d1Expected.some(it => it.leaveType === 'full_day')
+        if (!userPickedD1FullDay) {
+          try {
+            const r = await fetch(`/api/team-status/expected-timeline?date=${encodeURIComponent(data.expectedStartDate)}`)
+            if (r.ok) {
+              const d1 = await r.json()
+              const d1Stored = (Array.isArray(d1?.leaveTimeline) ? d1.leaveTimeline : []) as LeaveTimeline
+              const d1HasFullDay = d1Stored.some(it => it?.leaveType === 'full_day')
+              if (d1HasFullDay) {
+                const ok = window.confirm(
+                  `${data.expectedStartDate} 일자에 종일 휴가가 등록되어 있습니다.\n` +
+                  `사전 출근보고로 휴가가 덮어씌워집니다. 진행하시겠습니까?`,
+                )
+                if (!ok) {
+                  setIsSubmitting(false)
+                  return
+                }
+              }
+            }
+          } catch {
+            // best-effort — fetch 실패하면 가드 skip (사용자 흐름 막지 않음)
+          }
+        }
+      }
+
       const rawSubmittedLeave = (data.leaveTimeline ?? []) as LeaveTimeline
       const submittedActual = (data.actualWorkLocations ?? []) as WorkLocations
       const submittedPlanned = (data.plannedWorkLocations ?? []) as WorkLocations
@@ -1358,10 +1401,11 @@ export default function WorkLogForm({
 
                 const nextTimeline = current.filter((_, i) => i !== idx)
 
-                // editingLog.id 있으면 즉시 PATCH
-                if (editingLog?.id) {
+                // editingLog.id 또는 expected-timeline에서 받은 existingWorkLogId 있으면 즉시 PATCH
+                const targetId = editingLog?.id ?? existingWorkLogIdRef.current
+                if (targetId) {
                   try {
-                    const res = await fetch(`/api/work-logs/${editingLog.id}/leave-timeline`, {
+                    const res = await fetch(`/api/work-logs/${targetId}/leave-timeline`, {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ leaveTimeline: nextTimeline }),

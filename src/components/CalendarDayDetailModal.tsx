@@ -53,6 +53,8 @@ export interface CalendarDayDetailModalProps {
   onEditEvent?: (ev: import('@/types/leave-calendar').CalendarEventChunk) => void
   /** Phase 1.5e — "+ 일정 등록" → EventEditModal 신규 모드 (해당 date prefill) */
   onCreateEvent?: () => void
+  /** v1.60.5 — 휴가 항목 삭제 후 부모가 캘린더 refetch 트리거 */
+  onLeaveTimelinePatched?: () => void
 }
 
 function trimToHHmm(s: string | null | undefined): string {
@@ -78,6 +80,7 @@ export default function CalendarDayDetailModal({
   onEditWorkLog,
   onRegisterVacation,
   onCreateCheckIn,
+  onLeaveTimelinePatched,
   onCreateCheckOut,
   onEditEvent,
   onCreateEvent,
@@ -116,8 +119,12 @@ export default function CalendarDayDetailModal({
 
         {/* 본문 */}
         <div className="px-6 py-5 space-y-4">
-          {/* 휴가 표시 — 차감 시간(roundedMinutes) 기반 (slot startTime~endTime은 leaveType 표준 슬롯이라 실제 차감과 다를 수 있어 사용자 혼란 — v1.30) */}
-          {leaveTimeline.length > 0 && (
+          {/* 휴가 표시 — 차감 시간(roundedMinutes) 기반 (slot startTime~endTime은 leaveType 표준 슬롯이라 실제 차감과 다를 수 있어 사용자 혼란 — v1.30)
+              v1.60.5 — 각 항목 옆에 "취소" 링크 추가. confirm 후 즉시 PATCH /leave-timeline.
+              workLogId는 ci 또는 co의 work_log_id에서 얻음. */}
+          {leaveTimeline.length > 0 && (() => {
+            const workLogId = ci?.work_log_id ?? co?.work_log_id ?? null
+            return (
             <div className="rounded-[10px] border border-warning-border bg-warning-bg p-3">
               <div className="flex items-center gap-1.5 text-[12px] font-semibold text-warning-text mb-1">
                 <Plane className="h-3.5 w-3.5" aria-hidden /> N-Click 휴가
@@ -133,16 +140,50 @@ export default function CalendarDayDetailModal({
                     h > 0 && m > 0 ? `${h}시간 ${m}분`
                     : h > 0        ? `${h}시간`
                                    : `${m}분`
+                  const isFullDay = it.leaveType === 'full_day'
                   return (
-                    <li key={i} className="tabular-nums">
-                      <span className="font-medium">{it.label}</span>{' '}
-                      <span className="text-text-secondary">{durationLabel}</span>
+                    <li key={i} className="tabular-nums flex items-center gap-2">
+                      <span className="flex-1">
+                        <span className="font-medium">{it.label}</span>{' '}
+                        <span className="text-text-secondary">{durationLabel}</span>
+                      </span>
+                      {workLogId && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const msg = isFullDay
+                              ? `${date} 종일 휴가를 취소하시겠습니까?`
+                              : `${date} ${it.label}(${(mins / 60).toFixed(mins % 60 === 0 ? 0 : 1)}H) 일정을 삭제하시겠습니까?`
+                            if (!window.confirm(msg)) return
+                            const next = leaveTimeline.filter((_, j) => j !== i)
+                            try {
+                              const res = await fetch(`/api/work-logs/${workLogId}/leave-timeline`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ leaveTimeline: next }),
+                              })
+                              if (!res.ok) {
+                                const j = await res.json().catch(() => null)
+                                alert(`삭제 실패: ${j?.error ?? res.statusText}`)
+                                return
+                              }
+                              onLeaveTimelinePatched?.()
+                            } catch (e) {
+                              alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`)
+                            }
+                          }}
+                          className="shrink-0 text-[11px] font-medium text-warning-text underline underline-offset-2 hover:text-warning-text/80"
+                        >
+                          {isFullDay ? '이 휴가 취소' : '일정 삭제'}
+                        </button>
+                      )}
                     </li>
                   )
                 })}
               </ul>
             </div>
-          )}
+            )
+          })()}
 
           {/* 출근보고 (사전/실제) */}
           <Section

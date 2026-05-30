@@ -594,6 +594,8 @@ export default function MyHistoryCalendar({
             setSelectedDate(null)
             if (d) onCreateCheckOut(d)
           } : undefined}
+          // v1.60.5 — 상세 모달에서 휴가 취소 후 캘린더 refetch
+          onLeaveTimelinePatched={() => { fetchAll() }}
           // Phase 1.5e — Google 캘린더 일정 chip 클릭 → EventEditModal 수정 모드
           onEditEvent={(ev: CalendarEventChunk) => {
             if (!ev.id) return
