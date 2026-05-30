@@ -417,11 +417,15 @@ const MemberListRow = memo(function MemberListRow({
     onAction()
   }
 
+  // v1.60 — 8H 종일(full_day)만 'warning' 휴가 badge. 8H 미만(반차)은 'info' 일정 badge로
+  // 시각 분리 — EW 차감 없이 표시만 하는 일정 개념임을 톤으로 구분.
   const leaveLabel =
     card.calendar_leave_type === 'full_day' ? '휴가'
     : card.calendar_leave_type === 'morning_half' ? '오전반차'
     : card.calendar_leave_type === 'afternoon_half' ? '오후반차'
     : null
+  const leaveBadgeVariant: 'warning' | 'info' =
+    card.calendar_leave_type === 'full_day' ? 'warning' : 'info'
 
   return (
     <tr className={cn(TR_HOVER, 'border-l-[3px]', STATUS_BORDER[card.color])}>
@@ -444,7 +448,7 @@ const MemberListRow = memo(function MemberListRow({
       <Td>
         <div className="flex items-center gap-1">
           {leaveLabel && !card.work_log_id && (
-            <Badge variant="warning">{leaveLabel}</Badge>
+            <Badge variant={leaveBadgeVariant}>{leaveLabel}</Badge>
           )}
           <Badge variant={colorToBadgeVariant(card.color)} dot>
             {card.status_text}

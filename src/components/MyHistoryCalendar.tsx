@@ -27,7 +27,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
-  ChevronLeft, ChevronRight, RefreshCw, CalendarPlus, Plane, Clock,
+  ChevronLeft, ChevronRight, RefreshCw, CalendarPlus, Plane, Clock, Calendar,
 } from 'lucide-react'
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, getDay, getDate, isSameDay } from 'date-fns'
 import { ko } from 'date-fns/locale'
@@ -240,13 +240,23 @@ function extractWorkLocation(row: SubmissionRow | null): string | null {
   return null
 }
 
-/** SubmissionRow의 leave_timeline에서 첫 휴가 항목 라벨 (있으면) */
-function extractLeaveLabel(row: SubmissionRow | null): string | null {
+/**
+ * v1.60 — SubmissionRow의 leave_timeline에서 첫 휴가 항목 추출.
+ * 8H 종일(full_day)과 8H 미만(반차/시간단위)을 분리해서 chip 색을 다르게 표시.
+ */
+function extractLeaveBadge(row: SubmissionRow | null): { label: string; isFullDay: boolean; minutes: number } | null {
   if (!row) return null
   const tl = row.leave_timeline as LeaveTimeline | null | undefined
   if (!Array.isArray(tl) || tl.length === 0) return null
-  const item = tl[0] as LeaveTimelineItem
-  return item?.label ?? null
+  // full_day 우선 — 종일 휴가는 row에 1개만 들어가는 정책
+  const fullDay = tl.find(it => it?.leaveType === 'full_day') as LeaveTimelineItem | undefined
+  if (fullDay) {
+    return { label: fullDay.label ?? '휴가', isFullDay: true, minutes: fullDay.roundedMinutes ?? 480 }
+  }
+  // 8H 미만 — 첫 항목
+  const sub = tl[0] as LeaveTimelineItem
+  if (!sub) return null
+  return { label: sub.label ?? '휴가', isFullDay: false, minutes: sub.roundedMinutes ?? 0 }
 }
 
 export default function MyHistoryCalendar({
@@ -840,14 +850,27 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
   const state = data.state
 
   // 1) N-Click 휴가 (퇴근보고에 leave_timeline 있는 케이스)
-  const leaveLabel = extractLeaveLabel(co) ?? extractLeaveLabel(ci)
-  if (leaveLabel) {
-    out.push({
-      tone: 'warning',
-      icon: <Plane className="h-3 w-3" aria-hidden />,
-      text: leaveLabel,
-      title: `N-Click 휴가: ${leaveLabel}`,
-    })
+  // v1.60 — full_day(8H 종일)는 warning solid + 🌴, 8H 미만(반차/시간단위)은 info tone + 🗓
+  // 으로 시각 분리. 8H 미만은 EW 차감 X이고 일정 개념이라 휴가와 다른 톤.
+  const leaveBadge = extractLeaveBadge(co) ?? extractLeaveBadge(ci)
+  if (leaveBadge) {
+    const hours = leaveBadge.minutes / 60
+    const hoursText = Number.isInteger(hours) ? `${hours}` : hours.toFixed(1)
+    if (leaveBadge.isFullDay) {
+      out.push({
+        tone: 'warning',
+        icon: <Plane className="h-3 w-3" aria-hidden />,
+        text: leaveBadge.label,
+        title: `N-Click 휴가: ${leaveBadge.label}`,
+      })
+    } else {
+      out.push({
+        tone: 'info',
+        icon: <Calendar className="h-3 w-3" aria-hidden />,
+        text: `${leaveBadge.label}(${hoursText}H)`,
+        title: `8H 미만 휴가: ${leaveBadge.label}(${hoursText}H) — EW 차감 X, 휴게로 직접 등록 필요`,
+      })
+    }
   }
 
   // 2) 4단계 시각 chip — 장소는 actual 우선 fallback planned
@@ -911,7 +934,7 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
   //    과거 날짜 + work_log 없음 → "(자동인정)" 라벨 추가:
   //    /api/work-hours에서 시간 계산에 자동 합산되는 케이스 명시.
   const cal = data.calendar
-  if (cal?.leaveLabel && !leaveLabel) {
+  if (cal?.leaveLabel && !leaveBadge) {
     const todayStr = format(new Date(), 'yyyy-MM-dd')
     const isPast = data.date < todayStr
     const noWorkLog = !data.checkIn && !data.checkOut

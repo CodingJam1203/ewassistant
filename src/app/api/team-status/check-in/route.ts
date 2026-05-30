@@ -24,6 +24,7 @@ import {
   validateLeaveTimeline,
   isFullDayLeave,
   effectiveLeaveDeductionMinutes,
+  buildLeaveCopyTextNotice,
 } from '@/lib/leave-timeline'
 import {
   snapMinutes,
@@ -194,6 +195,8 @@ export async function POST(request: Request) {
       workContent,
       leaveMinutes,
       isFullDayLeave: isAllDayLeave,
+      // v1.60 — 8H 미만 휴가 suffix
+      leaveCopyTextNotice: buildLeaveCopyTextNotice(leaveTimeline ?? []),
     })
 
     if (!isHalfHour(calcResult.actualWorkMinutes)) {

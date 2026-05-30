@@ -5,7 +5,7 @@ import { dowKo } from '@/lib/utils/date'
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { X, Loader2, Calendar, Trash2 } from 'lucide-react'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
-import LeaveTimelineInput from '@/components/LeaveTimelineInput'
+import LeaveReadOnlyNotice from '@/components/LeaveReadOnlyNotice'
 import HalfHourTimeSelect from '@/components/HalfHourTimeSelect'
 import {
   defaultWorkLocations,
@@ -872,17 +872,13 @@ export default function CheckInModal({
             </>
           )}
 
-          {/* 휴가 — 메모 직전 위치 (위계 정리: 시간/장소 영역 뒤) */}
-          <div>
-            <label className="block text-[12px] font-semibold text-text-secondary mb-1.5">
-              {caseMode === 'future' ? '다음 출근일 휴가여부' : '휴가'}
-            </label>
-            <LeaveTimelineInput value={leaveTimeline} onChange={next => {
-              // Phase 1.5d — 사용자가 직접 leaveTimeline 건드림 신호 (휴가 추가/수정/삭제)
-              leaveTimelineUserTouchedRef.current = true
-              setLeaveTimeline(next)
-            }} />
-          </div>
+          {/* v1.60 — 휴가 영역 read-only. 사용자가 직접 등록/수정/삭제하지 않고
+              캘린더 sheet 또는 별도 휴가 등록 모달에서만 처리. 모달 안에선 안내만.
+              calendar prefill이 leaveTimeline state를 채우면 그대로 안내 박스에 노출. */}
+          <LeaveReadOnlyNotice
+            value={leaveTimeline}
+            labelPrefix={caseMode === 'future' ? '다음 출근일' : '이 날'}
+          />
 
           {/* 메모 */}
           <div>

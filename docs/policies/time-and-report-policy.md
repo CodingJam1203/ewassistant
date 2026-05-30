@@ -1,6 +1,6 @@
 # N-Click 시간 및 보고 정책서
 
-> **최종 갱신** — 2026-05-30 (v1.59 — 휴가 EW 차감 모델 단순화: 8H 종일만 차감, 반차/시간단위는 표시만 + 8H 미만 안내 멘트)
+> **최종 갱신** — 2026-05-30 (v1.60 — 출퇴근보고/출근완료 모달에서 휴가 드롭다운 hide, read-only 안내 박스로 대체 + 캘린더/둘러보기 chip 8H 미만 분리 + copyText 안내 suffix)
 > **상태** — Stage 0~7 반영 완료. 단일 `(user_email, leave_date)` row + 4 시간 컬럼 통합 모델.
 > **단일 진실 (SoT)** — 이 문서가 N-Click 시간·보고 관련 모든 의사결정의 기준이다.
 
@@ -292,6 +292,54 @@ work_logs UPSERT 시 leave_timeline 변경분을 사용자 본부의 vacation �
 - 증상 — 오전반차(calendar source) + 13:00~18:00 실제 출근 보고 시 preview에 휴가 4:00 차감, 실근무 0:00 표시.
 - 원인 — preview 단계의 `leaveMinutesTotal`이 `totalLeaveRoundedMinutes` 기반이라 반차도 EW에서 차감. submit 시점엔 `submittedLeave.filter(source!=='calendar')`로 calendar source가 제거되지만 사용자가 보는 preview와 갭 발생.
 - v1.59 해결 — preview·submit 모두 `effectiveLeaveDeductionMinutes` 사용 → calendar source 반차가 timeline에 살아있어도 EW 차감 0 → preview 정상 (5h − 점심 1h = 실근무 4:00).
+
+### 3.9 휴가 UI 일원화 — 출퇴근보고 모달은 read-only 안내만 (v1.60, 2026-05-30)
+
+**원인 / 정책 의도** — v1.59에서 8H 미만은 EW 차감 0이 됐지만 출퇴근보고 모달의 `LeaveTimelineInput` 드롭다운이 남아 있어 정책과 UI가 일치하지 않음. 사용자 결정으로 "휴가는 8H 종일만 시간 관여, 8H 미만은 일정 개념" → 출퇴근보고에서 휴가 입력 영역 자체 hide, 읽기 전용 안내로 통일.
+
+**모달 변경**
+
+| 모달 | 기존 | v1.60 |
+|---|---|---|
+| `CheckInModal` (출근보고 / 출근완료 / 사전등록 모든 caseMode) | `LeaveTimelineInput` 노출 — 사용자가 30분 단위 휴가 시간 선택 가능 | `LeaveReadOnlyNotice` — leaveTimeline에 항목이 있으면 안내 박스만 노출, 없으면 렌더 X |
+| `WorkLogForm` 메인 (퇴근보고) | `LeaveTimelineInput` 노출 | `LeaveReadOnlyNotice` — 동일 |
+| `WorkLogForm` D+1 사전등록 | `LeaveTimelineInput`(expectedLeaveTimeline) 노출 | `LeaveReadOnlyNotice`(labelPrefix="다음 출근일") — 동일 |
+
+**안내 박스 카피**
+
+| 케이스 | 카피 | 시각 톤 |
+|---|---|---|
+| `full_day` (8H 종일) | `이 날 종일 휴가 등록됨 — 근무 시간 자동 처리` | warning bg + 🌴 |
+| `morning_half` / `afternoon_half` / 시간단위 | `이 날 캘린더에 ${label}(${H}H) 등록됨. 휴게로 직접 입력해 주셔야 반영됩니다.` | info bg + 🗓 |
+
+구현 — `src/components/LeaveReadOnlyNotice.tsx` (신규). 카피 헬퍼: `buildSubFullDayLeaveNotice(label, minutes)` (leave-timeline.ts).
+
+**Calendar prefill** — 흐름 변경 없음. 캘린더 sheet 기반 prefill은 `leaveTimeline` state에 그대로 들어가고, `LeaveReadOnlyNotice`가 자동으로 안내 박스로 노출. 사용자가 직접 수정/삭제하는 경로는 출퇴근보고 모달에서 제거 — 캘린더 sheet 또는 별도 휴가 등록 모달에서만.
+
+**EW copyText 안내 suffix**
+
+- 8H 미만 휴가가 timeline에 있을 때 `copyText` 끝에 안내 부착.
+- 카피 — ` // 🗓 캘린더상 오전반차(4H) — 휴게 등록 주의` (헬퍼 `buildLeaveCopyTextNotice(timeline)`)
+- `(휴가시간 : HH:MM)` 라인 자체는 v1.59에서 이미 effective deduction 기반으로 8H 미만이면 자동 제거됨 — 변경 없음
+- `EwInput.leaveCopyTextNotice` 신규 필드. 호출처 4곳 (work-logs POST/PATCH, team-status check-in, WorkLogForm preview+submit)에서 `buildLeaveCopyTextNotice` 결과 전달.
+
+**캘린더/둘러보기 chip 분리**
+
+| 위치 | full_day | 8H 미만 |
+|---|---|---|
+| 내 제출 내역 캘린더 셀 (`MyHistoryCalendar.tsx`) | warning solid `🌴 휴가` | **info tone** `🗓 오전반차(4H)` |
+| 둘러보기 (`team/page.tsx`) | `<Badge variant="warning">휴가</Badge>` | **`<Badge variant="info">오전반차</Badge>`** |
+
+구현 — `extractLeaveBadge(row)` 가 `{label, isFullDay, minutes}` 분기 반환. `buildDisplayItems`에서 isFullDay별 chip tone/아이콘 분리.
+
+**옛 데이터 처리 — 사용자 결정 (2026-05-30)**
+
+| 일자 | 처리 |
+|---|---|
+| `leave_date < today` (과거 row) | **그대로 둠** — 옛 정책 값 박제. 사용자가 row 수정하면 자동으로 새 정책으로 재계산 |
+| `leave_date >= today` (미래 row) | deploy 직후 일회성 SQL로 `actual_work_time` / `ew_value` / `copy_text` 재계산 추천. 마이그레이션 스크립트는 별도 — Notion 티켓 참조 |
+
+**LeaveTimelineInput 컴포넌트** — 호출처 0개 됨. 컴포넌트 자체는 보존 (향후 v1.61에서 calendar_events 이관 시 EventEditModal 안에서 재활용 가능성). 정책상 출퇴근보고에서 직접 사용 금지.
 
 ---
 

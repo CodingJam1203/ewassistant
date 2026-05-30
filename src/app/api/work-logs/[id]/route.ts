@@ -47,6 +47,7 @@ import {
   validateLeaveTimeline,
   isFullDayLeave,
   effectiveLeaveDeductionMinutes,
+  buildLeaveCopyTextNotice,
   ceilTo30Min,
 } from '@/lib/leave-timeline'
 import {
@@ -387,6 +388,8 @@ export async function PATCH(
       breakReason: body.breakReason,
       leaveMinutes: leaveMinutesEff,
       isFullDayLeave: leaveAllDay,
+      // v1.60 — 8H 미만 휴가 suffix
+      leaveCopyTextNotice: buildLeaveCopyTextNotice(effectiveLeaveTimeline),
     })
 
     const snappedActualMin = snapMinutes(calcResult.actualWorkMinutes, 'round')

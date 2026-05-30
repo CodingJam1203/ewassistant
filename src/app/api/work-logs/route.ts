@@ -22,6 +22,7 @@ import {
   validateLeaveTimeline,
   isFullDayLeave,
   effectiveLeaveDeductionMinutes,
+  buildLeaveCopyTextNotice,
   ceilTo30Min,
 } from '@/lib/leave-timeline'
 import {
@@ -250,6 +251,8 @@ export async function POST(request: Request) {
       breakReason: body.breakReason,
       leaveMinutes,
       isFullDayLeave: leaveAllDay,
+      // v1.60 — 8H 미만 휴가가 잡혀있으면 copyText 끝에 안내 suffix
+      leaveCopyTextNotice: buildLeaveCopyTextNotice(leaveTimeline ?? []),
     })
 
     const snappedActualMin = snapMinutes(calcResult.actualWorkMinutes, 'round')

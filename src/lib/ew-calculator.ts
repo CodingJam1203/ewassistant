@@ -44,6 +44,12 @@ export interface EwInput {
    * 미지정 시 false.
    */
   isFullDayLeave?: boolean;
+  /**
+   * v1.60 — 8H 미만 휴가용 copyText suffix. 호출처에서 leave_timeline →
+   * `buildLeaveCopyTextNotice` 결과를 넘긴다 (예: " // 🗓 캘린더상 오전반차(4H) — 휴게 등록 주의").
+   * 미지정/빈 문자열이면 suffix 미부착.
+   */
+  leaveCopyTextNotice?: string | null;
 }
 
 export interface EwCalculationResult {
@@ -389,7 +395,9 @@ export function calculateEw(input: EwInput): EwCalculationResult {
   // 종일 휴가는 EW 자체가 NPM으로 가므로 advisory 무관 — 끔.
   const showLunchAdvisory = !input.isFullDayLeave && (actualWorkMinutes <= 4 * 60 || workTypeCode === 3);
   const lunchAdvisorySuffix = showLunchAdvisory ? ' / 휴게시간 주의하여 상신' : '';
-  const copyText = baseCopyText + getCopyTextSuffix(workSubType) + lunchAdvisorySuffix;
+  // v1.60 — 8H 미만 휴가가 있는 일자엔 copyText 끝에 안내 suffix. 호출처에서 통째로 넘김.
+  const leaveNoticeSuffix = input.leaveCopyTextNotice ? input.leaveCopyTextNotice : '';
+  const copyText = baseCopyText + getCopyTextSuffix(workSubType) + lunchAdvisorySuffix + leaveNoticeSuffix;
 
   // 총 근무 (퇴 - 출, 자정 넘김 자동 가산)
   const totalSpanMinutes = diffMinutes(startMinutes, endMinutes);

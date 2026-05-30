@@ -26,7 +26,7 @@ import { getKstTodayDateString, getKstWorkDateString } from '@/lib/utils/date'
 import { categorizeDate, getKoreanHolidayName, nextBusinessDay, type DateCategory } from '@/lib/kr-holidays'
 import { DateInputWithDow } from '@/components/ui'
 import WorkLocationChipsInput from '@/components/WorkLocationChipsInput'
-import LeaveTimelineInput from '@/components/LeaveTimelineInput'
+import LeaveReadOnlyNotice from '@/components/LeaveReadOnlyNotice'
 import type { UserCalendarLookup } from '@/types/leave-calendar'
 import TimeSelect from '@/components/TimeSelect'
 import HalfHourTimeSelect from '@/components/HalfHourTimeSelect'
@@ -48,6 +48,7 @@ import {
 import {
   validateLeaveTimeline,
   effectiveLeaveDeductionMinutes,
+  buildLeaveCopyTextNotice,
   isFullDayLeave,
   buildLeaveItem,
   ceilTo30Min,
@@ -841,6 +842,7 @@ export default function WorkLogForm({
           breakReason: showBreakReason ? formValues.breakReason : undefined,
           leaveMinutes: leaveMinutesTotal,
           isFullDayLeave: isAllDay,
+          leaveCopyTextNotice: buildLeaveCopyTextNotice(leaveTl),
         })
         onCalculate(result, null)
       } else {
@@ -853,7 +855,7 @@ export default function WorkLogForm({
     formValues.name, formValues.workTypeLabel, formValues.leaveDate,
     startTime, endTime, derivedLocationLabel,
     formValues.breakTime, formValues.workContent, formValues.breakReason,
-    leaveMinutesTotal, isAllDay, forceStandardSpan,
+    leaveMinutesTotal, isAllDay, forceStandardSpan, leaveTl,
     onCalculate, showBreakReason
   ])
 
@@ -945,6 +947,7 @@ export default function WorkLogForm({
         breakReason: showBreakReason ? data.breakReason : undefined,
         leaveMinutes: submittedLeaveMinutes,
         isFullDayLeave: submittedIsAllDay,
+        leaveCopyTextNotice: buildLeaveCopyTextNotice(submittedLeave),
       })
 
       // 2026-05-19 v1.13: 간주근로 + 실근무 8h 미만 — 외부 버튼 disabled 만으로는 Enter key
@@ -1331,22 +1334,14 @@ export default function WorkLogForm({
             </div>
           )}
 
-          {/* 휴가/반차 — 위계 정리: 기존 별도 섹션에서 휴게/근무내용 섹션 안으로 이동.
-              2026-05-19: 토요일·일요일·공휴일 근무(workSubType !== null)에선 hide
-              (휴가 개념이 일반적으로 안 쓰이는 케이스라 입력 영역 자체 제거) */}
+          {/* v1.60 — 휴가 영역 read-only. 사용자가 직접 등록/수정/삭제하지 않고
+              캘린더 sheet 또는 별도 휴가 등록 모달에서만 처리. 모달 안에선 안내만.
+              workSubType !== null (토·일·공휴일 근무)에선 안내 자체도 hide. */}
           {workSubType === null && (
           <div className="sm:col-span-2">
-            <label className="block text-sm font-medium text-text-primary">휴가/반차</label>
-            <p className="mt-1 mb-2 text-xs text-text-secondary">
-              ※ 휴게와 동일한 차감 정책이 적용됩니다.
-            </p>
-            <LeaveTimelineInput
+            <LeaveReadOnlyNotice
               value={(formValues.leaveTimeline ?? []) as LeaveTimeline}
-              onChange={next => {
-                // Phase 1.5d — 사용자가 직접 leaveTimeline 건드림 신호 (휴가 추가/수정/삭제)
-                leaveTimelineUserTouchedRef.current = true
-                setValue('leaveTimeline', next, { shouldValidate: false, shouldDirty: true })
-              }}
+              labelPrefix="이 날"
             />
           </div>
           )}
@@ -1512,13 +1507,11 @@ export default function WorkLogForm({
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-text-secondary mb-1">다음 출근일 휴가/반차</label>
-                <LeaveTimelineInput
-                  value={(formValues.expectedLeaveTimeline ?? []) as LeaveTimeline}
-                  onChange={next => setValue('expectedLeaveTimeline', next, { shouldValidate: false, shouldDirty: true })}
-                />
-              </div>
+              {/* v1.60 — D+1 휴가 영역도 read-only. 캘린더 sheet/휴가 등록 모달 경로로 통일. */}
+              <LeaveReadOnlyNotice
+                value={(formValues.expectedLeaveTimeline ?? []) as LeaveTimeline}
+                labelPrefix="다음 출근일"
+              />
 
               <div>
                 <label className="block text-xs font-medium text-text-secondary mb-1">메모</label>

@@ -180,11 +180,52 @@ export function hasSubFullDayLeave(timeline: LeaveTimeline | null | undefined): 
 }
 
 /**
- * v1.59 안내 멘트 — LeaveTimelineInput / 보고 모달 / 캘린더 prefill 후 노출.
- * 한 문자열로 공통 사용해서 카피 일관성 유지.
+ * v1.59 안내 멘트 — LeaveTimelineInput inline notice (legacy).
+ * v1.60부터 LeaveTimelineInput 자체는 출퇴근보고에서 hide → 이 상수는 LeaveTimelineInput 단독
+ * 사용처(현재 없음)에 보존만. 폼에서는 [[buildSubFullDayLeaveNotice]] 가 동적 카피 사용.
  */
 export const SUB_FULL_DAY_LEAVE_NOTICE =
   '8시간 미만의 휴가는 EW 시간에서 차감되지 않습니다. 휴게의 형태로 퇴근보고 시 직접 등록해주세요.'
+
+/**
+ * v1.60 — 8H 미만 휴가용 read-only 안내 카피 (출퇴근보고/출근완료 모달).
+ * 예: "이 날 캘린더에 오전반차(4H) 등록됨. 휴게로 직접 입력해 주셔야 반영됩니다."
+ */
+export function buildSubFullDayLeaveNotice(label: string, minutes: number): string {
+  return `이 날 캘린더에 ${label}(${formatHours(minutes)}H) 등록됨. 휴게로 직접 입력해 주셔야 반영됩니다.`
+}
+
+/**
+ * v1.60 — copyText에 붙는 8H 미만 휴가 suffix.
+ * 예: " // 🗓 캘린더상 오전반차(4H) — 휴게 등록 주의"
+ * full_day만 있으면 null (기존 EW="휴가" 표시가 처리).
+ */
+export function buildLeaveCopyTextNotice(timeline: LeaveTimeline | null | undefined): string | null {
+  const items = subFullDayLeaveItems(timeline)
+  if (items.length === 0) return null
+  const parts = items.map(it => `${it.label}(${formatHours(it.roundedMinutes ?? 0)}H)`).join(', ')
+  return ` // 🗓 캘린더상 ${parts} — 휴게 등록 주의`
+}
+
+/** v1.60 — 8H 미만(반차/시간단위) 휴가 항목만 추려서 반환. 안내 박스/카피 생성용. */
+export function subFullDayLeaveItems(timeline: LeaveTimeline | null | undefined): LeaveTimelineItem[] {
+  if (!Array.isArray(timeline)) return []
+  return timeline.filter(
+    it => it.leaveType !== 'full_day' && (it.roundedMinutes ?? 0) > 0,
+  )
+}
+
+/** v1.60 — full_day 휴가 항목만 추려서 반환. read-only 안내 박스용. */
+export function fullDayLeaveItems(timeline: LeaveTimeline | null | undefined): LeaveTimelineItem[] {
+  if (!Array.isArray(timeline)) return []
+  return timeline.filter(it => it.leaveType === 'full_day')
+}
+
+/** 분을 H 단위로 — 정수면 "4", 0.5 단위면 "0.5". 30분 단위 정책상 0.5 step. */
+function formatHours(minutes: number): string {
+  const h = minutes / 60
+  return Number.isInteger(h) ? String(h) : h.toFixed(1)
+}
 
 /** 휴가 시간 범위 중 어느 하나라도 점심시간(12:00~13:00)을 포함하는지 */
 export function leaveIncludesLunch(timeline: LeaveTimeline | null | undefined): boolean {
