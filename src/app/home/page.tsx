@@ -727,6 +727,8 @@ export default function HomePage() {
             checkedInAt: myCard?.checked_in_at ?? null,
             checkedOutAt: myCard?.checked_out_at ?? null,
             isOnBreak: !!myCard?.is_on_break,
+            // v1.63 — 출근완료 미사용 팀 read-time 보정값 fallback. lazy write 전이라도 즉시 C 판정.
+            effectiveActualStart: myCard?.effective_actual_start_time ?? null,
           })
           const buttons = buttonsForState(state, { useCheckInComplete: myCard?.use_check_in_complete ?? true })
           return (

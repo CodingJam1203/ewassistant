@@ -281,6 +281,8 @@ const MemberCard = memo(function MemberCard({
           checkedInAt: card.checked_in_at,
           checkedOutAt: card.checked_out_at,
           isOnBreak: !!card.is_on_break,
+          // v1.63 — 출근완료 미사용 팀 read-time 보정값 fallback. lazy write 전이라도 즉시 C 판정.
+          effectiveActualStart: card.effective_actual_start_time ?? null,
         })
         const buttons = buttonsForState(state, { useCheckInComplete: card.use_check_in_complete ?? true })
         return (
@@ -531,6 +533,8 @@ const MemberListRow = memo(function MemberListRow({
             checkedInAt: card.checked_in_at,
             checkedOutAt: card.checked_out_at,
             isOnBreak: !!card.is_on_break,
+            // v1.63 — 출근완료 미사용 팀 read-time 보정값 fallback. lazy write 전이라도 즉시 C 판정.
+            effectiveActualStart: card.effective_actual_start_time ?? null,
           })
           const buttons = buttonsForState(state, { useCheckInComplete: card.use_check_in_complete ?? true })
           return (

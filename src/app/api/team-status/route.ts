@@ -314,11 +314,17 @@ export async function GET(request: Request) {
     }
     const teamSettings = new Map<string, boolean>()
     const teamSortMap  = new Map<string, number>()  // `${div_name}::${team_name}` → sort_order
+    // v1.63: 본부 직속 + notify_team 미설정 인원의 use_check_in_complete fallback용.
+    // 같은 본부 내에 use_check_in_complete=false 팀이 1개라도 있으면 본부 직속도 false로 간주.
+    // (대부분 본부 단위로 정책 통일 — 일부 팀만 다른 본부는 admin이 notify_team을 명시 지정해야 함)
+    const divisionsWithFalseTeam = new Set<string>()
     for (const t of ((orgTeamsRes.data ?? []) as Array<{ division_id: string; name: string; use_check_in_complete: boolean | null; sort_order: number | null }>)) {
       const divName = divIdToName.get(t.division_id)
       if (!divName) continue
-      teamSettings.set(`${divName}::${t.name}`, t.use_check_in_complete ?? true)
+      const ucic = t.use_check_in_complete ?? true
+      teamSettings.set(`${divName}::${t.name}`, ucic)
       teamSortMap.set(`${divName}::${t.name}`, t.sort_order ?? 999)
+      if (!ucic) divisionsWithFalseTeam.add(divName)
     }
 
     const workLogsLeave    = workLogsLeaveRes.data
@@ -437,12 +443,20 @@ export async function GET(request: Request) {
       // v1.56: use_check_in_complete 조회용 effective team. 본부 직속(team 없음)은
       // notify_team으로 흡수 — 알림 라우팅(resolveRoutingTeam)과 동일 철학. 종전엔
       // profile.team만 써서 본부 직속이 항상 default true로 떨어지던 버그.
+      // v1.63: notify_team도 NULL이면 본부 단위 fallback — 본부 내 false 팀 있으면 false.
       const effectiveTeamForSettings = resolveRoutingTeam(
         (profile.team as string | null) ?? null,
         (profile as { notify_team?: string | null }).notify_team ?? null,
       )
-      const useCheckInCompleteForUser =
-        teamSettings.get(`${division ?? ''}::${effectiveTeamForSettings}`) ?? true
+      const useCheckInCompleteForUser = (() => {
+        if (effectiveTeamForSettings && division) {
+          const explicit = teamSettings.get(`${division}::${effectiveTeamForSettings}`)
+          if (explicit !== undefined) return explicit
+        }
+        // 매핑 못 찾음 — 본부 단위 fallback
+        if (division && divisionsWithFalseTeam.has(division)) return false
+        return true
+      })()
 
       return {
         email,

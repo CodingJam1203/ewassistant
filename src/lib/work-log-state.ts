@@ -24,16 +24,25 @@ export interface WorkLogStateInput {
   checkedOutAt: string | null
   /** 휴게 진행 중 여부 — daily_work_status.is_on_break */
   isOnBreak: boolean
+  /**
+   * v1.63 — 출근완료 미사용 팀 read-time 보정값 ('HH:mm:ss' 또는 NULL).
+   * computeEffectiveActualStart 결과. 있으면 checkedInAt이 NULL이라도 '실 출근'으로 간주(C/D).
+   *
+   * 배경: lazy write가 아직 daily_work_status.checked_in_at을 채우지 못한 짧은 윈도우(첫 fetch)
+   * 또는 lazy write 자체가 실패한 케이스에도 사용자가 즉시 'C' 상태를 보게 한다.
+   * 서버 응답의 effective_actual_start_time을 그대로 넘기면 됨.
+   */
+  effectiveActualStart?: string | null
 }
 
 export function computeWorkLogState(input: WorkLogStateInput): WorkLogState {
-  const { hasWorkLog, checkedInAt, checkedOutAt, isOnBreak } = input
+  const { hasWorkLog, checkedInAt, checkedOutAt, isOnBreak, effectiveActualStart } = input
 
   // E. 퇴근 완료 (실제 퇴근 있음 — 다른 모든 조건 무관)
   if (checkedOutAt) return 'E'
 
-  // 실제 출근 있음
-  if (checkedInAt) {
+  // 실제 출근 있음 — DB checked_in_at 또는 effective 보정값 어느 쪽이든
+  if (checkedInAt || effectiveActualStart) {
     if (isOnBreak) return 'D'
     return 'C'
   }
@@ -124,12 +133,14 @@ export function computeEffectiveActualStart(
   team: TeamConfigForEffective,
   now: Date = new Date(),
 ): string | null {
-  // 이미 실제 출근 기록 있음 → 그대로
-  if (row.actual_start_time) return row.actual_start_time
+  // 이미 실제 출근 기록 있음 → 그대로 (v1.63: 빈 문자열/whitespace 가드 추가 — 'HH:mm' 최소 4자)
+  const trimmedActual = row.actual_start_time?.trim() ?? ''
+  if (trimmedActual.length >= 4) return trimmedActual
   // 출근완료 사용 팀 → 보정 X
   if (team.use_check_in_complete) return null
-  // 미보고 → 보정 X
-  if (!row.planned_start_time) return null
+  // 미보고 → 보정 X (v1.63: planned도 trim 가드)
+  const trimmedPlanned = row.planned_start_time?.trim() ?? ''
+  if (trimmedPlanned.length < 4) return null
   if (!row.leave_date) return null
 
   // KST 오늘 비교
@@ -143,10 +154,10 @@ export function computeEffectiveActualStart(
     timeZone: 'Asia/Seoul', hour12: false, hour: '2-digit', minute: '2-digit',
   })
   const nowHHmm = timeFmt.format(now)
-  const plannedHHmm = row.planned_start_time.slice(0, 5)
+  const plannedHHmm = trimmedPlanned.slice(0, 5)
   if (nowHHmm < plannedHHmm) return null
 
-  return row.planned_start_time
+  return trimmedPlanned
 }
 
 function buttonsForStateRaw(state: WorkLogState): ButtonVisibility {
