@@ -69,6 +69,12 @@ export interface WorklogNotifyPayload {
   plannedWorkLocations?: WorkLocations | null
   division?: string | null
   team?: string | null
+  /**
+   * v1.64 — 8H 미만 근무 + 점심시간 가지지 않음 옵션.
+   * true면 메시지의 근무시간 endTime을 +60분 보정 + 별도 안내 라인 추가.
+   * 8H 이상 또는 종일 휴가에선 무시.
+   */
+  lunchSkipped?: boolean | null
 }
 
 /**

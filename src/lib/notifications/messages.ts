@@ -103,22 +103,50 @@ function worklogBody(prefix: string, p: WorklogNotifyPayload): string {
   const leaveTimeLine = buildLeaveTimeLine(p.leaveTimeline)
   const actualWorkLine = buildActualWorkLine(p)
 
+  // v1.64 — 8H 미만 + 점심 안 가짐 옵션. 실근무 8H 미만 + lunchSkipped=true일 때만 적용.
+  //   - 근무시간 표시: endTime +60분 보정 (copyText와 일관)
+  //   - 본문 끝에 안내 라인 추가 (가짐/가지지 않음 양쪽 모두)
+  //   - 종일 휴가는 actualWorkMinutes=0이지만 leaveTimeline로 판정 — 종일 휴가 시 안내 X.
+  const isFullDay = isFullDayLeave(p.leaveTimeline ?? null)
+  const isUnder8h = typeof p.actualWorkMinutes === 'number' && p.actualWorkMinutes < 8 * 60
+  const showLunchSkipNotice = !isFullDay && isUnder8h
+  const lunchSkipApplied = !!p.lunchSkipped && showLunchSkipNotice
+  const displayEndTime = lunchSkipApplied
+    ? addOneHourToHHmm(p.endTime)
+    : p.endTime
+  const lunchSkipLine: string | null = showLunchSkipNotice
+    ? (lunchSkipApplied
+        ? '🔹8H 미만 근무이며, 점심시간 가지지 않음'
+        : '🔹8H 미만 근무이며, 점심시간 가짐')
+    : null
+
   return [
     // v1.51 — 헤더 날짜에 요일 포함 ("2026-05-27" → "2026/05/27(수)")
     `${prefix} / ${koreanDate(p.leaveDate)}`,
     `🔹근무유형 : ${p.workTypeLabel || '미입력'}`,
     ...leaveLines,
     ...workLocationLines,
-    `🔹근무시간 : ${fmtTime(p.startTime)} ~ ${fmtTime(p.endTime)}`,
+    `🔹근무시간 : ${fmtTime(p.startTime)} ~ ${fmtTime(displayEndTime)}`,
     breakLine,
     ...(leaveTimeLine ? [leaveTimeLine] : []),
     ...(actualWorkLine ? [actualWorkLine] : []),
+    ...(lunchSkipLine ? [lunchSkipLine] : []),
     `🔹지각/당일 수정 : ${lateStr}`,
     `🔹근무내용 : ${p.workContent || '미입력'}`,
     ...checkinLines,
     '🧡',
     cta(),
   ].join('\n')
+}
+
+/** 'HH:mm[:ss]' → '+1H 후 HH:mm'. 24시 넘으면 25:00, 27:30 형식 유지(fmtTime이 (명일) 표기 처리) */
+function addOneHourToHHmm(timeStr: string): string {
+  if (!timeStr) return timeStr
+  const parts = timeStr.split(':')
+  const h = parseInt(parts[0], 10)
+  const m = (parts[1] ?? '00').padStart(2, '0')
+  if (!Number.isFinite(h)) return timeStr
+  return `${String(h + 1).padStart(2, '0')}:${m}`
 }
 
 /** 본문 휴가/반차 라인 */

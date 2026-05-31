@@ -390,6 +390,8 @@ export async function PATCH(
       isFullDayLeave: leaveAllDay,
       // v1.60 — 8H 미만 휴가 suffix
       leaveCopyTextNotice: buildLeaveCopyTextNotice(effectiveLeaveTimeline),
+      // v1.64 — 8H 미만 + 점심 안 가짐 옵션
+      lunchSkipped: !!body.lunchSkipped,
     })
 
     const snappedActualMin = snapMinutes(calcResult.actualWorkMinutes, 'round')
@@ -505,6 +507,8 @@ export async function PATCH(
         ew_end: calcResult.ewEndText,
         ew_value: calcResult.ewValue,
         copy_text: calcResult.copyText,
+        // v1.64 — 사용자 선택 박제 (수정 모달에서 복원·재변경 가능)
+        lunch_skipped: !!body.lunchSkipped,
       })
       if (workLocationTimelinePatch !== undefined) {
         updates.work_location_timeline = workLocationTimelinePatch

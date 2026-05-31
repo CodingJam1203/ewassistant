@@ -253,6 +253,8 @@ export async function POST(request: Request) {
       isFullDayLeave: leaveAllDay,
       // v1.60 — 8H 미만 휴가가 잡혀있으면 copyText 끝에 안내 suffix
       leaveCopyTextNotice: buildLeaveCopyTextNotice(leaveTimeline ?? []),
+      // v1.64 — 8H 미만 + 점심 안 가짐 옵션. copyText endTime +1H 보정 + suffix.
+      lunchSkipped: !!body.lunchSkipped,
     })
 
     const snappedActualMin = snapMinutes(calcResult.actualWorkMinutes, 'round')
@@ -344,6 +346,10 @@ export async function POST(request: Request) {
       ew_end: calcResult.ewEndText,
       ew_value: calcResult.ewValue,
       copy_text: calcResult.copyText,
+      // v1.64 — 사용자 선택 박제. 수정 모달이 재오픈 시 라디오 상태 복원에 사용.
+      //   8H 이상 근무 case는 calculateEw가 showLunchSkipRadio=false라 의미 없지만,
+      //   사용자 입력 그대로 저장하면 8H 미만 → 이상으로 변경 시도 시 자동 false 처리는 클라가 담당.
+      lunch_skipped: !!body.lunchSkipped,
     }
 
     // 퇴근보고는 actualWorkLocations만 갱신, planned는 보존 (D-day row의 planned는 출근보고에서 정해진 값)
@@ -676,6 +682,8 @@ export async function POST(request: Request) {
       division: userDivision,
       // 본부 직속(team 없음)이면 admin 지정 notify_team으로 라우팅 치환 (DB row의 team은 NULL 유지)
       team: resolveRoutingTeam(userTeam, userNotifyTeam) || null,
+      // v1.64 — 8H 미만 + 점심 안 가짐. 메시지 빌더가 근무시간 +1H 보정 + 별도 안내 라인.
+      lunchSkipped: !!body.lunchSkipped,
     }
 
     // Stage 6 — 동시 제출 시 알림 채널 통일:

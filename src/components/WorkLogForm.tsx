@@ -128,6 +128,10 @@ const formSchema = z.object({
 
   sendTeams: z.boolean().optional(),
 
+  /** v1.64 — 8H 미만 근무 시 점심시간 가졌는지 사용자 선택. 기본값 false(=가짐).
+      8H 이상 또는 종일 휴가에선 라디오 hide. true면 복붙/알림 시간 +1H 보정. */
+  lunchSkipped: z.boolean().optional(),
+
   /** 메타 — 편집 모드 + scope. UI는 showCheckIn/Out으로 분기되는데, schema도
       같은 분기를 알아야 본문 영역이 노출 안 된 케이스(check_in 수정)에서 빈 본문을
       validation으로 막지 않음. 형식상 form field지만 input은 없고 default로 주입. */
@@ -353,6 +357,8 @@ export default function WorkLogForm({
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [showEwPopup, setShowEwPopup] = useState(false)
   const [lastSubmitResult, setLastSubmitResult] = useState<EwCalculationResult | null>(null)
+  // v1.64 — 미리보기 계산 결과의 showLunchSkipRadio를 form 안 라디오 노출 여부 판단에 사용.
+  const [showLunchSkipRadio, setShowLunchSkipRadio] = useState(false)
   // Phase 1.5d (2026-05-20): 종일 휴가 + 근무 의도 동시 입력 시 confirm modal.
   // 휴가가 prefill로 살아있는데 사용자가 actual 위치 변경/근무내용 입력으로 "근무" 의도를
   // 분명히 한 경우, 묻지 않고 휴가를 묵시적으로 날리는 종전 동작(line 800-803)을 → 명시 확인으로 변경.
@@ -505,6 +511,8 @@ export default function WorkLogForm({
           plannedWorkLocations: defaultPlannedLocations,
           expectedLeaveTimeline: (editingLog.expected_leave_timeline ?? []) as LeaveTimeline,
           sendTeams: true,
+          // v1.64 — 수정 모달 재오픈 시 저장된 사용자 선택 복원. 양방향 전환 허용.
+          lunchSkipped: !!editingLog.lunch_skipped,
           _editScope: editScope,
         }
       : {
@@ -536,6 +544,8 @@ export default function WorkLogForm({
           plannedWorkLocations: defaultPlannedLocations,
           expectedLeaveTimeline: [] as LeaveTimeline,
           sendTeams: true,
+          // v1.64 — 기본값 false(=점심 가짐). 라디오 노출 시 사용자가 선택 가능.
+          lunchSkipped: false,
           _editScope: editScope,
         },
   })
@@ -859,20 +869,30 @@ export default function WorkLogForm({
           leaveMinutes: leaveMinutesTotal,
           isFullDayLeave: isAllDay,
           leaveCopyTextNotice: buildLeaveCopyTextNotice(leaveTl),
+          // v1.64 — 8H 미만 + 점심 안 가짐. 라디오 노출 조건 만족하면 미리보기에 즉시 +1H 반영.
+          lunchSkipped: !!formValues.lunchSkipped,
         })
         onCalculate(result, null)
+        // v1.64 — 라디오 노출 여부 sync. 8H 이상이 되면 사용자 선택을 자동 false로 reset.
+        setShowLunchSkipRadio(result.showLunchSkipRadio)
+        if (!result.showLunchSkipRadio && formValues.lunchSkipped) {
+          setValue('lunchSkipped', false, { shouldDirty: true })
+        }
       } else {
         onCalculate(null, null)
+        setShowLunchSkipRadio(false)
       }
     } catch (err: any) {
       onCalculate(null, err.message)
+      setShowLunchSkipRadio(false)
     }
   }, [
     formValues.name, formValues.workTypeLabel, formValues.leaveDate,
     startTime, endTime, derivedLocationLabel,
     formValues.breakTime, formValues.workContent, formValues.breakReason,
+    formValues.lunchSkipped,  // v1.64 — 라디오 토글 시 미리보기 즉시 재계산
     leaveMinutesTotal, isAllDay, forceStandardSpan, leaveTl,
-    onCalculate, showBreakReason
+    onCalculate, showBreakReason, setValue
   ])
 
   const onSubmit = async (data: WorkLogFormData) => {
@@ -998,6 +1018,8 @@ export default function WorkLogForm({
         leaveMinutes: submittedLeaveMinutes,
         isFullDayLeave: submittedIsAllDay,
         leaveCopyTextNotice: buildLeaveCopyTextNotice(submittedLeave),
+        // v1.64 — submit 시점 사용자 선택값 그대로 (showLunchSkipRadio 조건은 계산기 내부에서 가드)
+        lunchSkipped: !!data.lunchSkipped,
       })
 
       // 2026-05-19 v1.13: 간주근로 + 실근무 8h 미만 — 외부 버튼 disabled 만으로는 Enter key
@@ -1381,6 +1403,47 @@ export default function WorkLogForm({
                 {...register('breakReason')}
                 className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border"
               />
+            </div>
+          )}
+
+          {/* v1.64 — 8H 미만 근무 시 점심시간 명시 확인 라디오.
+              EW에 점심은 12~13시 기본 자동 잡혀있고, 짧은 시간 근로 시 점심+1H 자동 계산해 상신을 도와줌.
+              "아니오" 선택 시 복붙/알림 시간 +1H 보정 + 별도 안내 텍스트. EW 차감 자체는 변동 없음.
+              종일 휴가/8H 이상 근무 시 자동 hide. 8H 이상으로 변경되면 useEffect에서 lunchSkipped=false 자동 reset. */}
+          {showLunchSkipRadio && (
+            <div className="sm:col-span-2">
+              <div className="rounded-[10px] border border-warning-border bg-warning-bg px-3 py-3">
+                <p className="text-sm font-semibold text-warning-text">
+                  ⏱ 8H 미만으로 근무하셨습니다. 점심시간을 가지셨나요?
+                </p>
+                <p className="mt-1.5 text-xs text-warning-text/90 leading-relaxed">
+                  EW에 점심시간은 12시~13시에 기본으로 잡혀있으며, 짧은 시간 근로 시 점심시간 +1H 자동 계산해 상신을 도와드립니다.
+                  별도 휴게시간은 정확히 계산해주세요.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="lunchSkipped"
+                      checked={!formValues.lunchSkipped}
+                      onChange={() => setValue('lunchSkipped', false, { shouldDirty: true })}
+                      className="h-4 w-4 text-primary-600 focus:ring-primary-500"
+                    />
+                    <span className="text-sm text-text-primary">예 (점심시간 가짐)</span>
+                  </label>
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="lunchSkipped"
+                      checked={!!formValues.lunchSkipped}
+                      onChange={() => setValue('lunchSkipped', true, { shouldDirty: true })}
+                      className="h-4 w-4 text-primary-600 focus:ring-primary-500"
+                    />
+                    <span className="text-sm text-text-primary">아니오 (점심시간 가지지 않음)</span>
+                  </label>
+                </div>
+                <p className="mt-2 text-[11px] text-text-secondary">본인 책임으로 정확히 선택해주세요.</p>
+              </div>
             </div>
           )}
 

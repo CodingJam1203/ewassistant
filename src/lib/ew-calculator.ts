@@ -50,6 +50,17 @@ export interface EwInput {
    * 미지정/빈 문자열이면 suffix 미부착.
    */
   leaveCopyTextNotice?: string | null;
+  /**
+   * v1.64 — 8H 미만 근무 시 점심시간 가졌는지 여부.
+   *   - undefined/false (기본): 기존 동작. 실근무 8H 미만이면 copyText 끝에
+   *     " / 8H 미만 근무이며, 점심시간 가짐" 추가.
+   *   - true: 사용자가 점심 안 가졌다고 선택.
+   *     copyText의 endTimeText만 +60분 보정 (예: 13:00 → 14:00).
+   *     copyText 끝에 " / 8H 미만 근무이며, 점심시간 가지지 않음" 추가.
+   *     EW 계산(차감 60분) 자체는 변동 없음 — 표시·복붙만 보정.
+   * 8H 이상 실근무거나 종일 휴가면 무시(suffix 안 붙임).
+   */
+  lunchSkipped?: boolean;
 }
 
 export interface EwCalculationResult {
@@ -70,6 +81,11 @@ export interface EwCalculationResult {
    * true면 미리보기 박스를 빨간색으로 강조하고, copyText 끝에 " / 휴게시간 주의하여 상신" 추가.
    */
   showLunchAdvisory: boolean;
+  /**
+   * v1.64 — 실근무 8H 미만이면 true. UI가 이 플래그를 보고 "점심시간 가지셨나요?"
+   * 라디오를 노출. 종일 휴가는 false (트리거 대상 아님).
+   */
+  showLunchSkipRadio: boolean;
   // ─── 계산식 breakdown 노출용 (CalculationPreview 표 렌더링) ─────────────
   /** 실제 출근시간 'HH:mm' (입력 원본) */
   startTimeText: string;
@@ -376,11 +392,22 @@ export function calculateEw(input: EwInput): EwCalculationResult {
     ? formatTimeOver24(endMinutes + 1440)
     : input.endTime
 
+  // v1.64 — 8H 미만 + 점심 안 가짐 옵션 처리.
+  //   - showLunchSkipRadio: UI 라디오 노출 트리거 (실근무 < 8H + 종일휴가 X)
+  //   - lunchSkipApplied: 사용자가 "아니오(점심 안 가짐)" 선택 + 라디오 노출 조건 만족
+  //   - 적용 시 endTimeText만 +60분 보정. EW 계산·차감·실근무 시간은 변동 없음.
+  //   - 24시 넘기는 케이스도 그대로 +60분 (formatTimeOver24가 27:00, 33:30 같은 표기 지원).
+  const showLunchSkipRadio = !input.isFullDayLeave && actualWorkMinutes < 8 * 60;
+  const lunchSkipApplied = !!input.lunchSkipped && showLunchSkipRadio;
+  const displayEndTimeForCopy = lunchSkipApplied
+    ? formatTimeOver24((isNextDay ? endMinutes + 1440 : endMinutes) + 60)
+    : displayEndTimeText;
+
   const baseCopyText = buildCopyText({
     dateText,
     workLocation: input.workLocation,
     startTimeText: input.startTime,
-    endTimeText: displayEndTimeText,
+    endTimeText: displayEndTimeForCopy,
     actualWorkText,
     breakTimeText,
     leaveTimeText,
@@ -393,11 +420,21 @@ export function calculateEw(input: EwInput): EwCalculationResult {
   //   2) 공휴일근로 (workTypeCode=3): X=0
   // → 사용자가 직접 휴게/점심 시간 검토 후 EW 상신하도록 안내 + copyText에도 명시.
   // 종일 휴가는 EW 자체가 NPM으로 가므로 advisory 무관 — 끔.
-  const showLunchAdvisory = !input.isFullDayLeave && (actualWorkMinutes <= 4 * 60 || workTypeCode === 3);
+  // v1.64: lunch_skipped로 사용자가 명시 선택한 경우 별도 suffix가 붙으므로 이 advisory는 끔.
+  const showLunchAdvisory = !input.isFullDayLeave && !lunchSkipApplied && (actualWorkMinutes <= 4 * 60 || workTypeCode === 3);
   const lunchAdvisorySuffix = showLunchAdvisory ? ' / 휴게시간 주의하여 상신' : '';
   // v1.60 — 8H 미만 휴가가 있는 일자엔 copyText 끝에 안내 suffix. 호출처에서 통째로 넘김.
   const leaveNoticeSuffix = input.leaveCopyTextNotice ? input.leaveCopyTextNotice : '';
-  const copyText = baseCopyText + getCopyTextSuffix(workSubType) + lunchAdvisorySuffix + leaveNoticeSuffix;
+  // v1.64 — 8H 미만 근무 시 점심 가졌는지 명시 표기.
+  //   - lunchSkipApplied=true:  " / 8H 미만 근무이며, 점심시간 가지지 않음" (+endTime 보정 완료)
+  //   - lunchSkipApplied=false & showLunchSkipRadio=true: " / 8H 미만 근무이며, 점심시간 가짐"
+  //   - showLunchSkipRadio=false (8H 이상 또는 종일휴가): suffix 안 붙임
+  const lunchSkipSuffix = showLunchSkipRadio
+    ? (lunchSkipApplied
+        ? ' / 8H 미만 근무이며, 점심시간 가지지 않음'
+        : ' / 8H 미만 근무이며, 점심시간 가짐')
+    : '';
+  const copyText = baseCopyText + getCopyTextSuffix(workSubType) + lunchAdvisorySuffix + leaveNoticeSuffix + lunchSkipSuffix;
 
   // 총 근무 (퇴 - 출, 자정 넘김 자동 가산)
   const totalSpanMinutes = diffMinutes(startMinutes, endMinutes);
@@ -414,6 +451,7 @@ export function calculateEw(input: EwInput): EwCalculationResult {
     ewValue,
     copyText,
     showLunchAdvisory,
+    showLunchSkipRadio,
     startTimeText: input.startTime,
     endTimeText: displayEndTimeText,
     totalSpanMinutes,

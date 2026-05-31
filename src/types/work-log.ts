@@ -73,5 +73,12 @@ export interface WorkLog {
   division?: string | null
   team?: string | null
 
+  /**
+   * v1.64 — 8H 미만 근무 시 사용자가 "점심시간 안 가짐" 선택한 케이스.
+   * true면 복붙/알림 시간 +1H 보정 + "점심시간 가지지 않음" 안내 텍스트.
+   * EW 차감 로직(점심 60분 자동)에는 영향 없음. 표시·복붙·알림만 보정.
+   */
+  lunch_skipped?: boolean | null
+
   [key: string]: unknown
 }
