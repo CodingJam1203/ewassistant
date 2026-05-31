@@ -12,6 +12,7 @@ import {
   accumulateBreakAuto,
   ceilTo30Min,
 } from '@/lib/leave-timeline'
+import { calculateLunchOverlapMinutes, LUNCH_OVERLAP_CHOICE } from '@/lib/utils/lunch-overlap'
 
 export async function POST(request: Request) {
   try {
@@ -21,6 +22,18 @@ export async function POST(request: Request) {
 
     const body = await request.json()
     const date: string = body.date ?? getKstTodayDateString()
+    // v1.65 — 휴게가 12:00~13:00 KST와 겹친 경우 클라가 모달로 받은 사용자 선택.
+    //   'lunch': 점심으로 처리 (겹친 분 break_auto 누적에서 제외)
+    //   'extra': 별도 휴게로 누적 (그대로)
+    //   undefined: 겹침 없음 → 현재 동작 그대로 (모달 안 띄움)
+    // 보안: 클라 선택을 신뢰하되 overlap 분 계산은 서버에서 재계산.
+    const lunchOverlapChoiceRaw: unknown = body.lunchOverlapChoice
+    const lunchOverlapChoice: 'lunch' | 'extra' | null =
+      lunchOverlapChoiceRaw === LUNCH_OVERLAP_CHOICE.LUNCH
+        ? 'lunch'
+        : lunchOverlapChoiceRaw === LUNCH_OVERLAP_CHOICE.EXTRA
+          ? 'extra'
+          : null
     const now = new Date().toISOString()
     const adminClient = createAdminClient()
 
@@ -60,14 +73,27 @@ export async function POST(request: Request) {
 
     // ─── 휴게 자동값 누적 (break_auto_actual_minutes / break_auto_rounded_minutes) ─
     let breakSessionMinutes = 0
+    let lunchOverlapMinutes = 0
     if (existing.break_started_at) {
       breakSessionMinutes = calculateBreakAutoMinutesFromIso(
         existing.break_started_at as string,
         now
       )
+      // v1.65 — 12:00~13:00 KST 겹침 분 서버 재계산 (클라 신뢰 X)
+      lunchOverlapMinutes = calculateLunchOverlapMinutes(
+        existing.break_started_at as string,
+        now
+      )
     }
 
-    if (existing.work_log_id && breakSessionMinutes > 0) {
+    // v1.65 — choice='lunch'면 겹친 분을 누적에서 제외 (점심으로 흡수 — EW 이중 차감 방지).
+    // overlap이 0이거나 choice가 lunch가 아니면 그대로 누적 (기존 동작).
+    const effectiveSessionMinutes =
+      lunchOverlapChoice === 'lunch' && lunchOverlapMinutes > 0
+        ? Math.max(0, breakSessionMinutes - lunchOverlapMinutes)
+        : breakSessionMinutes
+
+    if (existing.work_log_id && effectiveSessionMinutes > 0) {
       try {
         const { data: wLog } = await adminClient
           .from('work_logs')
@@ -77,7 +103,7 @@ export async function POST(request: Request) {
 
         const accumulated = accumulateBreakAuto(
           (wLog?.break_auto_actual_minutes as number | null) ?? 0,
-          breakSessionMinutes
+          effectiveSessionMinutes
         )
 
         await adminClient
@@ -93,13 +119,20 @@ export async function POST(request: Request) {
       }
     }
 
+    // v1.65 — audit 기록 강화: 점심 겹침 분 + 사용자 선택 함께 박제
     await adminClient.from('work_status_events').insert({
       work_date:       date,
       user_email:      user.email!,
       user_profile_id: profile?.id ?? null,
       work_log_id:     existing.work_log_id ?? null,
       event_type:      'break_end',
-      event_value:     { session_minutes: breakSessionMinutes },
+      event_value:     {
+        session_minutes:        breakSessionMinutes,
+        lunch_overlap_minutes:  lunchOverlapMinutes,
+        // overlap 없으면 'none', 있으면 사용자 선택 또는 클라가 안 보낸 경우 'unspecified'
+        lunch_overlap_choice:   lunchOverlapMinutes > 0 ? (lunchOverlapChoice ?? 'unspecified') : 'none',
+        effective_session_minutes: effectiveSessionMinutes,
+      },
       event_at:        now,
       created_by:      user.email!,
     })

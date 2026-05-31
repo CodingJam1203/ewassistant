@@ -19,6 +19,8 @@ import { resolveDisplayLocations, resolvePlannedLocations, chipLabel, formatChip
 import EditableLocationChips from '@/components/EditableLocationChips'
 import type { WorkLocations } from '@/types/work-locations-v2'
 import { DIVISION_DIRECT_LABEL, DIVISION_DIRECT_FILTER } from '@/lib/org'
+import BreakEndLunchOverlapModal from '@/components/BreakEndLunchOverlapModal'
+import { calculateLunchOverlapMinutes, type LunchOverlapChoice } from '@/lib/utils/lunch-overlap'
 
 /** 카드 조직 라벨 — "본부 / 팀". 팀이 없으면(본부 직속) "본부 / 본부 직속". 둘 다 없으면 "-". */
 function formatOrgLabel(division: string | null, team: string | null): string {
@@ -94,6 +96,10 @@ const MemberCard = memo(function MemberCard({
   onCheckOutNeeded: (card: TeamMemberCard) => void
 }) {
   const [busy, setBusy] = useState(false)
+  // v1.65 — 휴게 종료 시 점심 겹침 확인 모달 state
+  const [lunchOverlapPending, setLunchOverlapPending] = useState<{
+    startedAtIso: string; endedAtIso: string; totalMinutes: number; overlapMinutes: number
+  } | null>(null)
 
   const action = async (endpoint: string) => {
     setBusy(true)
@@ -104,6 +110,33 @@ const MemberCard = memo(function MemberCard({
     })
     setBusy(false)
     onAction()
+  }
+
+  // v1.65 — break-end 전용 핸들러. 점심 겹침 분 > 0이면 모달, 0이면 즉시 POST.
+  const postBreakEnd = async (lunchOverlapChoice?: LunchOverlapChoice) => {
+    setBusy(true)
+    await fetch('/api/team-status/break-end', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, ...(lunchOverlapChoice ? { lunchOverlapChoice } : {}) }),
+    })
+    setBusy(false)
+    onAction()
+  }
+  const onBreakEndClick = async () => {
+    const startedAtIso = card.break_started_at
+    if (startedAtIso) {
+      const endedAtIso = new Date().toISOString()
+      const overlap = calculateLunchOverlapMinutes(startedAtIso, endedAtIso)
+      if (overlap > 0) {
+        const total = Math.max(0, Math.round(
+          (new Date(endedAtIso).getTime() - new Date(startedAtIso).getTime()) / 60_000
+        ))
+        setLunchOverlapPending({ startedAtIso, endedAtIso, totalMinutes: total, overlapMinutes: overlap })
+        return
+      }
+    }
+    await postBreakEnd()
   }
 
   return (
@@ -378,7 +411,7 @@ const MemberCard = memo(function MemberCard({
               <Button
                 variant="warning-soft"
                 size="sm"
-                onClick={() => action('break-end')}
+                onClick={onBreakEndClick}
                 disabled={busy}
               >
                 <Coffee className="h-3.5 w-3.5" aria-hidden />
@@ -388,6 +421,20 @@ const MemberCard = memo(function MemberCard({
           </div>
         )
       })()}
+      {/* v1.65 — 휴게 종료 시 점심시간 겹침 확인 모달 */}
+      {lunchOverlapPending && (
+        <BreakEndLunchOverlapModal
+          startedAtIso={lunchOverlapPending.startedAtIso}
+          endedAtIso={lunchOverlapPending.endedAtIso}
+          totalMinutes={lunchOverlapPending.totalMinutes}
+          overlapMinutes={lunchOverlapPending.overlapMinutes}
+          onCancel={() => setLunchOverlapPending(null)}
+          onConfirm={async (choice) => {
+            setLunchOverlapPending(null)
+            await postBreakEnd(choice)
+          }}
+        />
+      )}
     </div>
   )
 })
@@ -407,6 +454,10 @@ const MemberListRow = memo(function MemberListRow({
   onCheckOutNeeded: (card: TeamMemberCard) => void
 }) {
   const [busy, setBusy] = useState(false)
+  // v1.65 — 휴게 종료 시 점심 겹침 확인 모달 state
+  const [lunchOverlapPending, setLunchOverlapPending] = useState<{
+    startedAtIso: string; endedAtIso: string; totalMinutes: number; overlapMinutes: number
+  } | null>(null)
 
   const action = async (endpoint: string) => {
     setBusy(true)
@@ -417,6 +468,33 @@ const MemberListRow = memo(function MemberListRow({
     })
     setBusy(false)
     onAction()
+  }
+
+  // v1.65 — break-end 전용 핸들러. 점심 겹침 분 > 0이면 모달, 0이면 즉시 POST.
+  const postBreakEnd = async (lunchOverlapChoice?: LunchOverlapChoice) => {
+    setBusy(true)
+    await fetch('/api/team-status/break-end', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, ...(lunchOverlapChoice ? { lunchOverlapChoice } : {}) }),
+    })
+    setBusy(false)
+    onAction()
+  }
+  const onBreakEndClick = async () => {
+    const startedAtIso = card.break_started_at
+    if (startedAtIso) {
+      const endedAtIso = new Date().toISOString()
+      const overlap = calculateLunchOverlapMinutes(startedAtIso, endedAtIso)
+      if (overlap > 0) {
+        const total = Math.max(0, Math.round(
+          (new Date(endedAtIso).getTime() - new Date(startedAtIso).getTime()) / 60_000
+        ))
+        setLunchOverlapPending({ startedAtIso, endedAtIso, totalMinutes: total, overlapMinutes: overlap })
+        return
+      }
+    }
+    await postBreakEnd()
   }
 
   // v1.60 — 8H 종일(full_day)만 'warning' 휴가 badge. 8H 미만(반차)은 'info' 일정 badge로
@@ -571,7 +649,7 @@ const MemberListRow = memo(function MemberListRow({
                 </Button>
               )}
               {buttons.showBreakEnd && (
-                <Button variant="warning-soft" size="sm" onClick={() => action('break-end')} disabled={busy} className="!h-7 !px-2 !text-[11px]">
+                <Button variant="warning-soft" size="sm" onClick={onBreakEndClick} disabled={busy} className="!h-7 !px-2 !text-[11px]">
                   <Coffee className="h-3 w-3" aria-hidden /> 종료
                 </Button>
               )}
@@ -579,6 +657,20 @@ const MemberListRow = memo(function MemberListRow({
           )
         })() : (
           <span className="text-text-muted text-[11px]">-</span>
+        )}
+        {/* v1.65 — 휴게 종료 시 점심시간 겹침 확인 모달 (portal로 body에 렌더되므로 <td> 안에 있어도 OK) */}
+        {lunchOverlapPending && (
+          <BreakEndLunchOverlapModal
+            startedAtIso={lunchOverlapPending.startedAtIso}
+            endedAtIso={lunchOverlapPending.endedAtIso}
+            totalMinutes={lunchOverlapPending.totalMinutes}
+            overlapMinutes={lunchOverlapPending.overlapMinutes}
+            onCancel={() => setLunchOverlapPending(null)}
+            onConfirm={async (choice) => {
+              setLunchOverlapPending(null)
+              await postBreakEnd(choice)
+            }}
+          />
         )}
       </Td>
     </tr>

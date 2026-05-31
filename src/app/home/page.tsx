@@ -26,7 +26,9 @@ import type { TeamMemberCard } from '@/app/api/team-status/route'
 import { computeWorkLogState, buttonsForState } from '@/lib/work-log-state'
 import EditableLocationChips from '@/components/EditableLocationChips'
 import BreakStartModal from '@/components/BreakStartModal'
+import BreakEndLunchOverlapModal from '@/components/BreakEndLunchOverlapModal'
 import MissingReportsSummary from '@/components/MissingReportsSummary'
+import { calculateLunchOverlapMinutes, type LunchOverlapChoice } from '@/lib/utils/lunch-overlap'
 import { resolveDisplayLocations, resolvePlannedLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import { useAutoRefetch } from '@/hooks/useAutoRefetch'
 
@@ -415,10 +417,61 @@ export default function HomePage() {
   const USE_BREAK_MODAL_FLOW = true
   const [showBreakStartModal, setShowBreakStartModal] = useState(false)
 
+  // v1.65 — 휴게 종료 시 점심 겹침 확인 모달 state.
+  // 클릭 시점에 12~13시 KST 겹침 분 > 0이면 띄움. 0이면 즉시 POST.
+  const [lunchOverlapPending, setLunchOverlapPending] = useState<{
+    startedAtIso: string
+    endedAtIso: string
+    totalMinutes: number
+    overlapMinutes: number
+  } | null>(null)
+
   /** 휴게 시작/종료 — endpoint 호출 후 카드 다시 fetch */
   const [breakBusy, setBreakBusy] = useState(false)
+  const postBreakEnd = async (lunchOverlapChoice?: LunchOverlapChoice) => {
+    if (breakBusy) return
+    setBreakBusy(true)
+    try {
+      await fetch('/api/team-status/break-end', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: today,
+          ...(lunchOverlapChoice ? { lunchOverlapChoice } : {}),
+        }),
+      })
+      await fetchMyCard()
+    } finally {
+      setBreakBusy(false)
+    }
+  }
+
   const triggerBreak = async (endpoint: 'break-start' | 'break-end') => {
     if (breakBusy) return
+    if (endpoint === 'break-end') {
+      // v1.65 — 점심 겹침 분 클라이언트 계산. > 0이면 모달, 0이면 즉시 POST.
+      const startedAtIso = myCard?.break_started_at ?? null
+      if (startedAtIso) {
+        const endedAtIso = new Date().toISOString()
+        const overlap = calculateLunchOverlapMinutes(startedAtIso, endedAtIso)
+        if (overlap > 0) {
+          const total = Math.max(
+            0,
+            Math.round((new Date(endedAtIso).getTime() - new Date(startedAtIso).getTime()) / 60_000)
+          )
+          setLunchOverlapPending({
+            startedAtIso,
+            endedAtIso,
+            totalMinutes: total,
+            overlapMinutes: overlap,
+          })
+          return
+        }
+      }
+      await postBreakEnd()
+      return
+    }
+    // break-start는 기존 동작 (현재 home 흐름에선 BreakStartModal이 따로 처리하지만 fallback 보존)
     setBreakBusy(true)
     try {
       await fetch(`/api/team-status/${endpoint}`, {
@@ -520,6 +573,21 @@ export default function HomePage() {
           />
         )
       })()}
+
+      {/* v1.65 — 휴게 종료 시 점심시간 겹침 확인 모달 */}
+      {lunchOverlapPending && (
+        <BreakEndLunchOverlapModal
+          startedAtIso={lunchOverlapPending.startedAtIso}
+          endedAtIso={lunchOverlapPending.endedAtIso}
+          totalMinutes={lunchOverlapPending.totalMinutes}
+          overlapMinutes={lunchOverlapPending.overlapMinutes}
+          onCancel={() => setLunchOverlapPending(null)}
+          onConfirm={async (choice) => {
+            setLunchOverlapPending(null)
+            await postBreakEnd(choice)
+          }}
+        />
+      )}
 
       {/* 캘린더 → 출근보고 작성 (임의 날짜) */}
       {calendarCheckInDate && (
