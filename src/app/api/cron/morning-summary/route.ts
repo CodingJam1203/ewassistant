@@ -21,6 +21,7 @@ import { resolveRoutingTeam } from '@/lib/org'
 import { formatMorningWorklogStatus, formatMorningCheckinStatus } from '@/lib/notifications/messages'
 import { fetchOrgCalendarLookup } from '@/lib/org-calendar/lookup'
 import { parseLeaveLabel } from '@/lib/leave-timeline'
+import { judgeLeave } from '@/lib/notifications/leave-judge'
 import type { LeaveType, LeaveTimeline } from '@/types/leave-timeline'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import { isWeekendDate } from '@/lib/utils/date'
@@ -160,7 +161,7 @@ export async function GET(request: Request) {
   // legacy start_time/end_time(=출근예정/퇴근예정)은 actual_*가 NULL일 때만 fallback (구 row 보호).
   const { data: workLogs } = await adminClient
     .from('work_logs')
-    .select('user_email, start_time, end_time, actual_start_time, actual_end_time, break_time, work_location, work_type_code, created_at')
+    .select('user_email, start_time, end_time, actual_start_time, actual_end_time, break_time, work_location, work_type_code, leave_timeline, created_at')
     .eq('leave_date', yesterdayDate)
     .eq('is_deleted', false)
     .order('created_at', { ascending: false })
@@ -173,6 +174,7 @@ export async function GET(request: Request) {
   }
 
   const workLogMap = new Map<string, { start_time: string | null; end_time: string | null; break_time: string; work_location: string; work_type_code: number | null }>()
+  const yesterdayLeaveTimelineByEmail = new Map<string, LeaveTimeline | null>()
   for (const w of workLogs ?? []) {
     if (!workLogMap.has(w.user_email)) {
       workLogMap.set(w.user_email, {
@@ -182,6 +184,9 @@ export async function GET(request: Request) {
         work_location: w.work_location,
         work_type_code: typeof w.work_type_code === 'number' ? w.work_type_code : null,
       })
+    }
+    if (!yesterdayLeaveTimelineByEmail.has(w.user_email)) {
+      yesterdayLeaveTimelineByEmail.set(w.user_email, (w.leave_timeline as LeaveTimeline | null) ?? null)
     }
   }
 
@@ -205,10 +210,11 @@ export async function GET(request: Request) {
 
   // ─── 외부 캘린더(Google Calendar) 휴가 조회 — email 기반 ────────────────────
   // Phase 1.5f: Sheets(Apps Script) → org_calendar_events. 매칭 안 된 이벤트는 제외.
+  // v1.62: 어제 날짜도 포함 — '어제 퇴근보고' 섹션에서 휴가자 ❌ false positive fix용.
   const calLookup = await fetchOrgCalendarLookup({
     adminClient,
     emails: users.map(u => u.email),
-    dates: [todayDate],
+    dates: [todayDate, yesterdayDate],
   }).catch(err => {
     console.warn('[morning-summary] calendar lookup failed:', err)
     return null
@@ -302,8 +308,26 @@ export async function GET(request: Request) {
       }
     }
 
+    // v1.62: 어제 휴가자 판정 — judgeLeave 3단 우선순위 (어제 row의 leave_timeline → 어제 캘린더).
+    //   휴가자는 ❌ 대신 '🌴 휴가 (라벨)'로 표시 (옵션 B).
+    //   야근 플래그는 휴가자에겐 무의미하므로 강제 false.
     const yesterdayWorkLogs = group.users.map(u => {
       const log = workLogMap.get(u.email)
+      const yesterdayTl = yesterdayLeaveTimelineByEmail.get(u.email) ?? null
+      const yesterdayCal = calLookup?.byEmail.get(u.email.toLowerCase())?.[yesterdayDate] ?? null
+      const judged = judgeLeave({
+        todayLeaveTimeline: yesterdayTl,
+        calendarLookup: yesterdayCal,
+      })
+      // 종일 휴가자 — '🌴 휴가 (라벨)'로 status 대체. 야근 false.
+      if (judged.leaveType === 'full_day') {
+        const label = (judged.leaveLabel ?? '').trim()
+        return {
+          name:   u.display_name || u.email,
+          status: `🌴 휴가${label ? ` (${label})` : ''}`,
+          isOvertime: false,
+        }
+      }
       const actualMin = log
         ? computeActualMinutes(log.start_time, log.end_time, log.break_time, log.work_type_code)
         : 0

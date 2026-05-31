@@ -29,6 +29,7 @@ import { isKoreanHoliday, isSaturday, isSunday } from '@/lib/kr-holidays'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 import { DIVISION_DIRECT_FILTER } from '@/lib/org'
+import { fetchOrgCalendarLookup } from '@/lib/org-calendar/lookup'
 
 export const maxDuration = 30
 
@@ -185,6 +186,34 @@ export async function GET(request: Request) {
       if (!c.checkInLogId) c.checkInLogId = r.id
       if (!c.checkOutLogId && r.actual_end_time) c.checkOutLogId = r.id
       if (!c.leaveType && isFullDayLeave(r.leave_timeline)) c.leaveType = 'full_day'
+    }
+
+    // v1.62: 캘린더(org_calendar_events)에만 등록된 종일 휴가도 cells에 주입 →
+    // N-Click에 휴가 입력 안 한 캘린더 휴가자가 미보고 리스트에서 false positive로 잡히던 버그 fix.
+    // 범위가 평일만 추리는 단계 전이라 dates 전체를 한 번에 lookup.
+    const allDates: string[] = []
+    for (let d = from; d <= effectiveTo; d = addDays(d, 1)) allDates.push(d)
+    if (allDates.length > 0 && emails.length > 0) {
+      const calLookup = await fetchOrgCalendarLookup({
+        adminClient,
+        emails,
+        dates: allDates,
+      }).catch(err => {
+        console.warn('[missing-reports] calendar lookup failed:', err)
+        return null
+      })
+      if (calLookup) {
+        for (const p of profileRows) {
+          const byDate = calLookup.byEmail.get(p.email.toLowerCase())
+          if (!byDate) continue
+          for (const d of allDates) {
+            if (byDate[d]?.leaveType === 'full_day') {
+              const c = ensureCell(p.email, d)
+              if (!c.leaveType) c.leaveType = 'full_day'
+            }
+          }
+        }
+      }
     }
 
     // 4) 사용자 × 날짜 매트릭스 순회 → 미보고만 추출

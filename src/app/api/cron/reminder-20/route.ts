@@ -9,11 +9,14 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyDailyCheckinReminder } from '@/lib/notifications/teams'
 import { resolveRoutingTeam } from '@/lib/org'
 import { formatNightlyCheckinStatus } from '@/lib/notifications/messages'
+import { fetchOrgCalendarLookup } from '@/lib/org-calendar/lookup'
+import { judgeLeave } from '@/lib/notifications/leave-judge'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
 import { isWeekendDate } from '@/lib/utils/date'
 import { isKoreanHoliday } from '@/lib/kr-holidays'
 import { loadTeamCronFlags, isCronFlagOn } from '@/lib/notifications/cron-flags'
 import type { WorkLocations } from '@/types/work-locations-v2'
+import type { LeaveTimeline } from '@/types/leave-timeline'
 
 /** planned_work_locations(WorkLocations 배열) → 표시용 string ("사무실 → 재택") */
 function fmtPlannedLocations(planned: WorkLocations | null | undefined): string | null {
@@ -103,7 +106,10 @@ export async function GET(request: Request) {
 
   // v1.58: 대상일 휴가 map. 종일 휴가(full_day)는 planned_start_time NULL이라 위 checkins에
   // 안 잡힘 → 별도 조회해 미보고 대신 🌴 휴가로 표시.
+  // v1.62: 캘린더(org_calendar_events)에만 휴가 등록된 사용자도 미보고 false positive 방지를 위해
+  // 같은 leaveMap에 머지. judgeLeave 공용 헬퍼로 3단 우선순위 통일.
   const leaveMap = new Map<string, { type: 'full_day' | 'morning_half' | 'afternoon_half'; label: string }>()
+  const todayLeaveTimelineByEmail = new Map<string, LeaveTimeline | null>()
   {
     const { data: leaveRows } = await adminClient
       .from('work_logs')
@@ -111,10 +117,31 @@ export async function GET(request: Request) {
       .eq('leave_date', targetDate)
       .eq('is_deleted', false)
     for (const r of leaveRows ?? []) {
-      const lt = (r.leave_timeline as Array<{ leaveType?: string; label?: string }> | null)?.[0]
-      if (lt?.leaveType === 'full_day' || lt?.leaveType === 'morning_half' || lt?.leaveType === 'afternoon_half') {
-        if (!leaveMap.has(r.user_email)) leaveMap.set(r.user_email, { type: lt.leaveType, label: lt.label ?? '' })
+      if (!todayLeaveTimelineByEmail.has(r.user_email)) {
+        todayLeaveTimelineByEmail.set(r.user_email, (r.leave_timeline as LeaveTimeline | null) ?? null)
       }
+    }
+  }
+
+  // 캘린더 lookup — 매칭 못 한 경우 graceful: 휴가 머지 skip하고 work_logs만 사용.
+  const calLookup = await fetchOrgCalendarLookup({
+    adminClient,
+    emails: users.map(u => u.email),
+    dates: [targetDate],
+  }).catch(err => {
+    console.warn('[cron/reminder-20] calendar lookup failed:', err)
+    return null
+  })
+
+  for (const u of users) {
+    const todayTl = todayLeaveTimelineByEmail.get(u.email) ?? null
+    const calDay = calLookup?.byEmail.get(u.email.toLowerCase())?.[targetDate] ?? null
+    const judged = judgeLeave({
+      todayLeaveTimeline: todayTl,
+      calendarLookup: calDay,
+    })
+    if (judged.leaveType) {
+      leaveMap.set(u.email, { type: judged.leaveType, label: judged.leaveLabel ?? '' })
     }
   }
 
