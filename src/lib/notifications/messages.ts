@@ -103,15 +103,20 @@ function worklogBody(prefix: string, p: WorklogNotifyPayload): string {
   const leaveTimeLine = buildLeaveTimeLine(p.leaveTimeline)
   const actualWorkLine = buildActualWorkLine(p)
 
-  // v1.64 — 8H 미만 + 점심 안 가짐 옵션. 실근무 8H 미만 + lunchSkipped=true일 때만 적용.
-  //   - 근무시간 표시: endTime +60분 보정 (copyText와 일관)
-  //   - 본문 끝에 안내 라인 추가 (가짐/가지지 않음 양쪽 모두)
-  //   - 종일 휴가는 actualWorkMinutes=0이지만 leaveTimeline로 판정 — 종일 휴가 시 안내 X.
+  // v1.64 — 8H 미만 + 점심 안 가짐 옵션. raw(점심 차감 후) 실근무 < 8H일 때만 노출.
+  //   - lunchSkipped=true: actualWorkMinutes는 ew-calculator에서 +60분 보정된 값이라 환원 필요.
+  //     workTypeCode=1 ((평일) 기본 근무)만 라디오 트리거되므로 deduction은 항상 60분.
+  //   - 근무시간 표시: lunchSkipped면 endTime +60분 보정 (copyText·미리보기와 일관)
+  //   - 본문 끝에 안내 라인: lunchSkipped 여부에 따라 "가짐/가지지 않음" 양쪽 노출
+  //   - 종일 휴가 시 안내 X.
   const isFullDay = isFullDayLeave(p.leaveTimeline ?? null)
-  const isUnder8h = typeof p.actualWorkMinutes === 'number' && p.actualWorkMinutes < 8 * 60
-  const showLunchSkipNotice = !isFullDay && isUnder8h
-  const lunchSkipApplied = !!p.lunchSkipped && showLunchSkipNotice
-  const displayEndTime = lunchSkipApplied
+  const lunchSkipApplied = !!p.lunchSkipped
+  const rawActualWorkMinutes = typeof p.actualWorkMinutes === 'number'
+    ? (lunchSkipApplied ? p.actualWorkMinutes - 60 : p.actualWorkMinutes)
+    : null
+  const isUnder8hRaw = rawActualWorkMinutes !== null && rawActualWorkMinutes > 0 && rawActualWorkMinutes < 8 * 60
+  const showLunchSkipNotice = !isFullDay && isUnder8hRaw
+  const displayEndTime = (lunchSkipApplied && showLunchSkipNotice)
     ? addOneHourToHHmm(p.endTime)
     : p.endTime
   const lunchSkipLine: string | null = showLunchSkipNotice

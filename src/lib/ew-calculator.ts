@@ -349,7 +349,9 @@ export function calculateEw(input: EwInput): EwCalculationResult {
   //     X = 1h(기본/간주) | 0h(공휴일) — 점심 자동 차감
   //     휴게(K) = 사용자 입력 = 점심 외 추가 휴게
   //   종일 휴가는 actual_work_time을 0으로 강제 (default span 09:00~18:00 - 휴가 480분 = 60분 잔여 버그 방지)
-  const actualWorkMinutes = input.isFullDayLeave
+  // v1.64 — raw(점심 차감 후) actualWork로 라디오 트리거 조건 판정.
+  //   "아니오(점심 안 가짐)" 선택 시 점심 차감 분(deduction)을 복원해 실근무·EW·복붙 모두 +1H 일관 적용.
+  const rawActualWorkMinutes = input.isFullDayLeave
     ? 0
     : getActualWorkMinutes(
         startMinutes,
@@ -359,6 +361,25 @@ export function calculateEw(input: EwInput): EwCalculationResult {
         leaveMinutes,
         leaveIncludesLunch,
       );
+
+  // v1.64 — 8H 미만 + 점심 안 가짐 옵션 처리.
+  //   - showLunchSkipRadio: UI 라디오 노출 트리거
+  //     * raw 실근무 < 8H + 종일휴가 X
+  //     * workTypeCode === 1 ((평일) 기본 근무)만. 간주근로는 별도 advisory(기본근무로 변경 안내),
+  //       토/일/공휴일은 점심 자동 차감 자체가 0이라 라디오 의미 없음.
+  //   - lunchSkipApplied: 사용자가 "아니오(점심 안 가짐)" 선택 + 라디오 노출 조건 만족
+  //   - 적용 시 actualWorkMinutes에 deduction(60분) 복원 → 실근무·EW·복붙 자동 +1H 일관 보정.
+  //   - 회사 EW 시스템이 12~13시 무조건 점심 차감하므로, 우리가 시간을 +1H 늘려 상신해야
+  //     실제 일한 시간 정확히 인정됨 (정책 v1.64).
+  const showLunchSkipRadio =
+    !input.isFullDayLeave && rawActualWorkMinutes > 0 && rawActualWorkMinutes < 8 * 60 && workTypeCode === 1;
+  const lunchSkipApplied = !!input.lunchSkipped && showLunchSkipRadio;
+
+  // lunchSkipApplied면 점심 차감을 0으로 한 효과 — 실근무가 deduction(60분)만큼 늘어남.
+  // 결과: actualWorkMinutes ↑60 → ewEndMinutes 계산 시 +60 자동 반영 → 복붙·EW 일관.
+  const actualWorkMinutes = lunchSkipApplied
+    ? rawActualWorkMinutes + deductionMinutes
+    : rawActualWorkMinutes;
   const actualWorkText = formatDurationHHMM(actualWorkMinutes);
 
   const ewStartMinutes = getEwStartMinutes(startMinutes);
@@ -376,7 +397,8 @@ export function calculateEw(input: EwInput): EwCalculationResult {
     ? '휴가'
     : getFinalEwValue(workTypeCode, ewStartMinutes, ewEndMinutes, deemedWorkEwValue);
   // 종일 휴가면 점심도 안 먹으니 X(자동 점심 차감)도 0으로 표시.
-  const effectiveDeductionMinutes = input.isFullDayLeave ? 0 : deductionMinutes;
+  // v1.64: lunchSkipApplied도 deduction 0으로 표시 (실근무에서 점심 안 뺐다는 의미).
+  const effectiveDeductionMinutes = input.isFullDayLeave || lunchSkipApplied ? 0 : deductionMinutes;
   // workSubType — explicit input 우선, 없으면 라벨에서 추출
   const workSubType: WorkSubType =
     input.workSubType !== undefined ? input.workSubType : getWorkSubTypeFromLabel(input.workTypeLabel);
@@ -392,13 +414,8 @@ export function calculateEw(input: EwInput): EwCalculationResult {
     ? formatTimeOver24(endMinutes + 1440)
     : input.endTime
 
-  // v1.64 — 8H 미만 + 점심 안 가짐 옵션 처리.
-  //   - showLunchSkipRadio: UI 라디오 노출 트리거 (실근무 < 8H + 종일휴가 X)
-  //   - lunchSkipApplied: 사용자가 "아니오(점심 안 가짐)" 선택 + 라디오 노출 조건 만족
-  //   - 적용 시 endTimeText만 +60분 보정. EW 계산·차감·실근무 시간은 변동 없음.
-  //   - 24시 넘기는 케이스도 그대로 +60분 (formatTimeOver24가 27:00, 33:30 같은 표기 지원).
-  const showLunchSkipRadio = !input.isFullDayLeave && actualWorkMinutes < 8 * 60;
-  const lunchSkipApplied = !!input.lunchSkipped && showLunchSkipRadio;
+  // v1.64 — lunchSkipApplied면 복붙 표시 endTime도 +60분 보정 (EW 시스템 회피용 가짜 시간).
+  //   24시 넘기는 케이스도 그대로 +60분 (formatTimeOver24가 27:00, 33:30 같은 표기 지원).
   const displayEndTimeForCopy = lunchSkipApplied
     ? formatTimeOver24((isNextDay ? endMinutes + 1440 : endMinutes) + 60)
     : displayEndTimeText;
