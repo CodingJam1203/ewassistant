@@ -103,10 +103,20 @@ function computeStatus(
   date?: string,
   /** KST 기준 오늘 일자 (YYYY-MM-DD). date < todayKst 비교용. */
   todayKst?: string,
+  /**
+   * v1.69 (2026-06-01) — 출근완료 미사용 팀(use_check_in_complete=false)의
+   * planned 시각 도래 후 lazy write 보정값. computeEffectiveActualStart 결과.
+   * 있으면 checkedIn=false라도 '실 출근'으로 간주해 '근무 중' 분기 진입.
+   *
+   * 배경: v1.63이 work-log-state.ts:computeWorkLogState(버튼 분기)에만 effective
+   * 보정을 박았고 여기엔 빠짐. 결과로 버튼은 정상이지만 카드 배지만 '보고 완료'에
+   * 멈추는 비대칭 발생. 본 fix로 두 경로 동기화.
+   */
+  effectiveActualStart?: string | null,
 ): { color: 'green' | 'yellow' | 'red'; status_text: string; status: string } {
   const hasLog = !!workLog
   const isExpectedOnly = !!workLog?._expectedOnly
-  const checkedIn = !!(daily?.checked_in_at)
+  const checkedIn = !!(daily?.checked_in_at) || !!effectiveActualStart
   const checkedOut = !!(daily?.checked_out_at)
   const onBreak = !!(daily?.is_on_break)
 
@@ -391,12 +401,46 @@ export async function GET(request: Request) {
       const displayName = (profile.display_name as string | null) ?? null
       const calLeave = lookupCalendar(email)
 
+      // v1.56/v1.63: use_check_in_complete 조회용 effective team. 본부 직속은 notify_team으로
+      // 흡수. notify_team도 NULL이면 본부 내 false 팀 1개라도 있으면 false fallback.
+      const effectiveTeamForSettings = resolveRoutingTeam(
+        (profile.team as string | null) ?? null,
+        (profile as { notify_team?: string | null }).notify_team ?? null,
+      )
+      const useCheckInCompleteForUser = (() => {
+        if (effectiveTeamForSettings && division) {
+          const explicit = teamSettings.get(`${division}::${effectiveTeamForSettings}`)
+          if (explicit !== undefined) return explicit
+        }
+        if (division && divisionsWithFalseTeam.has(division)) return false
+        return true
+      })()
+
+      // v1.44 / v1.69: read-time effective_actual_start_time 보정 (lazy write 후보).
+      // computeStatus와 카드 필드 양쪽이 같은 변수를 재사용 — 배지/버튼 분기 동기화.
+      const rawActual = workLog ? (workLog.actual_start_time as string | null) ?? null : null
+      const rawPlanned = workLog ? (workLog.planned_start_time as string | null) ?? null : null
+      const rawLeave = workLog ? (workLog.leave_date as string | null) ?? null : null
+      const effectiveActualStart = computeEffectiveActualStart(
+        { leave_date: rawLeave, planned_start_time: rawPlanned, actual_start_time: rawActual },
+        { use_check_in_complete: useCheckInCompleteForUser },
+      )
+      if (effectiveActualStart && !rawActual && workLog?.id && rawLeave) {
+        lazyWriteCandidates.push({
+          workLogId: workLog.id as string,
+          actualStart: effectiveActualStart,
+          userEmail: email,
+          leaveDate: rawLeave,
+        })
+      }
+
       const { color, status_text, status } = computeStatus(
         workLog,
         daily,
         calLeave.leaveType,
         dateParam,
         getKstTodayDateString(),
+        effectiveActualStart,  // v1.69 — 카드 배지도 effective 반영
       )
 
       // expected_start_date 매칭으로 잡힌 work_log는 출근보고 정보를 본문 필드로 노출
@@ -440,24 +484,6 @@ export async function GET(request: Request) {
             : (workLog.leave_timeline as LeaveTimeline | null | undefined) ?? null)
         : null
 
-      // v1.56: use_check_in_complete 조회용 effective team. 본부 직속(team 없음)은
-      // notify_team으로 흡수 — 알림 라우팅(resolveRoutingTeam)과 동일 철학. 종전엔
-      // profile.team만 써서 본부 직속이 항상 default true로 떨어지던 버그.
-      // v1.63: notify_team도 NULL이면 본부 단위 fallback — 본부 내 false 팀 있으면 false.
-      const effectiveTeamForSettings = resolveRoutingTeam(
-        (profile.team as string | null) ?? null,
-        (profile as { notify_team?: string | null }).notify_team ?? null,
-      )
-      const useCheckInCompleteForUser = (() => {
-        if (effectiveTeamForSettings && division) {
-          const explicit = teamSettings.get(`${division}::${effectiveTeamForSettings}`)
-          if (explicit !== undefined) return explicit
-        }
-        // 매핑 못 찾음 — 본부 단위 fallback
-        if (division && divisionsWithFalseTeam.has(division)) return false
-        return true
-      })()
-
       return {
         email,
         display_name:    displayName,
@@ -499,27 +525,10 @@ export async function GET(request: Request) {
         calendar_events:      calLeave.events,
 
         use_check_in_complete: useCheckInCompleteForUser,
-        // Stage 4 / v1.44: read-time 자동 보정 + lazy write.
-        //   computeEffectiveActualStart는 false 팀 + planned 도달 + actual NULL이면 planned 값을 반환.
-        //   여기서 effective !== null && actual === null이면 후보로 수집해 응답 후 DB write(lazy).
-        effective_actual_start_time: (() => {
-          const rawActual = workLog ? (workLog.actual_start_time as string | null) ?? null : null
-          const rawPlanned = workLog ? (workLog.planned_start_time as string | null) ?? null : null
-          const rawLeave = workLog ? (workLog.leave_date as string | null) ?? null : null
-          const effective = computeEffectiveActualStart(
-            { leave_date: rawLeave, planned_start_time: rawPlanned, actual_start_time: rawActual },
-            { use_check_in_complete: useCheckInCompleteForUser },
-          )
-          if (effective && !rawActual && workLog?.id && rawLeave) {
-            lazyWriteCandidates.push({
-              workLogId: workLog.id as string,
-              actualStart: effective,
-              userEmail: email,
-              leaveDate: rawLeave,
-            })
-          }
-          return effective
-        })(),
+        // Stage 4 / v1.44 / v1.69: read-time 보정. effectiveActualStart는 위에서 한 번 계산해
+        //   computeStatus(배지)·이 필드(카드 본문)·lazyWriteCandidates(DB sync) 3곳에 동일 재사용.
+        //   false 팀 + planned 도달 + actual NULL이면 planned 값 반환, 아니면 null.
+        effective_actual_start_time: effectiveActualStart,
       }
     })
 
