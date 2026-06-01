@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { RefreshCw, Search, X } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import WorkLogModal from '@/components/WorkLogModal'
 import SubmissionsRawTable from '@/components/SubmissionsRawTable'
 import MissingReportsListView from '@/components/MissingReportsListView'
@@ -41,13 +41,10 @@ export default function HistoryPage() {
   const [filterMine, setFilterMine] = useState(false)
   const [filterDivision, setFilterDivision] = useState('')
   const [filterTeam, setFilterTeam] = useState('')
-  // pendingName: input 박스가 자유롭게 편집되는 값 (UI only)
-  // filterName: Enter / 검색 버튼으로 명시적으로 적용된 값 (API 쿼리 키)
-  // 데이터가 늘어날수록 매 키스트로크 fetch는 부담 → explicit submit으로 비용 통제.
-  const [pendingName, setPendingName] = useState('')
-  const [filterName, setFilterName] = useState('')
-  const submitName = () => setFilterName(pendingName.trim())
-  const clearName = () => { setPendingName(''); setFilterName('') }
+  // v1.61.13 — 상단 전역 "이름 검색" 폐기. SubmissionsRawTable / MissingReportsListView
+  // 각각이 자체 quick filter를 들고 있어 헷갈리는 dual 라벨이었고, 위쪽은 Enter/돋보기
+  // 명시 트리거였는데 트리거 정책이 사용자에게 발견성 낮아 사실상 무용지물.
+  // 이름 필터는 각 탭 컴포넌트 내부의 즉시 반응 필드에서만 처리한다.
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null)
   const [editScope,  setEditScope]  = useState<'check_in' | 'check_out' | undefined>(undefined)
   // 새로고침 button — SubmissionsRawTable의 extraQuery dependency 변경 트리거용 카운터.
@@ -162,40 +159,6 @@ export default function HistoryPage() {
           </Select>
         </FilterBar.Field>
 
-        <FilterBar.Field label="이름 검색">
-          <div className="flex items-center gap-1">
-            <div className="relative">
-              <Input
-                type="text"
-                placeholder="이름 입력 후 Enter"
-                value={pendingName}
-                onChange={e => setPendingName(e.target.value)}
-                onKeyDown={e => {
-                  // 한글 IME 합성 중 Enter는 변환 확정용 — submit 트리거 X
-                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                    e.preventDefault()
-                    submitName()
-                  }
-                }}
-                className="w-44 pr-10"
-              />
-              <button
-                type="button"
-                onClick={submitName}
-                aria-label="이름 검색"
-                className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-8 w-8 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-muted transition-colors"
-              >
-                <Search className="h-4 w-4" aria-hidden />
-              </button>
-            </div>
-            {(pendingName || filterName) && (
-              <Button variant="ghost" iconOnly onClick={clearName} aria-label="이름 검색 초기화">
-                <X className="h-4 w-4" aria-hidden />
-              </Button>
-            )}
-          </div>
-        </FilterBar.Field>
-
         <FilterBar.Field label="범위">
           <label className="inline-flex items-center gap-2 h-10 px-3 rounded-[10px] border border-border-strong bg-surface cursor-pointer">
             <input
@@ -216,7 +179,6 @@ export default function HistoryPage() {
             onClick={() => {
               setFilterDivision('')
               setFilterTeam('')
-              clearName()
               setFilterMine(false)
             }}
           >
@@ -303,7 +265,6 @@ export default function HistoryPage() {
               extraQuery={{
                 ...(filterDivision ? { division: filterDivision } : {}),
                 ...(filterTeam ? { team: filterTeam } : {}),
-                ...(filterName ? { name: filterName } : {}),
                 ...(refreshTick > 0 ? { _t: String(refreshTick) } : {}),
               }}
               allowOrgFilter
@@ -318,7 +279,6 @@ export default function HistoryPage() {
               extraQuery={{
                 ...(filterDivision ? { division: filterDivision } : {}),
                 ...(filterTeam ? { team: filterTeam } : {}),
-                ...(filterName ? { name: filterName } : {}),
                 ...(refreshTick > 0 ? { _t: String(refreshTick) } : {}),
               }}
               allowOrgFilter
@@ -332,7 +292,6 @@ export default function HistoryPage() {
               to={missingTo}
               division={filterDivision}
               team={filterTeam}
-              name={filterName}
               refreshKey={refreshTick}
               canSendNotify={isLeader || isAdmin}
             />
