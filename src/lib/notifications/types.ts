@@ -268,9 +268,13 @@ export interface DailyCheckinReminderData {
   /**
    * 22시 알림에 추가되는 내일 캘린더 일정 (휴가 제외).
    * 20시 알림에서는 비어있거나 undefined.
+   *
+   * v1.67 (2026-06-01) — 같은 (startTime+endTime+title) 일정은 한 항목으로
+   * 그룹화하고 `members`에 참가자 이름을 누적. 메시지 빌더가 괄호 안에
+   * `members.join(', ')`로 표시 — `주간회의 (최종현, 최승현, 김주영)`.
    */
   calendarEvents?: Array<{
-    name: string
+    members: string[]
     startTime: string | null  // HH:mm 또는 null (종일)
     endTime: string | null
     title: string

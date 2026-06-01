@@ -191,26 +191,45 @@ export async function GET(request: Request) {
     // v1.46: 공휴일(대체공휴일 포함) 추가.
     if ((isWeekendDate(targetDate) || isKoreanHoliday(targetDate)) && members.every(m => !m.hasReport)) return null
 
-    // 이 팀에 속한 사용자들의 내일 캘린더 일정 모음 (email 매칭)
-    const calendarEvents: Array<{
-      name: string
+    // 이 팀에 속한 사용자들의 내일 캘린더 일정 모음 (email 매칭).
+    // v1.67 (2026-06-01) — (startTime+endTime+title) 동일 일정은 한 항목으로 그룹화하고
+    // `members`에 참가자 누적. 같은 회의를 N명이 가질 때 N줄로 반복되던 노이즈 제거.
+    // 정렬: 종일(시간 null) → 시간순 → 동일 시간 내 title 사전순. members는 group.users
+    // 정렬(display_order) 기반 첫 등장 순서 유지.
+    const eventMap = new Map<string, {
+      members: string[]
       startTime: string | null
       endTime: string | null
       title: string
-    }> = []
+    }>()
     for (const u of group.users) {
       const userName = u.display_name?.trim()
       if (!userName) continue
       const events = calLookup?.byEmail.get(u.email.toLowerCase())?.[targetDate]?.events ?? []
       for (const ev of events) {
-        calendarEvents.push({
-          name: userName,
-          startTime: ev.startTime,
-          endTime: ev.endTime,
-          title: ev.title,
-        })
+        const key = `${ev.startTime ?? ''}|${ev.endTime ?? ''}|${ev.title}`
+        const existing = eventMap.get(key)
+        if (existing) {
+          if (!existing.members.includes(userName)) existing.members.push(userName)
+        } else {
+          eventMap.set(key, {
+            members: [userName],
+            startTime: ev.startTime,
+            endTime: ev.endTime,
+            title: ev.title,
+          })
+        }
       }
     }
+    const calendarEvents = Array.from(eventMap.values()).sort((a, b) => {
+      // 종일(startTime null) 먼저
+      if (a.startTime === null && b.startTime !== null) return -1
+      if (a.startTime !== null && b.startTime === null) return 1
+      // 시간순
+      if (a.startTime !== b.startTime) return (a.startTime ?? '').localeCompare(b.startTime ?? '')
+      // 동일 시간 내 title 사전순
+      return a.title.localeCompare(b.title, 'ko')
+    })
 
     return notifyDailyCheckinReminder('daily_checkin_reminder_22', {
       division:   group.division,

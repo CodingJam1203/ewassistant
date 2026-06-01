@@ -637,7 +637,9 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
 
       const sections: string[] = [header, '', ...memberLines, '', statsLine]
 
-      // 22시 알림 — 내일 팀 캘린더 일정 추가
+      // 22시 알림 — 내일 팀 캘린더 일정 추가.
+      // v1.67 (2026-06-01) — 같은 (시간+제목) 일정은 route에서 이미 그룹화돼 들어옴.
+      // members[]에 누적된 참가자 이름을 괄호 안에 콤마로 나열.
       if (isLate && p.calendarEvents && p.calendarEvents.length > 0) {
         sections.push('')
         sections.push(`📅 내일 일정`)
@@ -648,7 +650,8 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
               : ev.startTime
                 ? `${ev.startTime}~`
                 : '종일'
-          sections.push(`- ${time}  ${ev.title}${ev.name ? `  (${ev.name})` : ''}`)
+          const namesPart = ev.members.length > 0 ? `  (${ev.members.join(', ')})` : ''
+          sections.push(`- ${time}  ${ev.title}${namesPart}`)
         }
       }
 
