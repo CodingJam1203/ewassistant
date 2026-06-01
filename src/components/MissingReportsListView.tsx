@@ -17,6 +17,7 @@ import { AlertCircle, CheckCircle2, Send, Loader2, ExternalLink } from 'lucide-r
 import { format, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import Pagination from '@/components/Pagination'
+import { Input } from '@/components/ui'
 import type {
   MissingReportItem,
   MissingReportsResponse,
@@ -30,7 +31,6 @@ interface Props {
   to: string
   division?: string
   team?: string
-  name?: string
   /** 부모 새로고침 트리거 */
   refreshKey?: number
   /** leader+ 권한 — 알림 버튼 노출 여부 */
@@ -42,7 +42,7 @@ function dowKo(dateStr: string): string {
 }
 
 export default function MissingReportsListView({
-  from, to, division, team, name, refreshKey = 0, canSendNotify,
+  from, to, division, team, refreshKey = 0, canSendNotify,
 }: Props) {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
@@ -53,11 +53,20 @@ export default function MissingReportsListView({
   const [sending, setSending] = useState<Set<string>>(new Set())
   /** row별 발송 결과: 'ok' | error message */
   const [sendResult, setSendResult] = useState<Map<string, string>>(new Map())
+  // v1.61.13 — 이름 즉시 검색. 헤더 박스 안 input 으로 사용자가 타이핑하면 350ms debounce
+  // 후 서버 fetch에 `name=` 쿼리 포함. 종전 history page 상단 전역 이름 검색 폐기 후 미보고
+  // 탭에 이름 필터를 살리려는 대체 흐름. SubmissionsRawTable은 이미 자체 quick filter 보유.
+  const [nameQuery, setNameQuery] = useState('')
+  const [activeName, setActiveName] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setActiveName(nameQuery.trim()), 350)
+    return () => clearTimeout(t)
+  }, [nameQuery])
 
   // 필터 변경 시 page 리셋
   useEffect(() => {
     setPage(1)
-  }, [from, to, division, team, name, refreshKey])
+  }, [from, to, division, team, activeName, refreshKey])
 
   useEffect(() => {
     let cancelled = false
@@ -70,7 +79,7 @@ export default function MissingReportsListView({
     })
     if (division) params.set('division', division)
     if (team) params.set('team', team)
-    if (name) params.set('name', name)
+    if (activeName) params.set('name', activeName)
     fetch(`/api/missing-reports?${params.toString()}`)
       .then(async r => {
         if (!r.ok) {
@@ -89,7 +98,7 @@ export default function MissingReportsListView({
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [from, to, division, team, name, page, pageSize, refreshKey])
+  }, [from, to, division, team, activeName, page, pageSize, refreshKey])
 
   const rowKey = (it: MissingReportItem) => `${it.email}|${it.date}|${it.status}`
 
@@ -165,24 +174,53 @@ export default function MissingReportsListView({
   }
   if (!data) return null
 
-  // 빈 결과
+  // 빈 결과 — 이름 검색 중이면 input은 그대로 노출하고 안내 문구만 분기
   if (data.total === 0) {
     return (
-      <div className="rounded-2xl border border-success-border bg-success-bg/40 px-4 py-3 flex items-center gap-2.5 text-[13px] text-success-text">
-        <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
-        <span>이번 기간 미보고 없음 — 모두 정상 보고 완료</span>
+      <div className="space-y-3">
+        <div className="rounded-2xl border border-border bg-surface px-4 py-2.5 flex items-center gap-2.5">
+          <span className="text-[12px] text-text-muted">이름 빠른 검색</span>
+          <div className="ml-auto">
+            <Input
+              type="text"
+              inputSize="sm"
+              value={nameQuery}
+              onChange={e => setNameQuery(e.target.value)}
+              placeholder="이름 일부"
+              className="w-36"
+            />
+          </div>
+        </div>
+        <div className="rounded-2xl border border-success-border bg-success-bg/40 px-4 py-3 flex items-center gap-2.5 text-[13px] text-success-text">
+          <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+          <span>
+            {activeName
+              ? `"${activeName}" 검색 결과 없음 — 해당 이름의 미보고 건이 없습니다`
+              : '이번 기간 미보고 없음 — 모두 정상 보고 완료'}
+          </span>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="space-y-3">
-      {/* 헤더 */}
+      {/* 헤더 + 이름 빠른 검색 */}
       <div className="rounded-2xl border border-danger-border bg-danger-bg/30 px-4 py-3 flex items-center gap-2.5">
         <AlertCircle className="h-4 w-4 text-danger-text shrink-0" aria-hidden />
         <h3 className="text-[13px] font-semibold text-danger-text">
           미보고 {data.total}건
         </h3>
+        <div className="ml-auto">
+          <Input
+            type="text"
+            inputSize="sm"
+            value={nameQuery}
+            onChange={e => setNameQuery(e.target.value)}
+            placeholder="이름 일부"
+            className="w-36"
+          />
+        </div>
       </div>
 
       {/* 리스트 + 페이지네이션 (한 박스) */}
