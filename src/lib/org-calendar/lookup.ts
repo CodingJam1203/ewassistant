@@ -223,7 +223,33 @@ export async function fetchOrgCalendarLookup(args: {
     console.warn('[org-calendar/lookup] sheet merge failed:', err)
   }
 
+  // v1.68 (2026-06-01) — 모든 (email × date)의 events 배열을 통일 정렬.
+  // 종일(startTime null) 먼저 → 시간 오름차순 → 동일 시간 내 title 사전순(ko).
+  // GCal/Sheet insertion order 의존으로 셀별 순서가 무작위였던 문제 해소.
+  // 호출처(MY PAGE 캘린더뷰·team-status 카드·advance-checkin 알림 등) 일관 정렬.
+  for (const rec of byEmail.values()) {
+    for (const lookup of Object.values(rec)) {
+      lookup.events.sort(compareCalendarEvents)
+    }
+  }
+
   return { enabled: true, fetchFailed: false, byEmail }
+}
+
+/**
+ * v1.68 — 캘린더 events 통일 정렬 비교 함수.
+ * 종일 먼저 → startTime 오름차순 → title 사전순(ko).
+ */
+function compareCalendarEvents(a: CalendarEventChunk, b: CalendarEventChunk): number {
+  // 종일(startTime null) 먼저
+  if (a.startTime === null && b.startTime !== null) return -1
+  if (a.startTime !== null && b.startTime === null) return 1
+  // 시간순 (HH:mm zero-padded이므로 사전순 = 숫자순)
+  if (a.startTime !== b.startTime) {
+    return (a.startTime ?? '').localeCompare(b.startTime ?? '')
+  }
+  // 동일 시간 내 title 사전순 (ko)
+  return (a.title ?? '').localeCompare(b.title ?? '', 'ko')
 }
 
 // ─── Phase A — Sheet data merge layer ───────────────────────────────────────
