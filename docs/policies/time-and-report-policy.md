@@ -74,7 +74,7 @@ N-Click의 시간 데이터(출근예정·퇴근예정·실제출근·실제퇴�
 | 케이스 | 채널 | 발송 함수 | 상태 |
 |---|---|---|---|
 | 출근보고 작성 | 출근보고 채널 | `notifyCheckinSubmitted` (`teams.ts:360-368`) | ✅ |
-| **사전등록 알림 (v1.50, 2026-05-27)** | 출근보고 채널 | `notifyAdvanceCheckinSubmitted` (`teams.ts`) — 본부 `org_divisions.notify_on_advance_checkin=true`에 한정. 호출 지점: `/api/work-logs` POST D+1 분기 + `/api/team-status/check-in` POST `willCreateNewLog=true` (당일 첫 출근보고 / 미래 사전등록). 출근완료 알림과 별개로 둘 다 발송 (정책 P1). 메시지: 📋이름 출근 보고 / 일자 + 출근/퇴근예정 + 근무장소 + 일정(있으면) + 🌴 휴가(있으면) + 메모(있으면). 헬퍼 — `src/lib/notifications/advance-checkin.ts:maybeNotifyAdvanceCheckin` (본부 플래그 OFF면 silent skip). | ✅ |
+| **사전등록 알림 (v1.50, 2026-05-27 / v1.66, 2026-06-01)** | 출근보고 채널 | `notifyAdvanceCheckinSubmitted` (`teams.ts`) — 본부 `org_divisions.notify_on_advance_checkin=true`에 한정. 호출 지점: `/api/work-logs` POST D+1 분기 + `/api/team-status/check-in` POST `willCreateNewLog=true && !checkedInAtIso` (사전등록만 한 케이스). **v1.66 — 정책 P1(advance + checkin 동시 발송) 폐기**: 같은 호출에서 출근완료(checkedInAtIso) 함께 들어오면 `notifyCheckinSubmitted` 1건만, advance skip. 같은 일자 동일 의미 알림 중복 X. work-logs POST D+1 분기는 별개 일자(D-day 퇴근 + D+1 사전 출근) 메시지라 그대로 유지 — 중복 아님. 메시지: 📋이름 출근 보고 / 일자 + 출근/퇴근예정 + 근무장소 + 일정(있으면) + 🌴 휴가(있으면) + 메모(있으면). 헬퍼 — `src/lib/notifications/advance-checkin.ts:maybeNotifyAdvanceCheckin` (본부 플래그 OFF면 silent skip). | ✅ |
 | 출근보고 수정 | 출근보고 채널 | `notifyWorkLogUpdatedSplit` (`teams.ts:325-331`, `kind='check_in'`) | ✅ |
 | 퇴근보고 작성 | 퇴근보고 채널 | `notifyWorkLogSubmitted` (`teams.ts:271-289`) | ✅ |
 | 퇴근보고 수정 | 퇴근보고 채널 | `notifyWorkLogUpdatedSplit` (`kind='check_out'`, `teams.ts:336-342`) | ✅ |
@@ -1008,6 +1008,7 @@ N-Click에는 성격이 다른 캘린더 뷰가 3종 존재한다. 코드·UI·�
 
 | 날짜 | 버전 | 변경 | 작업자 |
 |---|---|---|---|
+| 2026-06-01 | v1.66 | **사전등록 알림(advance_checkin) + 출근완료 알림(checkin_submitted) 동시 발송 정책 P1 폐기** — 사용자 보고: 브랜딩전략센터(이윤성) 사전 출근/퇴근 알림이 매번 2건씩 도착. 진단: `org_divisions.notify_on_advance_checkin=true` 본부(브랜딩전략센터·HR커뮤니케이션본부)는 `/api/team-status/check-in` POST에서 L510 `notifyCheckinSubmitted` + L535 `maybeNotifyAdvanceCheckin` 둘 다 fire. v1.51 메시지 통일로 두 알림이 거의 동일하게 보여 사용자 입장에서 "중복 발송"으로 인지. 사용자 결정: **한 번만 발송**. 조치 — ① `check-in/route.ts:534` 가드 `if (willCreateNewLog && !plannedStartUnreported)` → `... && !checkedInAtIso` 추가. 같은 호출에서 출근완료(`checkedInAtIso` 채워짐)까지 들어온 케이스는 `notifyCheckinSubmitted` 1건만, advance skip. 사전등록만 한 경우는 `checkedInAtIso` 빈 값이라 advance만 fire → 1건 유지. ② `/api/work-logs` POST D+1 사전등록 분기는 **별개 일자 알림**(D-day 퇴근 + D+1 사전 출근은 서로 다른 메시지)이라 그대로 유지 — 중복 아님. ③ §2.4 사전등록 알림 행 갱신. ④ `notify_on_advance_checkin=false` 본부 동작 변동 0. 메시지 빌더(v1.51 통일 양식) 변동 0. DB 변경 없음. ABC-281 정책 P1 폐기. | Claude |
 | 2026-05-17 | v1.0 | 초기 작성. Stage 0~7 결과 박제. discrepancy 8건 기록 (D1~D8). | Claude (Phase 3 — 회고적 문서화) |
 | 2026-05-17 | v1.1 | D1·D2·D8 해결. D1은 코드 재확인으로 ✅ (Agent 초기 오판 정정). D2는 마이그레이션 025 추가로 ✅. D8은 현재 분담 유지 결정. §10에 결정 6·7·8 추가. | Claude |
 | 2026-05-17 | v1.2 | Task Board 상태 머신 정비 (DEV/STG/PROD prefix 통일, QA 진행중 상태 신설, `재작업 출처` property 추가). 본 시간/보고 정책 자체엔 영향 없음 — 비즈니스 정책 동일. 머신 정의는 `AGENTS.md` / `CLAUDE.md` 의 "Task Board 상태 머신" 섹션 참조. | Claude |

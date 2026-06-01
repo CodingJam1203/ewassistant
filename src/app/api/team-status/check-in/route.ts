@@ -530,8 +530,12 @@ export async function POST(request: Request) {
 
     // v1.50 (2026-05-27) — 사전등록 알림 (당일 첫 출근보고 / 미래 일자 사전등록).
     // 본부 `notify_on_advance_checkin=true` 일 때만 발송. willCreateNewLog=true 일 때
-    // (planned_* 첫 등록). 출근완료 알림과 별개로 둘 다 발송 (정책 P1).
-    if (willCreateNewLog && !plannedStartUnreported) {
+    // (planned_* 첫 등록).
+    // v1.66 (2026-06-01) — 정책 P1(advance + checkin 동시 발송) 폐기. 같은 호출에서
+    // 출근완료까지 한 번에 처리된 경우(L510 notifyCheckinSubmitted가 fire되는 경우)는
+    // advance skip — 한 일자에 동일 의미 알림 1건만. 사전등록만 한 경우(checkedInAtIso
+    // 빈 값)는 변동 없이 advance만 fire되어 1건 유지.
+    if (willCreateNewLog && !plannedStartUnreported && !checkedInAtIso) {
       await maybeNotifyAdvanceCheckin({
         adminClient,
         userEmail: (user.email ?? '').toLowerCase(),
