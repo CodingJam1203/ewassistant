@@ -269,7 +269,11 @@ export async function GET(request: Request) {
     // ── 모든 부수 데이터를 병렬로 조회 (profiles 이후 emails만 의존) ─────────
     //   work_logs(leave/expected), daily_work_status, work_status_events, calendarBatch
     //   직렬 5번 → Promise.all 1번 ≈ 단일 가장 느린 쿼리 시간 ≈ 80%↓
-    const SELECT_COLS = 'id, user_email, start_time, end_time, work_location, work_content, location_history, work_location_timeline, leave_timeline, expected_work_location_timeline, expected_leave_timeline, break_auto_actual_minutes, break_auto_rounded_minutes, leave_date, expected_start_date, expected_work_time, expected_work_location, planned_work_locations, actual_work_locations'
+    // v1.70 (2026-06-01) — planned_start_time, actual_start_time 추가.
+    // 누락으로 computeEffectiveActualStart가 항상 null 반환 → use_check_in_complete=false 팀에서
+    // lazy write가 한 번도 발동 못 함 → 카드 'B 보고 완료'에 영구 멈춤. v1.63/v1.69 fix가 작동
+    // 안 했던 진짜 원인.
+    const SELECT_COLS = 'id, user_email, start_time, end_time, planned_start_time, actual_start_time, work_location, work_content, location_history, work_location_timeline, leave_timeline, expected_work_location_timeline, expected_leave_timeline, break_auto_actual_minutes, break_auto_rounded_minutes, leave_date, expected_start_date, expected_work_time, expected_work_location, planned_work_locations, actual_work_locations'
 
     const [
       workLogsLeaveRes,
