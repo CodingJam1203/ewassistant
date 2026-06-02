@@ -29,6 +29,7 @@ export async function POST(request: Request) {
     target_user_email?: string
     target_date?: string
     report_kind?: string
+    note?: string | null
   } | null = null
   try {
     body = await request.json()
@@ -39,6 +40,8 @@ export async function POST(request: Request) {
   const rawKind = body?.report_kind
   const reportKind: 'check_in' | 'check_out' =
     rawKind === 'check_in' ? 'check_in' : 'check_out'
+  // v1.74.9 — 알림 발송 시점에만 받는 메모. body에 있으면 우선 사용, 없으면 review.note fallback.
+  const bodyNote = typeof body?.note === 'string' ? body.note.trim() || null : undefined
 
   const adminClient = createAdminClient()
 
@@ -122,7 +125,8 @@ export async function POST(request: Request) {
     division,
     team: effectiveTeam,
     reviewerName,
-    note: review.note as string | null,
+    // v1.74.9 — body.note(prompt 입력) 우선, 없으면 review.note(영구 저장) fallback
+    note: bodyNote !== undefined ? bodyNote : (review.note as string | null),
   })
 
   if (!result.ok) {

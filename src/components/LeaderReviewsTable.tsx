@@ -242,50 +242,10 @@ export default function LeaderReviewsTable({
     }
   }
 
-  /**
-   * v1.74.7 — 메모 입력 PATCH (status는 그대로 유지, note만 업데이트).
-   * status가 없는 row는 호출되지 않음 (UI에서 hide).
-   */
-  const handleNoteChange = async (row: LeaderReviewRow, newNote: string) => {
-    if (!row.review_status) return  // status 없으면 메모 의미 없음
-    const note = newNote.trim() || null
-    const snapshot = data
-    // 낙관적 업데이트
-    setData((prev) => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        rows: prev.rows.map((r) =>
-          r.user_email === row.user_email && r.target_date === row.target_date
-            ? { ...r, review_note: note }
-            : r,
-        ),
-      }
-    })
-    try {
-      const res = await fetch('/api/leader-reviews', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          work_log_id: row.work_log_id,
-          target_user_email: row.user_email,
-          target_date: row.target_date,
-          status: row.review_status,
-          note,
-        }),
-      })
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        alert('메모 저장 실패 (롤백): ' + (j?.error ?? res.statusText))
-        setData(snapshot)
-      }
-    } catch (err) {
-      alert('메모 저장 실패 (네트워크): ' + (err instanceof Error ? err.message : String(err)))
-      setData(snapshot)
-    }
-  }
-
   const handleNotify = async (row: LeaderReviewRow) => {
+    // v1.74.9 — 알림 발송 시점에만 메모 받기 (prompt). 빈 값이면 메모 라인 없이 발송.
+    const note = window.prompt('알림에 포함할 메모 (선택)', '')
+    if (note === null) return  // 취소
     setBusyRowId(row.work_log_id)
     try {
       const res = await fetch('/api/leader-reviews/notify', {
@@ -296,6 +256,7 @@ export default function LeaderReviewsTable({
           target_date: row.target_date,
           work_log_id: row.work_log_id,
           report_kind: 'check_out',  // v1.74.5 — 리더 관리는 퇴근보고 전용
+          note: note.trim() || null,
         }),
       })
       const j = await res.json().catch(() => ({}))
@@ -403,7 +364,6 @@ export default function LeaderReviewsTable({
             <thead>
               <tr>
                 <Th className="text-center w-40">리더 피드백</Th>
-                <Th className="w-56">리더 메모</Th>
                 <Th className="text-center w-24">알림</Th>
                 <Th>대상일</Th>
                 <Th>이름</Th>
@@ -439,14 +399,6 @@ export default function LeaderReviewsTable({
                         <option value="missing">{statusLabel('missing')}</option>
                         <option value="wrong">{statusLabel('wrong')}</option>
                       </select>
-                    </Td>
-                    <Td>
-                      {/* v1.74.7 — 리더 메모. status 있을 때만 입력 가능. 알림 발송 시 함께 전송. */}
-                      <NoteInput
-                        row={r}
-                        disabled={!r.review_status}
-                        onCommit={handleNoteChange}
-                      />
                     </Td>
                     <Td className="text-center">
                       {isAlert ? (
@@ -503,44 +455,6 @@ export default function LeaderReviewsTable({
         <span>붉은 음영 — 알림 발송 가능</span>
       </div>
     </div>
-  )
-}
-
-// ─── v1.74.7 — 메모 입력 (onBlur PATCH) ────────────────────────────────────────
-
-interface NoteInputProps {
-  row: LeaderReviewRow
-  disabled: boolean
-  onCommit: (row: LeaderReviewRow, newNote: string) => Promise<void> | void
-}
-
-function NoteInput({ row, disabled, onCommit }: NoteInputProps) {
-  const [value, setValue] = useState(row.review_note ?? '')
-  // 외부 row.review_note가 바뀌면 sync (status 변경 등으로 review_note가 갱신될 때)
-  useEffect(() => {
-    setValue(row.review_note ?? '')
-  }, [row.review_note])
-
-  return (
-    <input
-      type="text"
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={() => {
-        if ((value ?? '') !== (row.review_note ?? '')) onCommit(row, value)
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          (e.target as HTMLInputElement).blur()
-        }
-      }}
-      disabled={disabled}
-      placeholder={disabled ? '피드백 먼저 선택' : '메모 입력'}
-      className={cn(
-        'h-7 w-full text-[12px] rounded border px-2 transition-colors',
-        disabled ? 'bg-surface-muted/50 text-text-disabled border-border' : 'border-border focus:border-primary-500 focus:outline-none',
-      )}
-    />
   )
 }
 
