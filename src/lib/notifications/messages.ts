@@ -760,7 +760,7 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       const statusLabel = p.status === 'missing' ? 'EW미상신' : 'EW오상신'
       const reportLabel = p.reportKind === 'check_in' ? '출근보고' : '퇴근보고'
       const lines: string[] = []
-      lines.push(`📢 ${p.name}님, ${koreanDate(p.date)} ${reportLabel} 검토 결과`)
+      lines.push(`📢 **${p.name}님, ${koreanDate(p.date)} ${reportLabel} 검토 결과**`)
       lines.push('')
       lines.push(`⚠ **${statusLabel}**으로 확인되었습니다.`)
       lines.push(p.status === 'missing' ? '빠르게 상신 부탁드립니다.' : '빠르게 수정 부탁드립니다.')

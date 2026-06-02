@@ -243,8 +243,13 @@ export default function LeaderReviewsTable({
   }
 
   const handleNotify = async (row: LeaderReviewRow) => {
-    // v1.74.9 — 알림 발송 시점에만 메모 받기 (prompt). 빈 값이면 메모 라인 없이 발송.
-    const note = window.prompt('알림에 포함할 메모 (선택)', '')
+    // v1.74.9 / .16 — 알림 발송 시점에만 메모 받기. prompt에 대상 row 정보 명시.
+    const statusText = row.review_status === 'missing' ? 'EW미상신' : 'EW오상신'
+    const personName = row.display_name ?? row.user_email
+    const note = window.prompt(
+      `${row.target_date} (${dowKo(row.target_date)}) · ${personName} · ${statusText}\n\n알림에 포함할 메모 (선택)`,
+      '',
+    )
     if (note === null) return  // 취소
     setBusyRowId(row.work_log_id)
     try {
@@ -395,7 +400,7 @@ export default function LeaderReviewsTable({
                         )}
                       >
                         {/* v1.74.12 — 이모지로 구분 (상신 ⭕ / 미보고 ❌) */}
-                        <option value="">{r.work_log_id ? '⭕ 상신' : '❌ 미보고'}</option>
+                        <option value="">{r.work_log_id ? '✅ Nclick제출' : '❌ Nclick미보고'}</option>
                         <option value="checked">{statusLabel('checked')}</option>
                         <option value="missing">{statusLabel('missing')}</option>
                         <option value="wrong">{statusLabel('wrong')}</option>
@@ -615,12 +620,10 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId
                       )}
                       title={statusLabel(cell.review_status) + (isVirtual ? ' (보고 없음)' : '')}
                     >
-                      {/* default 라벨 분기 (v1.74.12 — 이모지로 구분):
-                          - work_log 없음 + review 없음 → '❌ 미보고'
-                          - work_log 있음 + review 없음 → '⭕ 상신'
-                          - review 있음 → '-' (드롭다운 펼친 상태 라벨, 실제 표시는 review 텍스트) */}
+                      {/* v1.74.13 — 첫 옵션은 항상 보고 상태(⭕/❌) 표시.
+                          review 있는 셀을 펼쳐 다시 미선택으로 되돌릴 때도 직관적. */}
                       <option value="">
-                        {cell.review_status === null ? (isVirtual ? '❌ 미보고' : '⭕ 상신') : '-'}
+                        {isVirtual ? '❌ Nclick미보고' : '✅ Nclick제출'}
                       </option>
                       <option value="checked">✓ 체크</option>
                       <option value="missing">⚠ EW미상신</option>

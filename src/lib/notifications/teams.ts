@@ -64,6 +64,8 @@ function toTeamsHtml(text: string): string {
     // 이전 escape 단계에서 본문의 < > 가 이미 &lt; &gt; 로 치환됐으므로
     // 여기서 새로 삽입하는 <a>, </a> 태그는 안전합니다.
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+    // v1.74.15 — markdown bold **text** → <strong>text</strong>
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n/g, "<br>")
 }
 
@@ -73,7 +75,10 @@ function toTeamsHtml(text: string): string {
  * - HTML이 지원되지 않는 채널/Content Type 설정에서의 fallback 용도
  */
 function toPlainText(text: string): string {
-  return text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1\n$2')
+  return text
+    // v1.74.15 — bold marker 제거 (HTML 미지원 fallback)
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1\n$2')
 }
 
 function isEnabled(eventType: EventType): boolean {
