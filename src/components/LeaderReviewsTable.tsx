@@ -121,7 +121,7 @@ export default function LeaderReviewsTable({
   const initial = useMemo(thisMonthRange, [])
   const [from, setFrom] = useState(initial.from)
   const [to, setTo] = useState(initial.to)
-  const [reportKind, setReportKind] = useState<'all' | 'check_in' | 'check_out'>(defaultReportKind)
+  const [reportKind, setReportKind] = useState<'check_in' | 'check_out'>(defaultReportKind)
   const [nameQuery, setNameQuery] = useState('')
   /** v1.73 Phase 4 — 테이블 / 매트릭스 view 토글 */
   const [view, setView] = useState<'table' | 'matrix'>('table')
@@ -160,36 +160,70 @@ export default function LeaderReviewsTable({
     return () => { cancelled = true }
   }, [from, to, divisionFilter, teamFilter, refreshTick])
 
-  // filter (client-side)
+  // 테이블뷰 filter (client-side) — 매트릭스는 종류 무시(셀이 work_log 단위)
   const filteredRows = useMemo(() => {
     if (!data) return []
     const q = nameQuery.trim()
     return data.rows.filter((r) => {
-      // 보고 종류 filter (check_out: actual_end_time 또는 end_time 채워진 row)
-      if (reportKind === 'check_out') {
-        const hasCheckOut = !!(r.actual_end_time || r.end_time)
-        if (!hasCheckOut) return false
-      }
-      if (reportKind === 'check_in') {
-        const hasCheckIn = !!(r.actual_start_time || r.planned_start_time || r.start_time)
-        if (!hasCheckIn) return false
+      // 매트릭스 뷰는 종류 무시 — 한 work_log에 출근/퇴근 정보 모두 들어있어 분리 의미 X.
+      if (view === 'table') {
+        if (reportKind === 'check_out') {
+          const hasCheckOut = !!(r.actual_end_time || r.end_time)
+          if (!hasCheckOut) return false
+        }
+        if (reportKind === 'check_in') {
+          const hasCheckIn = !!(r.actual_start_time || r.planned_start_time || r.start_time)
+          if (!hasCheckIn) return false
+        }
       }
       if (q && !(r.display_name ?? '').includes(q)) return false
       return true
     })
-  }, [data, reportKind, nameQuery])
+  }, [data, reportKind, nameQuery, view])
 
   /**
-   * v1.74 — PATCH는 항상 (target_user_email, target_date) 키 기반.
-   * work_log_id가 있으면 같이 보내고, 없으면 null (가상 review).
-   * busyKey: work_log_id 있으면 그것, 없으면 'virtual:{email}|{date}'
+   * v1.74.3 — 진짜 낙관적 업데이트.
+   * 1) setData 먼저 (UI 즉시 반영)
+   * 2) fetch 백그라운드
+   * 3) 실패 시 rollback + alert
+   * busyRowId 안 박음 — UI 즉시 응답.
    */
   const handleStatusChange = async (
     args: { workLogId: string | null; userEmail: string; date: string },
     next: ReviewStatus | '',
   ) => {
-    const busyKey = args.workLogId ?? `virtual:${args.userEmail}|${args.date}`
-    setBusyRowId(busyKey)
+    const status = next === '' ? null : next
+    // 1) prev snapshot (rollback용)
+    const snapshot = data
+    // 2) 낙관적 업데이트
+    setData((prev) => {
+      if (!prev) return prev
+      const updatedRows = prev.rows.map((r) =>
+        r.user_email === args.userEmail && r.target_date === args.date
+          ? { ...r, review_status: status }
+          : r,
+      )
+      const prevVirtual = prev.virtualReviews ?? []
+      let newVirtual = prevVirtual
+      const matched = updatedRows.some((r) => r.user_email === args.userEmail && r.target_date === args.date)
+      if (!matched) {
+        const filtered = prevVirtual.filter((v) => !(v.user_email === args.userEmail && v.target_date === args.date))
+        if (status) {
+          newVirtual = [...filtered, {
+            user_email: args.userEmail,
+            target_date: args.date,
+            review_status: status,
+            review_note: null,
+            reviewer_email: null,
+            reviewed_at: new Date().toISOString(),
+          }]
+        } else {
+          newVirtual = filtered
+        }
+      }
+      return { ...prev, rows: updatedRows, virtualReviews: newVirtual }
+    })
+    // 3) 백그라운드 fetch
     try {
       const res = await fetch('/api/leader-reviews', {
         method: 'PATCH',
@@ -198,50 +232,17 @@ export default function LeaderReviewsTable({
           work_log_id: args.workLogId,
           target_user_email: args.userEmail,
           target_date: args.date,
-          status: next === '' ? null : next,
+          status,
         }),
       })
-      const j = await res.json().catch(() => ({}))
       if (!res.ok) {
-        alert('피드백 저장 실패: ' + (j?.error ?? res.statusText))
-        return
+        const j = await res.json().catch(() => ({}))
+        alert('피드백 저장 실패 (롤백): ' + (j?.error ?? res.statusText))
+        setData(snapshot)  // rollback
       }
-      // 낙관적 업데이트
-      setData((prev) => {
-        if (!prev) return prev
-        const status = next === '' ? null : next
-        // work_log 있는 row: rows 업데이트
-        const updatedRows = prev.rows.map((r) =>
-          r.user_email === args.userEmail && r.target_date === args.date
-            ? { ...r, review_status: status }
-            : r,
-        )
-        // 가상 review: virtualReviews 추가/수정/제거
-        const prevVirtual = prev.virtualReviews ?? []
-        let newVirtual = prevVirtual
-        if (!args.workLogId) {
-          const matched = updatedRows.some((r) => r.user_email === args.userEmail && r.target_date === args.date)
-          if (!matched) {
-            // work_log 없는 셀
-            const filtered = prevVirtual.filter((v) => !(v.user_email === args.userEmail && v.target_date === args.date))
-            if (status) {
-              newVirtual = [...filtered, {
-                user_email: args.userEmail,
-                target_date: args.date,
-                review_status: status,
-                review_note: null,
-                reviewer_email: null,
-                reviewed_at: new Date().toISOString(),
-              }]
-            } else {
-              newVirtual = filtered
-            }
-          }
-        }
-        return { ...prev, rows: updatedRows, virtualReviews: newVirtual }
-      })
-    } finally {
-      setBusyRowId(null)
+    } catch (err) {
+      alert('피드백 저장 실패 (네트워크): ' + (err instanceof Error ? err.message : String(err)))
+      setData(snapshot)
     }
   }
 
@@ -308,10 +309,9 @@ export default function LeaderReviewsTable({
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-text-secondary whitespace-nowrap">종류</span>
-          <Select value={reportKind} onChange={(e) => setReportKind(e.target.value as 'all' | 'check_in' | 'check_out')} className="!h-7 !text-[12px] w-28">
+          <Select value={reportKind} onChange={(e) => setReportKind(e.target.value as 'check_in' | 'check_out')} className="!h-7 !text-[12px] w-32">
             <option value="check_out">퇴근보고</option>
             <option value="check_in">출근보고</option>
-            <option value="all">전체</option>
           </Select>
         </div>
         <div className="flex items-center gap-1.5">
