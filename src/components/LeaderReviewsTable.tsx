@@ -37,6 +37,7 @@ interface LeaderReviewRow {
   end_time: string | null
   work_location: string | null
   work_content: string | null
+  ew_value: string | null
   review_status: ReviewStatus | null
   review_note: string | null
   reviewer_email: string | null
@@ -402,8 +403,7 @@ export default function LeaderReviewsTable({
                 <Th>대상일</Th>
                 <Th>이름</Th>
                 <Th>본부 / 팀</Th>
-                <Th>출근</Th>
-                <Th>퇴근</Th>
+                <Th>EW</Th>
                 <Th>근무장소</Th>
                 <Th>근무내용</Th>
               </tr>
@@ -463,13 +463,8 @@ export default function LeaderReviewsTable({
                     <Td className="text-[12px] text-text-secondary">
                       {r.division ?? '-'} / {r.effective_team ?? r.team ?? '-'}
                     </Td>
-                    <Td className="tabular-nums text-[12px]">
-                      {fmtTime(actStart)}
-                      <span className="text-text-muted text-[11px] ml-1">(예 {fmtTime(r.planned_start_time)})</span>
-                    </Td>
-                    <Td className="tabular-nums text-[12px]">
-                      {fmtTime(actEnd)}
-                      <span className="text-text-muted text-[11px] ml-1">(예 {fmtTime(r.planned_end_time)})</span>
+                    <Td className="font-bold text-primary-600 tabular-nums text-[12px]">
+                      {r.ew_value ?? '-'}
                     </Td>
                     <Td className="text-[12px]">{r.work_location ?? '-'}</Td>
                     <Td className="text-[12px] max-w-[280px] truncate" title={r.work_content ?? ''}>

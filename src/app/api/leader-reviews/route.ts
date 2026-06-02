@@ -134,7 +134,7 @@ export async function GET(request: Request) {
   const { data: workLogs } = await adminClient
     .from('work_logs')
     .select(
-      'id, user_email, leave_date, planned_start_time, planned_end_time, actual_start_time, actual_end_time, start_time, end_time, work_location, work_content',
+      'id, user_email, leave_date, planned_start_time, planned_end_time, actual_start_time, actual_end_time, start_time, end_time, work_location, work_content, ew_value',
     )
     .in('user_email', emails)
     .gte('leave_date', from)
@@ -193,6 +193,7 @@ export async function GET(request: Request) {
       end_time: (w.end_time as string | null) ?? null,
       work_location: (w.work_location as string | null) ?? null,
       work_content: (w.work_content as string | null) ?? null,
+      ew_value: (w.ew_value as string | null) ?? null,
       review_status: r?.status ?? null,
       review_note: r?.note ?? null,
       reviewer_email: r?.reviewer_email ?? null,
