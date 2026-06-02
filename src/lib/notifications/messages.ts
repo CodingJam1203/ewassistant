@@ -762,7 +762,8 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       const lines: string[] = []
       lines.push(`📢 ${p.name}님, ${koreanDate(p.date)} ${reportLabel} 검토 결과`)
       lines.push('')
-      lines.push(`⚠ 리더(${p.reviewerName})가 **${statusLabel}**으로 표시했습니다. 확인 부탁드립니다.`)
+      lines.push(`⚠ **${statusLabel}**으로 확인되었습니다.`)
+      lines.push('빠르게 상신 부탁드립니다.')
       if (p.note && p.note.trim()) {
         lines.push('')
         lines.push(`메모: ${p.note.trim()}`)
