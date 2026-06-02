@@ -121,7 +121,8 @@ export default function LeaderReviewsTable({
   const initial = useMemo(thisMonthRange, [])
   const [from, setFrom] = useState(initial.from)
   const [to, setTo] = useState(initial.to)
-  const [reportKind, setReportKind] = useState<'check_in' | 'check_out'>(defaultReportKind)
+  // v1.74.5 — 리더 관리는 퇴근보고 전용 (사용자 결정). 종류 셀렉트 폐기.
+  const reportKind: 'check_out' = 'check_out'
   const [nameQuery, setNameQuery] = useState('')
   /** v1.73 Phase 4 — 테이블 / 매트릭스 view 토글 */
   const [view, setView] = useState<'table' | 'matrix'>('table')
@@ -160,26 +161,21 @@ export default function LeaderReviewsTable({
     return () => { cancelled = true }
   }, [from, to, divisionFilter, teamFilter, refreshTick])
 
-  // 테이블뷰 filter (client-side) — 매트릭스는 종류 무시(셀이 work_log 단위)
+  // v1.74.5 — 리더 관리는 퇴근보고 전용.
+  // 테이블뷰: 퇴근 데이터(actual_end_time 또는 end_time) 있는 row만.
+  // 매트릭스: 사용자×날짜 풀 그리드라 종류 필터 무관 (모든 row 노출).
   const filteredRows = useMemo(() => {
     if (!data) return []
     const q = nameQuery.trim()
     return data.rows.filter((r) => {
-      // 매트릭스 뷰는 종류 무시 — 한 work_log에 출근/퇴근 정보 모두 들어있어 분리 의미 X.
       if (view === 'table') {
-        if (reportKind === 'check_out') {
-          const hasCheckOut = !!(r.actual_end_time || r.end_time)
-          if (!hasCheckOut) return false
-        }
-        if (reportKind === 'check_in') {
-          const hasCheckIn = !!(r.actual_start_time || r.planned_start_time || r.start_time)
-          if (!hasCheckIn) return false
-        }
+        const hasCheckOut = !!(r.actual_end_time || r.end_time)
+        if (!hasCheckOut) return false
       }
       if (q && !(r.display_name ?? '').includes(q)) return false
       return true
     })
-  }, [data, reportKind, nameQuery, view])
+  }, [data, nameQuery, view])
 
   /**
    * v1.74.3 — 진짜 낙관적 업데이트.
@@ -256,7 +252,7 @@ export default function LeaderReviewsTable({
           target_user_email: row.user_email,
           target_date: row.target_date,
           work_log_id: row.work_log_id,
-          report_kind: reportKind === 'check_in' ? 'check_in' : 'check_out',
+          report_kind: 'check_out',  // v1.74.5 — 리더 관리는 퇴근보고 전용
         }),
       })
       const j = await res.json().catch(() => ({}))
@@ -307,17 +303,7 @@ export default function LeaderReviewsTable({
           <span className="text-text-muted">~</span>
           <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="!h-7 !text-[12px] w-36" />
         </div>
-        {/* 매트릭스 view에서는 종류 무의미 (셀이 work_log 단위 단일 review) → hide.
-            매트릭스 알림은 퇴근보고 채널 고정. */}
-        {view === 'table' && (
-          <div className="flex items-center gap-1.5">
-            <span className="text-text-secondary whitespace-nowrap">종류</span>
-            <Select value={reportKind} onChange={(e) => setReportKind(e.target.value as 'check_in' | 'check_out')} className="!h-7 !text-[12px] w-32">
-              <option value="check_out">퇴근보고</option>
-              <option value="check_in">출근보고</option>
-            </Select>
-          </div>
-        )}
+        {/* v1.74.5 — 리더 관리는 퇴근보고 전용. 종류 셀렉트 폐기. 알림 채널 = 퇴근보고 고정. */}
         <div className="flex items-center gap-1.5">
           <span className="text-text-secondary whitespace-nowrap">이름</span>
           <Input
