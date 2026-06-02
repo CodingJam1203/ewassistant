@@ -242,33 +242,36 @@ export default function LeaderReviewsTable({
 
   return (
     <div className="space-y-3">
-      {/* 자체 필터 바 */}
-      <div className="flex flex-wrap items-center gap-3 p-3 bg-surface-muted rounded-[10px]">
-        <label className="text-[12px] text-text-secondary">기간</label>
-        <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" />
-        <span className="text-text-muted">~</span>
-        <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" />
-
-        <label className="text-[12px] text-text-secondary ml-2">보고 종류</label>
-        <Select value={reportKind} onChange={(e) => setReportKind(e.target.value as 'all' | 'check_in' | 'check_out')} className="w-32">
-          <option value="check_out">퇴근보고</option>
-          <option value="check_in">출근보고</option>
-          <option value="all">전체</option>
-        </Select>
-
-        <label className="text-[12px] text-text-secondary ml-2">이름</label>
-        <Input
-          type="text"
-          value={nameQuery}
-          onChange={(e) => setNameQuery(e.target.value)}
-          placeholder="이름 일부"
-          className="w-32"
-        />
-
-        <div className="ml-auto flex items-center gap-2 text-[12px] text-text-muted">
-          <span>{filteredRows.length}건 / 총 {data.rows.length}건</span>
+      {/* v1.74 — 압축 필터바. 데스크탑 1행, 모바일은 자연 wrap. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 bg-surface-muted rounded-[8px] text-[12px]">
+        <div className="flex items-center gap-1.5">
+          <span className="text-text-secondary">기간</span>
+          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="!h-7 !text-[12px] w-36" />
+          <span className="text-text-muted">~</span>
+          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="!h-7 !text-[12px] w-36" />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-text-secondary">종류</span>
+          <Select value={reportKind} onChange={(e) => setReportKind(e.target.value as 'all' | 'check_in' | 'check_out')} className="!h-7 !text-[12px] w-28">
+            <option value="check_out">퇴근보고</option>
+            <option value="check_in">출근보고</option>
+            <option value="all">전체</option>
+          </Select>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-text-secondary">이름</span>
+          <Input
+            type="text"
+            value={nameQuery}
+            onChange={(e) => setNameQuery(e.target.value)}
+            placeholder="검색"
+            className="!h-7 !text-[12px] w-28"
+          />
+        </div>
+        <div className="ml-auto flex items-center gap-2 text-text-muted">
+          <span>{filteredRows.length} / {data.rows.length}건</span>
           {/* v1.73 Phase 4 — view 토글 */}
-          <div className="ml-2 inline-flex border border-border rounded overflow-hidden">
+          <div className="inline-flex border border-border rounded overflow-hidden">
             <button
               onClick={() => setView('table')}
               className={cn(
@@ -462,12 +465,16 @@ function MatrixView({ rows, from, to, busyRowId, onStatusChange }: MatrixViewPro
     return { md, dowKo, isWeekend: dow === 0 || dow === 6 }
   }
 
+  // v1.74 — 컬럼/셀 너비를 고정해서 폭 좁아 답답하던 문제 해소.
+  const COL_W = 'w-[88px] min-w-[88px] max-w-[88px]'
+  const NAME_COL_W = 'w-[140px] min-w-[140px] max-w-[140px]'
+
   return (
     <div className="overflow-x-auto border border-border rounded-[8px]">
-      <table className="min-w-full border-collapse text-[12px]">
+      <table className="border-collapse text-[12px]" style={{ tableLayout: 'fixed' }}>
         <thead className="bg-surface-muted">
           <tr>
-            <th className="sticky left-0 z-10 bg-surface-muted border-b border-r border-border px-2 py-2 text-left font-semibold w-32">
+            <th className={cn('sticky left-0 z-10 bg-surface-muted border-b border-r border-border px-2 py-2 text-left font-semibold', NAME_COL_W)}>
               구성원 / 날짜
             </th>
             {dates.map((d) => {
@@ -476,7 +483,8 @@ function MatrixView({ rows, from, to, busyRowId, onStatusChange }: MatrixViewPro
                 <th
                   key={d}
                   className={cn(
-                    'border-b border-r border-border px-2 py-1 text-center font-medium whitespace-nowrap w-24',
+                    'border-b border-r border-border px-2 py-1 text-center font-medium whitespace-nowrap',
+                    COL_W,
                     isWeekend && 'text-red-500',
                   )}
                 >
@@ -490,16 +498,16 @@ function MatrixView({ rows, from, to, busyRowId, onStatusChange }: MatrixViewPro
         <tbody>
           {users.map((u) => (
             <tr key={u.email}>
-              <td className="sticky left-0 z-10 bg-white border-b border-r border-border px-2 py-2 text-left w-32 whitespace-nowrap">
-                <div className="font-medium text-text-primary">{u.name}</div>
+              <td className={cn('sticky left-0 z-10 bg-white border-b border-r border-border px-2 py-2 text-left whitespace-nowrap', NAME_COL_W)}>
+                <div className="font-medium text-text-primary truncate">{u.name}</div>
                 <div className="text-[10px] text-text-muted truncate">{u.team}</div>
               </td>
               {dates.map((d) => {
                 const r = byUserDate.get(`${u.email}|${d}`)
                 if (!r) {
                   return (
-                    <td key={d} className="border-b border-r border-border px-1 py-1 text-center text-text-disabled">
-                      -
+                    <td key={d} className={cn('border-b border-r border-border px-1 py-1 text-center text-text-disabled bg-surface-muted/30', COL_W)}>
+                      <span className="text-[11px]">-</span>
                     </td>
                   )
                 }
@@ -509,6 +517,7 @@ function MatrixView({ rows, from, to, busyRowId, onStatusChange }: MatrixViewPro
                     key={d}
                     className={cn(
                       'border-b border-r border-border px-1 py-1 text-center align-middle',
+                      COL_W,
                       cellBgClass(r.review_status),
                     )}
                   >

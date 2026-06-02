@@ -32,12 +32,14 @@ function thisMonthRange(): { from: string; to: string } {
   }
 }
 
-interface OrgTeam { id: string; division_id: string; name: string }
+interface OrgTeam { id: string; division_id: string; name: string; use_leader_review?: boolean }
 interface OrgDivision { id: string; name: string; teams: OrgTeam[] }
 
 export default function HistoryPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [isLeader, setIsLeader] = useState(false)
+  /** v1.74 — 본인이 use_leader_review=true 팀 리더면 리더 관리 탭이 맨 앞으로. */
+  const [leaderTabPrimary, setLeaderTabPrimary] = useState(false)
   const [org, setOrg] = useState<OrgDivision[]>([])
   const [filterMine, setFilterMine] = useState(false)
   const [filterDivision, setFilterDivision] = useState('')
@@ -69,10 +71,23 @@ export default function HistoryPage() {
       fetch('/api/auth/profile').then(r => r.ok ? r.json() : null).catch(() => null),
     ]).then(([adminData, orgData, profile]) => {
       setIsAdmin(adminData?.isAdmin ?? false)
-      setIsLeader(profile?.role === 'leader' || profile?.role === 'admin' || adminData?.isAdmin)
+      const leader = profile?.role === 'leader' || profile?.role === 'admin' || adminData?.isAdmin
+      setIsLeader(leader)
       setOrg(orgData as OrgDivision[])
       if (profile?.division) setFilterDivision(profile.division)
       if (profile?.team) setFilterTeam(profile.team)
+      // v1.74 — leader(admin 제외)가 본인 팀이 use_leader_review=true면 리더 관리 탭을 맨 앞으로
+      // 본인 팀 use_leader_review는 /api/org에 포함된 use_leader_review 필드로 판정.
+      if (profile?.role === 'leader' && profile?.division && profile?.team) {
+        const teams = (orgData as OrgDivision[] | undefined)
+          ?.find((d) => d.name === profile.division)?.teams ?? []
+        type TeamWithFlag = OrgTeam & { use_leader_review?: boolean }
+        const myTeam = teams.find((t) => t.name === profile.team) as TeamWithFlag | undefined
+        if (myTeam?.use_leader_review) {
+          setLeaderTabPrimary(true)
+          setTab('leader')  // 진입 시 자동 선택
+        }
+      }
       setProfileReady(true)
     })
   }, [])
@@ -194,12 +209,20 @@ export default function HistoryPage() {
       {/* 탭 */}
       <div className="border-b border-border">
         <nav className="-mb-px flex gap-6" aria-label="탭">
-          {[
-            { key: 'final'   as TabKey, label: '일자별 최종 보고', show: true },
-            { key: 'missing' as TabKey, label: '미보고 현황',      show: true },
-            { key: 'raw'     as TabKey, label: 'RAW 제출 내역',    show: true },
-            { key: 'leader'  as TabKey, label: '리더 관리',         show: isLeader },
-          ].filter(t => t.show).map(t => (
+          {(() => {
+            const base = [
+              { key: 'final'   as TabKey, label: '일자별 최종 보고', show: true },
+              { key: 'missing' as TabKey, label: '미보고 현황',      show: true },
+              { key: 'raw'     as TabKey, label: 'RAW 제출 내역',    show: true },
+              { key: 'leader'  as TabKey, label: '리더 관리',         show: isLeader },
+            ].filter(t => t.show)
+            // v1.74 — use_leader_review 팀 리더는 리더 관리 탭이 맨 앞.
+            if (leaderTabPrimary) {
+              const leader = base.find(t => t.key === 'leader')
+              if (leader) return [leader, ...base.filter(t => t.key !== 'leader')]
+            }
+            return base
+          })().map(t => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
