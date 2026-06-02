@@ -1,19 +1,12 @@
 /**
- * v1.73 Phase 2 — POST /api/leader-reviews/notify
+ * v1.73 + v1.74 — POST /api/leader-reviews/notify
  *
- * 리더 관리 뷰에서 리더가 [📢 알림] 버튼 클릭 시 호출.
- * 미상신/오상신으로 박힌 보고에 대해 해당 사용자의 팀 출근/퇴근보고 채널 thread에
- * reply로 알림 발송 (notifyMissingReport 패턴 동일).
+ * 리더가 [📢 알림] 클릭 시 호출. 미상신/오상신 review에 대해 대상자 팀 채널에 알림 발송.
  *
- * Body: { work_log_id, report_kind: 'check_in'|'check_out' }
- *   - report_kind는 어느 채널로 라우팅할지 결정 (퇴근보고 row가 default)
+ * Body: { target_user_email, target_date, report_kind? }
+ *   또는 { work_log_id, report_kind? }  (기존 호환)
  *
- * 권한:
- *   - admin: 전체
- *   - leader (team/division): 자기 범위 내만
- *
- * 발송 조건:
- *   - review row 존재 + status='missing' or 'wrong' 이어야 함 (체크완료는 알림 무의미)
+ * 발송 조건: review row 존재 + status='missing' or 'wrong'
  */
 
 import { NextResponse } from 'next/server'
@@ -31,38 +24,47 @@ export async function POST(request: Request) {
   }
   const { user: reviewer, scope } = auth
 
-  let body: { work_log_id?: string; report_kind?: string } | null = null
+  let body: {
+    work_log_id?: string | null
+    target_user_email?: string
+    target_date?: string
+    report_kind?: string
+  } | null = null
   try {
     body = await request.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
-  const workLogId = (body?.work_log_id ?? '').trim()
+  const workLogId = (body?.work_log_id ?? '').trim() || null
   const rawKind = body?.report_kind
   const reportKind: 'check_in' | 'check_out' =
-    rawKind === 'check_in' ? 'check_in' : 'check_out'  // default check_out
-
-  if (!workLogId) {
-    return NextResponse.json({ error: 'work_log_id 누락' }, { status: 400 })
-  }
+    rawKind === 'check_in' ? 'check_in' : 'check_out'
 
   const adminClient = createAdminClient()
 
-  // 1) work_log + 대상자 profile
-  const { data: wl } = await adminClient
-    .from('work_logs')
-    .select('id, user_email, leave_date')
-    .eq('id', workLogId)
-    .eq('is_deleted', false)
-    .maybeSingle()
-  if (!wl) {
-    return NextResponse.json({ error: '대상 보고를 찾을 수 없습니다.' }, { status: 404 })
+  // target 추출
+  let targetEmail = (body?.target_user_email ?? '').trim().toLowerCase()
+  let targetDate = (body?.target_date ?? '').trim()
+  if (workLogId) {
+    const { data: wl } = await adminClient
+      .from('work_logs')
+      .select('user_email, leave_date, is_deleted')
+      .eq('id', workLogId)
+      .maybeSingle()
+    if (!wl || wl.is_deleted) {
+      return NextResponse.json({ error: '대상 보고를 찾을 수 없습니다.' }, { status: 404 })
+    }
+    targetEmail = (wl.user_email as string).toLowerCase()
+    targetDate = wl.leave_date as string
+  }
+  if (!targetEmail || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+    return NextResponse.json({ error: 'target_user_email + target_date 또는 work_log_id 필요' }, { status: 400 })
   }
 
   const { data: targetProfile } = await adminClient
     .from('user_profiles')
     .select('email, display_name, division, team, notify_team, is_active')
-    .eq('email', wl.user_email)
+    .eq('email', targetEmail)
     .maybeSingle()
   if (!targetProfile) {
     return NextResponse.json({ error: '대상자 프로필 없음' }, { status: 404 })
@@ -81,7 +83,7 @@ export async function POST(request: Request) {
     }, { status: 400 })
   }
 
-  // 2) scope 검증
+  // scope 검증
   if (scope.kind === 'team' && effectiveTeam !== scope.team) {
     return NextResponse.json({ error: '본인 팀 멤버에게만 알림을 보낼 수 있습니다.' }, { status: 403 })
   }
@@ -89,11 +91,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '본인 본부 멤버에게만 알림을 보낼 수 있습니다.' }, { status: 403 })
   }
 
-  // 3) review 조회 — 발송 조건 (missing/wrong)
+  // review 조회
   const { data: review } = await adminClient
     .from('work_log_leader_reviews')
-    .select('status, note, reviewer_email')
-    .eq('work_log_id', workLogId)
+    .select('status, note')
+    .eq('target_user_email', targetEmail)
+    .eq('target_date', targetDate)
     .maybeSingle()
   if (!review) {
     return NextResponse.json({ error: '리더 피드백이 박혀있지 않습니다.' }, { status: 400 })
@@ -104,7 +107,6 @@ export async function POST(request: Request) {
     }, { status: 400 })
   }
 
-  // 4) 발송자(리더) 표시명
   const { data: reviewerProfile } = await adminClient
     .from('user_profiles')
     .select('display_name')
@@ -112,10 +114,9 @@ export async function POST(request: Request) {
     .maybeSingle()
   const reviewerName = reviewerProfile?.display_name?.trim() || '리더'
 
-  // 5) 발송
   const result = await notifyLeaderReview({
-    name: targetProfile.display_name ?? wl.user_email,
-    date: wl.leave_date as string,
+    name: targetProfile.display_name ?? targetEmail,
+    date: targetDate,
     reportKind,
     status: review.status as 'missing' | 'wrong',
     division,

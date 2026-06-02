@@ -1,19 +1,20 @@
 /**
- * v1.73 Phase 2 — 리더 관리 뷰 API.
+ * v1.73 Phase 2 + v1.74 — 리더 관리 뷰 API (가상 review 지원).
  *
  * GET  /api/leader-reviews?from=YYYY-MM-DD&to=YYYY-MM-DD&division=&team=
- *   - 리더 권한 범위 내 사용자의 work_logs + leader_review LEFT join 결과
- *   - 응답: { rows: [...], reviewableTeams: [{division, team}] (use_leader_review=true 팀) }
+ *   응답:
+ *     {
+ *       rows: [...]                  // work_log 있는 케이스 (테이블뷰)
+ *       virtualReviews: [...]        // v1.74 — work_log 없는데 review 박힌 (가상)
+ *       reviewableUsers: [...]       // v1.74 — 매트릭스 user 목록
+ *       reviewableTeams: [...]
+ *     }
  *
  * PATCH /api/leader-reviews
- *   - body: { work_log_id, status: 'checked'|'missing'|'wrong'|null, note?: string|null }
- *   - status=null이면 review row 삭제, 그 외 upsert (UNIQUE work_log_id 활용)
- *   - 권한: 대상 work_log의 user가 본인 권한 범위 안인지 검증
- *
- * 권한:
- *   - admin: 전체
- *   - leader (team): 본인 팀 멤버 (본부 직속이면 notify_team으로 흡수)
- *   - leader (division): 본부 멤버
+ *   body: { target_user_email, target_date, work_log_id?, status, note? }
+ *       OR { work_log_id, status, note? }  (기존 호환 — work_log 조회해서 target 자동 추출)
+ *   - status=null이면 row 삭제
+ *   - upsert 키: (target_user_email, target_date) — UNIQUE
  */
 
 import { NextResponse } from 'next/server'
@@ -34,7 +35,6 @@ interface UserProfileRow {
   is_active: boolean
 }
 
-// ─── 권한 범위 → 대상 user_email 목록 ──────────────────────────────────────────
 async function loadInScopeProfiles(
   adminClient: ReturnType<typeof createAdminClient>,
   scope: { kind: 'admin' | 'team' | 'division' | null; division: string | null; team: string | null },
@@ -53,7 +53,6 @@ async function loadInScopeProfiles(
     return (data ?? []) as UserProfileRow[]
   }
   if (scope.kind === 'team') {
-    // 일반 팀 멤버 + 본부 직속(team NULL + notify_team=scope.team) 포함
     const { data } = await base.eq('division', scope.division)
     const filtered = (data ?? []).filter((p) => {
       const eff = resolveRoutingTeam(p.team ?? null, p.notify_team ?? null)
@@ -64,7 +63,6 @@ async function loadInScopeProfiles(
   return []
 }
 
-// ─── 리더 관리 ON 팀 목록 (UI tab 표시 가드용) ─────────────────────────────────
 async function loadReviewableTeams(
   adminClient: ReturnType<typeof createAdminClient>,
 ): Promise<Array<{ division: string; team: string }>> {
@@ -99,18 +97,15 @@ export async function GET(request: Request) {
 
   const adminClient = createAdminClient()
 
-  // 1) 권한 범위 사용자들 (use_leader_review=true 팀 한정)
   const reviewableTeams = await loadReviewableTeams(adminClient)
   const reviewableSet = new Set(reviewableTeams.map((t) => `${t.division}::${t.team}`))
 
   const allProfiles = await loadInScopeProfiles(adminClient, scope)
-  // 토글 ON 팀 멤버만 (본부 직속은 notify_team 기준)
   const profiles = allProfiles.filter((p) => {
     const eff = resolveRoutingTeam(p.team ?? null, p.notify_team ?? null)
     if (!p.division || !eff) return false
     return reviewableSet.has(`${p.division}::${eff}`)
   })
-  // URL 추가 필터 (UI 본부/팀 드롭다운)
   const filteredProfiles = profiles.filter((p) => {
     if (divisionFilter && p.division !== divisionFilter) return false
     if (teamFilter) {
@@ -120,13 +115,22 @@ export async function GET(request: Request) {
     return true
   })
 
+  // v1.74 — 매트릭스용 user 목록 (보고 없어도 row 표시)
+  const reviewableUsers = filteredProfiles.map((p) => ({
+    email: p.email,
+    display_name: p.display_name ?? null,
+    division: p.division ?? null,
+    team: p.team ?? null,
+    effective_team: resolveRoutingTeam(p.team ?? null, p.notify_team ?? null),
+  }))
+
   if (filteredProfiles.length === 0) {
-    return NextResponse.json({ rows: [], reviewableTeams })
+    return NextResponse.json({ rows: [], virtualReviews: [], reviewableUsers, reviewableTeams })
   }
 
   const emails = filteredProfiles.map((p) => p.email)
 
-  // 2) work_logs 조회 (날짜 범위)
+  // work_logs 조회
   const { data: workLogs } = await adminClient
     .from('work_logs')
     .select(
@@ -139,41 +143,48 @@ export async function GET(request: Request) {
     .order('leave_date', { ascending: false })
 
   const wlRows = workLogs ?? []
-  if (wlRows.length === 0) {
-    return NextResponse.json({ rows: [], reviewableTeams })
-  }
 
-  // 3) leader_reviews 조회
-  const workLogIds = wlRows.map((w) => w.id as string)
+  // leader_reviews 조회 (work_log 있든 없든) — target_user_email + target_date 기준
   const { data: reviews } = await adminClient
     .from('work_log_leader_reviews')
-    .select('work_log_id, status, note, reviewer_email, reviewed_at')
-    .in('work_log_id', workLogIds)
-  const reviewByWlId = new Map<string, { status: ReviewStatus; note: string | null; reviewer_email: string; reviewed_at: string }>()
+    .select('work_log_id, target_user_email, target_date, status, note, reviewer_email, reviewed_at')
+    .in('target_user_email', emails)
+    .gte('target_date', from)
+    .lte('target_date', to)
+
+  const reviewByTarget = new Map<string, {
+    status: ReviewStatus; note: string | null; reviewer_email: string; reviewed_at: string; work_log_id: string | null;
+  }>()
   for (const r of reviews ?? []) {
-    reviewByWlId.set(r.work_log_id as string, {
+    const key = `${r.target_user_email}|${r.target_date}`
+    reviewByTarget.set(key, {
       status: r.status as ReviewStatus,
       note: r.note as string | null,
       reviewer_email: r.reviewer_email as string,
       reviewed_at: r.reviewed_at as string,
+      work_log_id: (r.work_log_id as string | null) ?? null,
     })
   }
 
-  // 4) profile by email
   const profileByEmail = new Map(filteredProfiles.map((p) => [p.email, p]))
 
-  // 5) 응답 빌드 — 한 row = 한 work_log
+  // rows: work_log 단위 (테이블뷰)
+  const wlKeys = new Set<string>()
   const rows = wlRows.map((w) => {
-    const p = profileByEmail.get(w.user_email as string)
-    const r = reviewByWlId.get(w.id as string)
+    const email = w.user_email as string
+    const date = w.leave_date as string
+    const p = profileByEmail.get(email)
+    const key = `${email}|${date}`
+    wlKeys.add(key)
+    const r = reviewByTarget.get(key)
     return {
       work_log_id: w.id as string,
-      user_email: w.user_email as string,
+      user_email: email,
       display_name: p?.display_name ?? null,
       division: p?.division ?? null,
       team: p?.team ?? null,
       effective_team: resolveRoutingTeam(p?.team ?? null, p?.notify_team ?? null),
-      target_date: w.leave_date as string,
+      target_date: date,
       planned_start_time: (w.planned_start_time as string | null) ?? null,
       planned_end_time: (w.planned_end_time as string | null) ?? null,
       actual_start_time: (w.actual_start_time as string | null) ?? null,
@@ -189,7 +200,25 @@ export async function GET(request: Request) {
     }
   })
 
-  return NextResponse.json({ rows, reviewableTeams })
+  // v1.74 — virtualReviews: work_log 없는데 review만 박힌 케이스
+  const virtualReviews: Array<{
+    user_email: string; target_date: string; review_status: ReviewStatus;
+    review_note: string | null; reviewer_email: string | null; reviewed_at: string | null;
+  }> = []
+  for (const r of reviews ?? []) {
+    const key = `${r.target_user_email}|${r.target_date}`
+    if (wlKeys.has(key)) continue  // work_log 있는 케이스는 rows에 포함됨
+    virtualReviews.push({
+      user_email: r.target_user_email as string,
+      target_date: r.target_date as string,
+      review_status: r.status as ReviewStatus,
+      review_note: (r.note as string | null) ?? null,
+      reviewer_email: (r.reviewer_email as string | null) ?? null,
+      reviewed_at: (r.reviewed_at as string | null) ?? null,
+    })
+  }
+
+  return NextResponse.json({ rows, virtualReviews, reviewableUsers, reviewableTeams })
 }
 
 // ─── PATCH ─────────────────────────────────────────────────────────────────────
@@ -200,46 +229,58 @@ export async function PATCH(request: Request) {
   }
   const { user: reviewer, scope } = auth
 
-  let body: { work_log_id?: string; status?: string | null; note?: string | null } | null = null
+  let body: {
+    work_log_id?: string | null
+    target_user_email?: string
+    target_date?: string
+    status?: string | null
+    note?: string | null
+  } | null = null
   try {
     body = await request.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
-  const workLogId = (body?.work_log_id ?? '').trim()
+  const workLogId = (body?.work_log_id ?? '').trim() || null
   const rawStatus = body?.status
   const note = typeof body?.note === 'string' ? body.note.trim() || null : null
 
-  if (!workLogId) {
-    return NextResponse.json({ error: 'work_log_id 누락' }, { status: 400 })
-  }
   const status: ReviewStatus | null =
     rawStatus === 'checked' || rawStatus === 'missing' || rawStatus === 'wrong'
       ? rawStatus
       : rawStatus === null || rawStatus === undefined || rawStatus === ''
         ? null
         : 'INVALID' as unknown as ReviewStatus
-
   if (status === ('INVALID' as unknown as ReviewStatus)) {
     return NextResponse.json({ error: 'status 값 오류 (checked/missing/wrong/null)' }, { status: 400 })
   }
 
   const adminClient = createAdminClient()
 
-  // 1) 대상 work_log + user profile 권한 검증
-  const { data: wl } = await adminClient
-    .from('work_logs')
-    .select('id, user_email, leave_date')
-    .eq('id', workLogId)
-    .eq('is_deleted', false)
-    .maybeSingle()
-  if (!wl) {
-    return NextResponse.json({ error: '대상 보고를 찾을 수 없습니다.' }, { status: 404 })
+  // target 추출 — work_log_id 있으면 work_logs 조회로 자동 채움. 없으면 body에서 받음.
+  let targetEmail = (body?.target_user_email ?? '').trim().toLowerCase()
+  let targetDate = (body?.target_date ?? '').trim()
+  if (workLogId) {
+    const { data: wl } = await adminClient
+      .from('work_logs')
+      .select('user_email, leave_date, is_deleted')
+      .eq('id', workLogId)
+      .maybeSingle()
+    if (!wl || wl.is_deleted) {
+      return NextResponse.json({ error: '대상 보고를 찾을 수 없습니다.' }, { status: 404 })
+    }
+    targetEmail = (wl.user_email as string).toLowerCase()
+    targetDate = wl.leave_date as string
   }
+  if (!targetEmail || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+    return NextResponse.json({ error: 'target_user_email + target_date 또는 work_log_id 필요' }, { status: 400 })
+  }
+
+  // 대상자 profile 권한 검증
   const { data: targetProfile } = await adminClient
     .from('user_profiles')
     .select('email, division, team, notify_team')
-    .eq('email', wl.user_email)
+    .eq('email', targetEmail)
     .maybeSingle()
   if (!targetProfile) {
     return NextResponse.json({ error: '대상자 프로필 없음' }, { status: 404 })
@@ -249,22 +290,20 @@ export async function PATCH(request: Request) {
     targetProfile.team ?? null,
     targetProfile.notify_team ?? null,
   )
-  if (scope.kind === 'team') {
-    if (targetEffectiveTeam !== scope.team) {
-      return NextResponse.json({ error: '본인 팀 멤버만 수정 가능합니다.' }, { status: 403 })
-    }
-  } else if (scope.kind === 'division') {
-    if (targetDivision !== scope.division) {
-      return NextResponse.json({ error: '본인 본부 멤버만 수정 가능합니다.' }, { status: 403 })
-    }
+  if (scope.kind === 'team' && targetEffectiveTeam !== scope.team) {
+    return NextResponse.json({ error: '본인 팀 멤버만 수정 가능합니다.' }, { status: 403 })
+  }
+  if (scope.kind === 'division' && targetDivision !== scope.division) {
+    return NextResponse.json({ error: '본인 본부 멤버만 수정 가능합니다.' }, { status: 403 })
   }
 
-  // 2) upsert or delete
+  // delete
   if (status === null) {
     const { error } = await adminClient
       .from('work_log_leader_reviews')
       .delete()
-      .eq('work_log_id', workLogId)
+      .eq('target_user_email', targetEmail)
+      .eq('target_date', targetDate)
     if (error) {
       console.error('[leader-reviews PATCH] delete error:', error)
       return NextResponse.json({ error: '삭제 실패' }, { status: 500 })
@@ -272,22 +311,25 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ ok: true, status: null })
   }
 
+  // upsert (UNIQUE target_user_email + target_date)
   const reviewerEmail = (reviewer?.email ?? '').toLowerCase()
   const { error: upsertErr } = await adminClient
     .from('work_log_leader_reviews')
     .upsert(
       {
-        work_log_id: workLogId,
+        work_log_id: workLogId,  // 있으면 채우고, 없으면 NULL
+        target_user_email: targetEmail,
+        target_date: targetDate,
         reviewer_email: reviewerEmail,
         status,
         note,
         reviewed_at: new Date().toISOString(),
       },
-      { onConflict: 'work_log_id' },
+      { onConflict: 'target_user_email,target_date' },
     )
   if (upsertErr) {
     console.error('[leader-reviews PATCH] upsert error:', upsertErr)
     return NextResponse.json({ error: '저장 실패' }, { status: 500 })
   }
-  return NextResponse.json({ ok: true, status, note, reviewer_email: reviewerEmail })
+  return NextResponse.json({ ok: true, status, note, reviewer_email: reviewerEmail, target_user_email: targetEmail, target_date: targetDate })
 }

@@ -43,8 +43,29 @@ interface LeaderReviewRow {
   reviewed_at: string | null
 }
 
+interface ReviewableUser {
+  email: string
+  display_name: string | null
+  division: string | null
+  team: string | null
+  effective_team: string | null
+}
+
+interface VirtualReview {
+  user_email: string
+  target_date: string
+  review_status: ReviewStatus
+  review_note: string | null
+  reviewer_email: string | null
+  reviewed_at: string | null
+}
+
 interface ApiResp {
   rows: LeaderReviewRow[]
+  /** v1.74 — work_log 없는데 review 박힌 케이스 (매트릭스 가상 셀) */
+  virtualReviews?: VirtualReview[]
+  /** v1.74 — 매트릭스 사용자 목록 (보고 없어도 row 표시) */
+  reviewableUsers?: ReviewableUser[]
   reviewableTeams: Array<{ division: string; team: string }>
 }
 
@@ -158,14 +179,25 @@ export default function LeaderReviewsTable({
     })
   }, [data, reportKind, nameQuery])
 
-  const handleStatusChange = async (workLogId: string, next: ReviewStatus | '') => {
-    setBusyRowId(workLogId)
+  /**
+   * v1.74 — PATCH는 항상 (target_user_email, target_date) 키 기반.
+   * work_log_id가 있으면 같이 보내고, 없으면 null (가상 review).
+   * busyKey: work_log_id 있으면 그것, 없으면 'virtual:{email}|{date}'
+   */
+  const handleStatusChange = async (
+    args: { workLogId: string | null; userEmail: string; date: string },
+    next: ReviewStatus | '',
+  ) => {
+    const busyKey = args.workLogId ?? `virtual:${args.userEmail}|${args.date}`
+    setBusyRowId(busyKey)
     try {
       const res = await fetch('/api/leader-reviews', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          work_log_id: workLogId,
+          work_log_id: args.workLogId,
+          target_user_email: args.userEmail,
+          target_date: args.date,
           status: next === '' ? null : next,
         }),
       })
@@ -177,14 +209,36 @@ export default function LeaderReviewsTable({
       // 낙관적 업데이트
       setData((prev) => {
         if (!prev) return prev
-        return {
-          ...prev,
-          rows: prev.rows.map((r) =>
-            r.work_log_id === workLogId
-              ? { ...r, review_status: next === '' ? null : next }
-              : r,
-          ),
+        const status = next === '' ? null : next
+        // work_log 있는 row: rows 업데이트
+        const updatedRows = prev.rows.map((r) =>
+          r.user_email === args.userEmail && r.target_date === args.date
+            ? { ...r, review_status: status }
+            : r,
+        )
+        // 가상 review: virtualReviews 추가/수정/제거
+        const prevVirtual = prev.virtualReviews ?? []
+        let newVirtual = prevVirtual
+        if (!args.workLogId) {
+          const matched = updatedRows.some((r) => r.user_email === args.userEmail && r.target_date === args.date)
+          if (!matched) {
+            // work_log 없는 셀
+            const filtered = prevVirtual.filter((v) => !(v.user_email === args.userEmail && v.target_date === args.date))
+            if (status) {
+              newVirtual = [...filtered, {
+                user_email: args.userEmail,
+                target_date: args.date,
+                review_status: status,
+                review_note: null,
+                reviewer_email: null,
+                reviewed_at: new Date().toISOString(),
+              }]
+            } else {
+              newVirtual = filtered
+            }
+          }
         }
+        return { ...prev, rows: updatedRows, virtualReviews: newVirtual }
       })
     } finally {
       setBusyRowId(null)
@@ -198,6 +252,8 @@ export default function LeaderReviewsTable({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          target_user_email: row.user_email,
+          target_date: row.target_date,
           work_log_id: row.work_log_id,
           report_kind: reportKind === 'check_in' ? 'check_in' : 'check_out',
         }),
@@ -301,6 +357,8 @@ export default function LeaderReviewsTable({
       ) : view === 'matrix' ? (
         <MatrixView
           rows={filteredRows}
+          virtualReviews={data.virtualReviews ?? []}
+          reviewableUsers={data.reviewableUsers ?? []}
           from={from}
           to={to}
           busyRowId={busyRowId}
@@ -334,7 +392,7 @@ export default function LeaderReviewsTable({
                     <Td className="text-center">
                       <select
                         value={r.review_status ?? ''}
-                        onChange={(e) => handleStatusChange(r.work_log_id, e.target.value as ReviewStatus | '')}
+                        onChange={(e) => handleStatusChange({ workLogId: r.work_log_id, userEmail: r.user_email, date: r.target_date }, e.target.value as ReviewStatus | '')}
                         disabled={busyRowId === r.work_log_id}
                         className={cn(
                           'h-7 text-[12px] rounded border px-2 cursor-pointer w-full',
@@ -408,16 +466,30 @@ export default function LeaderReviewsTable({
 
 // ─── v1.73 Phase 4 — 매트릭스 뷰 ────────────────────────────────────────────────
 
+interface MatrixCell {
+  /** work_log 있는 경우만 채워짐. 없으면 null (가상 셀) */
+  work_log_id: string | null
+  review_status: ReviewStatus | null
+  hasWorkLog: boolean
+}
+
 interface MatrixViewProps {
   rows: LeaderReviewRow[]
+  /** v1.74 — work_log 없는 review (가상) */
+  virtualReviews: VirtualReview[]
+  /** v1.74 — 전체 사용자 목록 (보고 없는 사용자도 행 노출) */
+  reviewableUsers: ReviewableUser[]
   from: string
   to: string
   busyRowId: string | null
-  onStatusChange: (workLogId: string, next: ReviewStatus | '') => Promise<void>
+  onStatusChange: (
+    args: { workLogId: string | null; userEmail: string; date: string },
+    next: ReviewStatus | '',
+  ) => Promise<void>
 }
 
-function MatrixView({ rows, from, to, busyRowId, onStatusChange }: MatrixViewProps) {
-  // 1) 가로 날짜 컬럼
+function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId, onStatusChange }: MatrixViewProps) {
+  // 가로 날짜 컬럼
   const dates = useMemo(() => {
     const out: string[] = []
     const start = new Date(from + 'T00:00:00Z')
@@ -428,28 +500,39 @@ function MatrixView({ rows, from, to, busyRowId, onStatusChange }: MatrixViewPro
     return out
   }, [from, to])
 
-  // 2) 사용자별 + 날짜별 row map
-  const { users, byUserDate } = useMemo(() => {
-    const userMap = new Map<string, { email: string; name: string; division: string; team: string }>()
-    const byUd = new Map<string, LeaderReviewRow>()  // key: email|date
-    for (const r of rows) {
-      if (!userMap.has(r.user_email)) {
-        userMap.set(r.user_email, {
-          email: r.user_email,
-          name: r.display_name ?? r.user_email,
-          division: r.division ?? '',
-          team: r.effective_team ?? r.team ?? '',
-        })
-      }
-      byUd.set(`${r.user_email}|${r.target_date}`, r)
-    }
-    return {
-      users: Array.from(userMap.values()).sort((a, b) =>
+  // 사용자 목록 — reviewableUsers (보고 없어도 노출)
+  const users = useMemo(() => {
+    return [...reviewableUsers]
+      .map((u) => ({
+        email: u.email,
+        name: u.display_name ?? u.email,
+        division: u.division ?? '',
+        team: u.effective_team ?? u.team ?? '',
+      }))
+      .sort((a, b) =>
         (a.division + a.team).localeCompare(b.division + b.team) || a.name.localeCompare(b.name, 'ko'),
-      ),
-      byUserDate: byUd,
+      )
+  }, [reviewableUsers])
+
+  // 셀 map — work_log 있는 row + 가상 review 합쳐서
+  const byUserDate = useMemo(() => {
+    const m = new Map<string, MatrixCell>()
+    for (const r of rows) {
+      m.set(`${r.user_email}|${r.target_date}`, {
+        work_log_id: r.work_log_id,
+        review_status: r.review_status,
+        hasWorkLog: true,
+      })
     }
-  }, [rows])
+    for (const v of virtualReviews) {
+      m.set(`${v.user_email}|${v.target_date}`, {
+        work_log_id: null,
+        review_status: v.review_status,
+        hasWorkLog: false,
+      })
+    }
+    return m
+  }, [rows, virtualReviews])
 
   const cellBgClass = (status: ReviewStatus | null | undefined): string => {
     if (status === 'checked') return 'bg-green-50'
@@ -503,34 +586,39 @@ function MatrixView({ rows, from, to, busyRowId, onStatusChange }: MatrixViewPro
                 <div className="text-[10px] text-text-muted truncate">{u.team}</div>
               </td>
               {dates.map((d) => {
-                const r = byUserDate.get(`${u.email}|${d}`)
-                if (!r) {
-                  return (
-                    <td key={d} className={cn('border-b border-r border-border px-1 py-1 text-center text-text-disabled bg-surface-muted/30', COL_W)}>
-                      <span className="text-[11px]">-</span>
-                    </td>
-                  )
+                // v1.74 — 모든 셀에 드롭다운. work_log 없는 셀(가상)은 시각적 차별만.
+                const cell: MatrixCell = byUserDate.get(`${u.email}|${d}`) ?? {
+                  work_log_id: null,
+                  review_status: null,
+                  hasWorkLog: false,
                 }
-                const busy = busyRowId === r.work_log_id
+                const busyKey = cell.work_log_id ?? `virtual:${u.email}|${d}`
+                const busy = busyRowId === busyKey
+                const isVirtual = !cell.hasWorkLog
                 return (
                   <td
                     key={d}
                     className={cn(
                       'border-b border-r border-border px-1 py-1 text-center align-middle',
                       COL_W,
-                      cellBgClass(r.review_status),
+                      cellBgClass(cell.review_status),
+                      // 보고 없는 셀: 옅은 회색 + 점선 border로 구분
+                      isVirtual && cell.review_status === null && 'bg-surface-muted/40',
                     )}
+                    title={isVirtual ? '보고 없음 (가상 review)' : undefined}
                   >
                     <select
-                      value={r.review_status ?? ''}
-                      onChange={(e) => onStatusChange(r.work_log_id, e.target.value as ReviewStatus | '')}
+                      value={cell.review_status ?? ''}
+                      onChange={(e) => onStatusChange({ workLogId: cell.work_log_id, userEmail: u.email, date: d }, e.target.value as ReviewStatus | '')}
                       disabled={busy}
                       className={cn(
-                        'h-6 text-[11px] rounded border px-1 w-full cursor-pointer',
-                        statusBadgeClass(r.review_status),
+                        'h-6 text-[11px] rounded px-1 w-full cursor-pointer',
+                        // 가상 셀은 점선 border, 보고 있는 셀은 실선
+                        isVirtual ? 'border border-dashed' : 'border',
+                        statusBadgeClass(cell.review_status),
                         busy && 'opacity-50 cursor-wait',
                       )}
-                      title={statusLabel(r.review_status)}
+                      title={statusLabel(cell.review_status) + (isVirtual ? ' (보고 없음)' : '')}
                     >
                       <option value="">-</option>
                       <option value="checked">✓</option>
