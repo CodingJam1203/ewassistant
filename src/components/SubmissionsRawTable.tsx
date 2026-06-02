@@ -397,6 +397,8 @@ export default function SubmissionsRawTable({
   const [rows, setRows] = useState<SubmissionRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // v1.74.17 — 본인 미상신/오상신 review (mine=true일 때만 fetch). target_date 기준 매칭.
+  const [myReviewByDate, setMyReviewByDate] = useState<Record<string, { status: 'missing' | 'wrong'; note: string | null }>>({})
 
   const [reportType, setReportType] = useState<'' | 'check_in' | 'check_out'>('')
   const [updatedOnly, setUpdatedOnly] = useState(false)
@@ -487,6 +489,32 @@ export default function SubmissionsRawTable({
 
   useEffect(() => { fetchRows() }, [reportType, updatedOnly, from, to, mine, mode, JSON.stringify(extraQuery)]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => abortRef.current?.abort(), [])
+
+  // v1.74.17 — 본인 미상신/오상신 review fetch (mine=true일 때만, best-effort)
+  useEffect(() => {
+    if (!mine || rows.length === 0) { setMyReviewByDate({}); return }
+    // rows의 target_date 범위로 from/to 계산
+    let minDate = rows[0].target_date
+    let maxDate = rows[0].target_date
+    for (const r of rows) {
+      if (r.target_date < minDate) minDate = r.target_date
+      if (r.target_date > maxDate) maxDate = r.target_date
+    }
+    let cancelled = false
+    fetch(`/api/my/leader-reviews?from=${minDate}&to=${maxDate}`, { credentials: 'same-origin' })
+      .then((r) => r.ok ? r.json() : null)
+      .then((j) => {
+        if (cancelled) return
+        const byDate = j?.byDate ?? {}
+        const out: Record<string, { status: 'missing' | 'wrong'; note: string | null }> = {}
+        for (const [date, entry] of Object.entries(byDate as Record<string, { status: 'missing' | 'wrong'; note: string | null }>)) {
+          out[date] = { status: entry.status, note: entry.note ?? null }
+        }
+        setMyReviewByDate(out)
+      })
+      .catch(() => { if (!cancelled) setMyReviewByDate({}) })
+    return () => { cancelled = true }
+  }, [mine, rows])
 
   const processedRows = useMemo(() => {
     // Stage 0-4d: final mode는 이미 어댑터에서 (user, date) 단일 row로 압축됨.
@@ -659,15 +687,30 @@ export default function SubmissionsRawTable({
                       ? (r.work_location ?? '-')
                       : (r.work_location ?? r.expected_work_location ?? '-'))
 
+                // v1.74.17 — mine 모드에서 본인 리더 review 매칭. missing/wrong이면 row 음영 + 칩.
+                const myReview = mine ? myReviewByDate[r.target_date] : undefined
                 return (
-                  <tr key={`${r.id}__${r.report_type}`} className={TR_HOVER}>
+                  <tr key={`${r.id}__${r.report_type}`} className={cn(TR_HOVER, myReview && 'bg-red-50')}>
                     <Td className="text-center">
                       {isCheckOut ? <CopyButton text={r.copy_text} /> : dash}
                     </Td>
                     <Td>
-                      <Badge variant={reportTypeBadge(r.report_type)} className="!h-5 !px-2 !text-[10px]">
-                        {reportTypeLabel(r.report_type)}
-                      </Badge>
+                      <div className="flex items-center gap-1">
+                        <Badge variant={reportTypeBadge(r.report_type)} className="!h-5 !px-2 !text-[10px]">
+                          {reportTypeLabel(r.report_type)}
+                        </Badge>
+                        {myReview && (
+                          <span
+                            className="inline-flex items-center text-[10px] font-semibold px-1.5 rounded-full leading-[16px] bg-red-600 text-white"
+                            title={
+                              (myReview.status === 'missing' ? '리더 표시: EW미상신' : '리더 표시: EW오상신') +
+                              (myReview.note ? `\n메모: ${myReview.note}` : '')
+                            }
+                          >
+                            {myReview.status === 'missing' ? 'EW미상신' : 'EW오상신'}
+                          </span>
+                        )}
+                      </div>
                     </Td>
                     <Td className="font-medium text-text-primary tabular-nums">
                       {r.target_date}
