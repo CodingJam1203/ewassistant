@@ -763,7 +763,7 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       lines.push(`📢 ${p.name}님, ${koreanDate(p.date)} ${reportLabel} 검토 결과`)
       lines.push('')
       lines.push(`⚠ **${statusLabel}**으로 확인되었습니다.`)
-      lines.push('빠르게 상신 부탁드립니다.')
+      lines.push(p.status === 'missing' ? '빠르게 상신 부탁드립니다.' : '빠르게 수정 부탁드립니다.')
       if (p.note && p.note.trim()) {
         lines.push('')
         lines.push(`메모: ${p.note.trim()}`)
