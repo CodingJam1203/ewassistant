@@ -362,6 +362,35 @@ export default function LeaderReviewsTable({
           to={to}
           busyRowId={busyRowId}
           onStatusChange={handleStatusChange}
+          onNotify={async (args) => {
+            const statusText = args.status === 'missing' ? 'EW미상신' : 'EW오상신'
+            const note = window.prompt(
+              `${args.date} (${dowKo(args.date)}) · ${args.userName} · ${statusText}\n\n알림에 포함할 메모 (선택)`,
+              '',
+            )
+            if (note === null) return
+            try {
+              const res = await fetch('/api/leader-reviews/notify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  target_user_email: args.userEmail,
+                  target_date: args.date,
+                  work_log_id: args.workLogId,
+                  report_kind: 'check_out',
+                  note: note.trim() || null,
+                }),
+              })
+              const j = await res.json().catch(() => ({}))
+              if (!res.ok || !j.ok) {
+                alert('알림 발송 실패: ' + (j?.error ?? res.statusText))
+              } else {
+                alert('알림 발송 완료')
+              }
+            } catch (err) {
+              alert('알림 발송 실패: ' + (err instanceof Error ? err.message : String(err)))
+            }
+          }}
         />
       ) : (
         <div className="overflow-x-auto">
@@ -486,9 +515,11 @@ interface MatrixViewProps {
     args: { workLogId: string | null; userEmail: string; date: string },
     next: ReviewStatus | '',
   ) => Promise<void>
+  /** v1.74.18 — 매트릭스 셀에서 알림 발송 */
+  onNotify: (args: { workLogId: string | null; userEmail: string; userName: string; date: string; status: ReviewStatus }) => Promise<void>
 }
 
-function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId, onStatusChange }: MatrixViewProps) {
+function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId, onStatusChange, onNotify }: MatrixViewProps) {
   // 가로 날짜 컬럼
   const dates = useMemo(() => {
     const out: string[] = []
@@ -607,28 +638,47 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId
                     )}
                     title={isVirtual ? '보고 없음 (가상 review)' : undefined}
                   >
-                    <select
-                      value={cell.review_status ?? ''}
-                      onChange={(e) => onStatusChange({ workLogId: cell.work_log_id, userEmail: u.email, date: d }, e.target.value as ReviewStatus | '')}
-                      disabled={busy}
-                      className={cn(
-                        'h-6 text-[11px] rounded px-1 w-full cursor-pointer',
-                        // 가상 셀은 점선 border, 보고 있는 셀은 실선
-                        isVirtual ? 'border border-dashed' : 'border',
-                        statusBadgeClass(cell.review_status),
-                        busy && 'opacity-50 cursor-wait',
+                    <div className="flex items-center gap-0.5">
+                      <select
+                        value={cell.review_status ?? ''}
+                        onChange={(e) => onStatusChange({ workLogId: cell.work_log_id, userEmail: u.email, date: d }, e.target.value as ReviewStatus | '')}
+                        disabled={busy}
+                        className={cn(
+                          'h-6 text-[11px] rounded px-1 flex-1 min-w-0 cursor-pointer',
+                          isVirtual ? 'border border-dashed' : 'border',
+                          statusBadgeClass(cell.review_status),
+                          busy && 'opacity-50 cursor-wait',
+                        )}
+                        title={statusLabel(cell.review_status) + (isVirtual ? ' (보고 없음)' : '')}
+                      >
+                        <option value="">
+                          {isVirtual ? '❌ Nclick미보고' : '✅ Nclick제출'}
+                        </option>
+                        <option value="checked">✓ 체크</option>
+                        <option value="missing">⚠ EW미상신</option>
+                        <option value="wrong">✗ EW오상신</option>
+                      </select>
+                      {/* v1.74.18 — missing/wrong 셀에 알림 버튼 */}
+                      {(cell.review_status === 'missing' || cell.review_status === 'wrong') && (
+                        <button
+                          onClick={() => onNotify({
+                            workLogId: cell.work_log_id,
+                            userEmail: u.email,
+                            userName: u.name,
+                            date: d,
+                            status: cell.review_status as ReviewStatus,
+                          })}
+                          disabled={busy}
+                          className={cn(
+                            'shrink-0 inline-flex items-center justify-center w-5 h-6 rounded border border-red-300 bg-white text-red-700 hover:bg-red-100 transition-colors',
+                            busy && 'opacity-50 cursor-wait',
+                          )}
+                          title="알림 발송"
+                        >
+                          <Bell className="h-3 w-3" />
+                        </button>
                       )}
-                      title={statusLabel(cell.review_status) + (isVirtual ? ' (보고 없음)' : '')}
-                    >
-                      {/* v1.74.13 — 첫 옵션은 항상 보고 상태(⭕/❌) 표시.
-                          review 있는 셀을 펼쳐 다시 미선택으로 되돌릴 때도 직관적. */}
-                      <option value="">
-                        {isVirtual ? '❌ Nclick미보고' : '✅ Nclick제출'}
-                      </option>
-                      <option value="checked">✓ 체크</option>
-                      <option value="missing">⚠ EW미상신</option>
-                      <option value="wrong">✗ EW오상신</option>
-                    </select>
+                    </div>
                   </td>
                 )
               })}

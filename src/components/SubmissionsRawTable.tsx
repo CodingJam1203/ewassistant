@@ -169,6 +169,25 @@ function reportTypeLabel(t: SubmissionRow['report_type']): string {
   }
 }
 
+/**
+ * v1.74.18 — EW 컬럼 표시. ew_value가 "HH:mm~HH:mm" 형식이면 시간 합으로 변환
+ * (사용자가 출퇴근시간으로 오해하던 문제 해소). L1~L9 / "휴가"는 그대로.
+ */
+function formatEwValue(ewValue: string | null | undefined): string {
+  if (!ewValue) return '-'
+  if (/^L\d/.test(ewValue)) return ewValue
+  if (ewValue === '휴가') return ewValue
+  const m = ewValue.match(/^(\d{1,2}):(\d{2})~(\d{1,2}):(\d{2})$/)
+  if (m) {
+    let mins = (parseInt(m[3]) * 60 + parseInt(m[4])) - (parseInt(m[1]) * 60 + parseInt(m[2]))
+    if (mins < 0) mins += 24 * 60
+    const h = Math.floor(mins / 60)
+    const min = mins % 60
+    return min === 0 ? `${h}시간` : `${h}시간 ${min}분`
+  }
+  return ewValue
+}
+
 function reportTypeBadge(t: SubmissionRow['report_type']): BadgeVariant {
   switch (t) {
     case 'check_in':          return 'success'
@@ -728,7 +747,7 @@ export default function SubmissionsRawTable({
                     <Td>{locVal}</Td>
                     <Td numeric>{isCheckOut ? fmtInterval(r.break_time) : dash}</Td>
                     <Td numeric>{isCheckOut ? fmtInterval(r.actual_work_time) : dash}</Td>
-                    <Td className="font-bold text-primary-600 tabular-nums">{isCheckOut ? (r.ew_value ?? '-') : dash}</Td>
+                    <Td className="font-bold text-primary-600 tabular-nums">{isCheckOut ? formatEwValue(r.ew_value) : dash}</Td>
                     <Td className="max-w-[220px] text-text-secondary relative group/wc">
                       <span className="block truncate">
                         {isCheckOut ? (r.work_content ?? '-') : dash}
