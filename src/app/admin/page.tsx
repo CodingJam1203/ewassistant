@@ -226,7 +226,7 @@ function OrgManager({
     const current = team.use_leader_review ?? false
     const next = !current
     const msg = next
-      ? `"${team.name}" 팀의 리더에게 [제출내역 → 리더 관리] 탭을 노출합니다.\n리더가 팀원 보고에 체크완료/미상신/오상신 피드백을 박을 수 있습니다.`
+      ? `"${team.name}" 팀의 리더에게 [제출내역 → 리더 관리] 탭을 노출합니다.\n리더가 팀원 보고에 체크완료/EW미상신/EW오상신 피드백을 박을 수 있습니다.`
       : `"${team.name}" 팀의 리더 관리 탭을 숨깁니다.\n기존에 박힌 피드백 데이터는 보존됩니다.\n\n계속하시겠습니까?`
     if (!confirm(msg)) return
     setBusy(true)

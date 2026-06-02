@@ -106,8 +106,8 @@ function statusBadgeClass(status: ReviewStatus | null): string {
 function statusLabel(status: ReviewStatus | null): string {
   switch (status) {
     case 'checked': return '✓ 체크완료'
-    case 'missing': return '⚠ 미상신'
-    case 'wrong':   return '✗ 오상신'
+    case 'missing': return '⚠ EW미상신'
+    case 'wrong':   return '✗ EW오상신'
     default:        return '(미선택)'
   }
 }
@@ -447,7 +447,7 @@ export default function LeaderReviewsTable({
       <div className="flex items-center gap-3 text-[11px] text-text-muted">
         <Badge variant="success">체크완료</Badge>
         <span>녹색 음영</span>
-        <Badge variant="danger">미상신 / 오상신</Badge>
+        <Badge variant="danger">EW미상신 / EW오상신</Badge>
         <span>붉은 음영 — 알림 발송 가능</span>
       </div>
     </div>
@@ -618,8 +618,8 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId
                         {cell.review_status === null ? (isVirtual ? '미보고' : '상신') : '-'}
                       </option>
                       <option value="checked">✓ 체크</option>
-                      <option value="missing">⚠ 미상신</option>
-                      <option value="wrong">✗ 오상신</option>
+                      <option value="missing">⚠ EW미상신</option>
+                      <option value="wrong">✗ EW오상신</option>
                     </select>
                   </td>
                 )

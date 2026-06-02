@@ -761,11 +761,11 @@ function DayCell({ data, status, leaderReview, onClick }: { data: DayData; statu
           <span
             className="inline-flex items-center text-[10px] font-semibold px-1.5 rounded-full leading-[16px] shrink-0 bg-red-600 text-white"
             title={
-              (leaderReview.status === 'missing' ? '리더 표시: 미상신' : '리더 표시: 오상신') +
+              (leaderReview.status === 'missing' ? '리더 표시: EW미상신' : '리더 표시: EW오상신') +
               (leaderReview.note ? `\n메모: ${leaderReview.note}` : '')
             }
           >
-            {leaderReview.status === 'missing' ? '미상신' : '오상신'}
+            {leaderReview.status === 'missing' ? 'EW미상신' : 'EW오상신'}
           </span>
         )}
       </div>
