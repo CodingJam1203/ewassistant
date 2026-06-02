@@ -394,8 +394,8 @@ export default function LeaderReviewsTable({
                           busyRowId === r.work_log_id && 'opacity-50 cursor-wait',
                         )}
                       >
-                        {/* v1.74.10 — 매트릭스와 동일 prefill: work_log 있으면 '상신', 없으면 '미보고' */}
-                        <option value="">{r.work_log_id ? '상신' : '미보고'}</option>
+                        {/* v1.74.12 — 이모지로 구분 (상신 ⭕ / 미보고 ❌) */}
+                        <option value="">{r.work_log_id ? '⭕ 상신' : '❌ 미보고'}</option>
                         <option value="checked">{statusLabel('checked')}</option>
                         <option value="missing">{statusLabel('missing')}</option>
                         <option value="wrong">{statusLabel('wrong')}</option>
@@ -615,12 +615,12 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId
                       )}
                       title={statusLabel(cell.review_status) + (isVirtual ? ' (보고 없음)' : '')}
                     >
-                      {/* default 라벨 분기:
-                          - work_log 없음 + review 없음 → '미보고' (보고 자체 X)
-                          - work_log 있음 + review 없음 → '상신' (보고 OK, 리더 미선택)
+                      {/* default 라벨 분기 (v1.74.12 — 이모지로 구분):
+                          - work_log 없음 + review 없음 → '❌ 미보고'
+                          - work_log 있음 + review 없음 → '⭕ 상신'
                           - review 있음 → '-' (드롭다운 펼친 상태 라벨, 실제 표시는 review 텍스트) */}
                       <option value="">
-                        {cell.review_status === null ? (isVirtual ? '미보고' : '상신') : '-'}
+                        {cell.review_status === null ? (isVirtual ? '❌ 미보고' : '⭕ 상신') : '-'}
                       </option>
                       <option value="checked">✓ 체크</option>
                       <option value="missing">⚠ EW미상신</option>
