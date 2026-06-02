@@ -164,11 +164,11 @@ const MemberCard = memo(function MemberCard({
           </p>
         </div>
         <div className="shrink-0 flex items-center gap-1">
-          {card.calendar_leave_type && !card.work_log_id && (
-            <Badge variant={card.calendar_leave_type === 'full_day' ? 'warning' : 'warning'}>
-              {card.calendar_leave_type === 'full_day' ? '휴가'
-                : card.calendar_leave_type === 'morning_half' ? '오전반차'
-                : '오후반차'}
+          {/* v1.71 (2026-06-01) — 종일 휴가는 status_text가 이미 '휴가'라 칩 중복.
+              반차(morning/afternoon_half)는 status_text='미제출'과 의미 분리되니 유지. */}
+          {card.calendar_leave_type && card.calendar_leave_type !== 'full_day' && !card.work_log_id && (
+            <Badge variant="warning">
+              {card.calendar_leave_type === 'morning_half' ? '오전반차' : '오후반차'}
             </Badge>
           )}
           <Badge variant={colorToBadgeVariant(card.color)} dot>
@@ -499,13 +499,12 @@ const MemberListRow = memo(function MemberListRow({
 
   // v1.60 — 8H 종일(full_day)만 'warning' 휴가 badge. 8H 미만(반차)은 'info' 일정 badge로
   // 시각 분리 — EW 차감 없이 표시만 하는 일정 개념임을 톤으로 구분.
+  // v1.71 (2026-06-01) — full_day는 status_text가 이미 '휴가'라 칩 중복 → 반차만 라벨 유지.
   const leaveLabel =
-    card.calendar_leave_type === 'full_day' ? '휴가'
-    : card.calendar_leave_type === 'morning_half' ? '오전반차'
+    card.calendar_leave_type === 'morning_half' ? '오전반차'
     : card.calendar_leave_type === 'afternoon_half' ? '오후반차'
     : null
-  const leaveBadgeVariant: 'warning' | 'info' =
-    card.calendar_leave_type === 'full_day' ? 'warning' : 'info'
+  const leaveBadgeVariant: 'warning' | 'info' = 'info'
 
   return (
     <tr className={cn(TR_HOVER, 'border-l-[3px]', STATUS_BORDER[card.color])}>

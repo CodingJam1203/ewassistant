@@ -26,6 +26,7 @@ export async function PATCH(
     notify_morning_07?: boolean
     notify_reminder_20?: boolean
     notify_reminder_22?: boolean
+    use_leader_review?: boolean
   } = {}
 
   if ('name' in body) {
@@ -43,6 +44,14 @@ export async function PATCH(
       return NextResponse.json({ error: 'use_check_in_complete must be boolean' }, { status: 400 })
     }
     updates.use_check_in_complete = body.use_check_in_complete
+  }
+
+  // v1.73 — 리더 관리 뷰 사용 토글
+  if ('use_leader_review' in body) {
+    if (typeof body.use_leader_review !== 'boolean') {
+      return NextResponse.json({ error: 'use_leader_review must be boolean' }, { status: 400 })
+    }
+    updates.use_leader_review = body.use_leader_review
   }
 
   // Phase A — 시트 source 매핑. null/'' → 매핑 해제, uuid → 매핑 설정.

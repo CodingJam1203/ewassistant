@@ -20,7 +20,7 @@ import { ko } from 'date-fns/locale'
 function dowKo(dateStr: string): string {
   try { return format(parseISO(dateStr), 'eee', { locale: ko }) } catch { return '' }
 }
-import { Pencil, Copy, Check, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
+import { Copy, Check, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 import Pagination from '@/components/Pagination'
 import {
   Badge,
@@ -616,7 +616,6 @@ export default function SubmissionsRawTable({
               <thead>
               <tr>
                 <Th className="text-center">복사</Th>
-                <Th className="text-center">수정</Th>
                 <SortableTh sortKey="report_type"     label="보고유형"  currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
                 <SortableTh sortKey="target_date"     label="대상일"    currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
                 <SortableTh sortKey="submitted_at"    label="제출일시"  currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
@@ -664,18 +663,6 @@ export default function SubmissionsRawTable({
                   <tr key={`${r.id}__${r.report_type}`} className={TR_HOVER}>
                     <Td className="text-center">
                       {isCheckOut ? <CopyButton text={r.copy_text} /> : dash}
-                    </Td>
-                    <Td className="text-center">
-                      {r.work_log_id && onEditWorkLog ? (
-                        <button
-                          onClick={() => onEditWorkLog(r.work_log_id!, isCheckOut ? 'check_out' : 'check_in', r.target_date)}
-                          className="text-text-muted hover:text-primary-600 transition-colors"
-                          title={isCheckOut ? '퇴근보고 수정' : '출근보고 수정'}
-                          aria-label={isCheckOut ? '퇴근보고 수정' : '출근보고 수정'}
-                        >
-                          <Pencil className="h-3.5 w-3.5 inline" aria-hidden />
-                        </button>
-                      ) : dash}
                     </Td>
                     <Td>
                       <Badge variant={reportTypeBadge(r.report_type)} className="!h-5 !px-2 !text-[10px]">

@@ -5,6 +5,7 @@ import { RefreshCw } from 'lucide-react'
 import WorkLogModal from '@/components/WorkLogModal'
 import SubmissionsRawTable from '@/components/SubmissionsRawTable'
 import MissingReportsListView from '@/components/MissingReportsListView'
+import LeaderReviewsTable from '@/components/LeaderReviewsTable'
 import { DIVISION_DIRECT_LABEL, DIVISION_DIRECT_FILTER } from '@/lib/org'
 import {
   Button,
@@ -16,7 +17,7 @@ import {
 import { cn } from '@/lib/utils/cn'
 import type { WorkLog } from '@/types/work-log'
 
-type TabKey = 'final' | 'missing' | 'raw'
+type TabKey = 'final' | 'missing' | 'raw' | 'leader'
 
 /** 이번 달 시작/끝 (KST, YYYY-MM-DD) */
 function thisMonthRange(): { from: string; to: string } {
@@ -194,10 +195,11 @@ export default function HistoryPage() {
       <div className="border-b border-border">
         <nav className="-mb-px flex gap-6" aria-label="탭">
           {[
-            { key: 'final'   as TabKey, label: '일자별 최종 보고' },
-            { key: 'missing' as TabKey, label: '미보고 현황' },
-            { key: 'raw'     as TabKey, label: 'RAW 제출 내역' },
-          ].map(t => (
+            { key: 'final'   as TabKey, label: '일자별 최종 보고', show: true },
+            { key: 'missing' as TabKey, label: '미보고 현황',      show: true },
+            { key: 'raw'     as TabKey, label: 'RAW 제출 내역',    show: true },
+            { key: 'leader'  as TabKey, label: '리더 관리',         show: isLeader },
+          ].filter(t => t.show).map(t => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
@@ -294,6 +296,15 @@ export default function HistoryPage() {
               team={filterTeam}
               refreshKey={refreshTick}
               canSendNotify={isLeader || isAdmin}
+            />
+          )}
+
+          {tab === 'leader' && isLeader && (
+            <LeaderReviewsTable
+              divisionFilter={filterDivision}
+              teamFilter={filterTeam}
+              refreshTick={refreshTick}
+              defaultReportKind="check_out"
             />
           )}
         </>

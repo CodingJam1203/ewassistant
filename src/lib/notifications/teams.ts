@@ -31,6 +31,7 @@ import type {
   AccountPendingNotifyPayload,
   DailyCheckinReminderData,
   MissingReportNudgePayload,
+  LeaderReviewNudgePayload,
   MorningSummaryData,
 } from './types'
 
@@ -51,6 +52,7 @@ const EVENT_ENV_MAP: Record<EventType, string> = {
   daily_checkin_reminder_22:  'ENABLE_DAILY_REMINDER_NOTIFY',
   daily_morning_summary:      'ENABLE_DAILY_REMINDER_NOTIFY',
   missing_report_nudge:       'ENABLE_MISSING_REPORT_NUDGE_NOTIFY',
+  leader_review_nudge:        'ENABLE_MISSING_REPORT_NUDGE_NOTIFY',  // v1.73 — 미보고 알림과 동일 env gate
 }
 
 function toTeamsHtml(text: string): string {
@@ -563,6 +565,67 @@ export async function notifyMorningSummary(payload: MorningSummaryData): Promise
  *
  * 실패 시 호출자에게 상태 전달해야 하므로 동기 await + 결과 반환.
  */
+/**
+ * v1.73 — 리더 관리 뷰 알림 (수동 발송).
+ * 미상신/오상신 보고에 대해 리더가 [📢 알림] 클릭 시 발송.
+ * 라우팅: 대상 보고 종류(check_in→출근보고, check_out→퇴근보고) 채널 reply.
+ * 동기 await + 결과 반환 (호출자 UI 상태 표시).
+ */
+export async function notifyLeaderReview(
+  payload: LeaderReviewNudgePayload,
+): Promise<{ ok: boolean; reason?: string }> {
+  const reportType: ReportType =
+    payload.reportKind === 'check_in' ? '출근보고' : '퇴근보고'
+
+  if (!isEnabled('leader_review_nudge')) {
+    return { ok: false, reason: '알림 기능 비활성 (env)' }
+  }
+  if (!payload.division || !payload.team) {
+    return { ok: false, reason: '대상자 본부/팀 정보 없음' }
+  }
+
+  const normalizedTeam = normalizeTeamName(payload.team)
+  const target = await getTeamsReplyTarget({
+    department: payload.division,
+    teamName: normalizedTeam,
+    reportType,
+  })
+  if (!target) {
+    return { ok: false, reason: `라우팅 대상 없음 (${payload.division} / ${normalizedTeam} / ${reportType})` }
+  }
+
+  try {
+    const messageRaw = buildMessage('leader_review_nudge', payload)
+    const messageHtml = toTeamsHtml(messageRaw)
+    const messageText = toPlainText(messageRaw)
+    const { webhookUrl: routeWebhookUrl, ...targetForPayload } = target
+    await sendToMake(
+      'leader_review_nudge',
+      {
+        ...targetForPayload,
+        messageId: targetForPayload.messageId ?? '',
+        message: messageHtml,
+        messageHtml,
+        messageText,
+        eventType: 'leader_review_nudge',
+      },
+      payload.division,
+      normalizedTeam,
+      routeWebhookUrl ?? null,
+    )
+    return { ok: true }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn('[Teams] leader_review_nudge failed:', msg)
+    await logNotification(
+      'leader_review_nudge', 'FAILURE',
+      payload.division, normalizedTeam, target.channelId,
+      payload, 'send failed: ' + msg,
+    )
+    return { ok: false, reason: '발송 실패: ' + msg }
+  }
+}
+
 export async function notifyMissingReport(
   payload: MissingReportNudgePayload,
 ): Promise<{ ok: boolean; reason?: string }> {
