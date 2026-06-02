@@ -21,6 +21,7 @@ export type EventType =
   | 'daily_checkin_reminder_22'
   | 'daily_morning_summary'
   | 'missing_report_nudge'      // 미보고 현황에서 리더/관리자가 수동 발송하는 알림
+  | 'leader_review_nudge'       // v1.73 — 리더 관리 뷰에서 리더가 미상신/오상신 보고에 대해 수동 발송
 
 // ─── 페이로드 타입 ────────────────────────────────────────────────────────────
 
@@ -296,6 +297,30 @@ export interface MissingReportNudgePayload {
   team: string
   /** 알림을 보낸 사람 표시명 (이메일 노출 금지) */
   senderName: string
+}
+
+/**
+ * v1.73 — 리더 관리 뷰 알림.
+ * 리더가 미상신/오상신으로 박은 보고에 대해 [📢 알림] 버튼으로 수동 발송.
+ * 라우팅: 대상 보고 종류(check_in/check_out)에 따라 출근보고/퇴근보고 채널 reply.
+ */
+export interface LeaderReviewNudgePayload {
+  /** 대상자 표시명 */
+  name: string
+  /** 대상 보고 일자 (YYYY-MM-DD) */
+  date: string
+  /** 보고 종류 — 라우팅 채널 결정 */
+  reportKind: 'check_in' | 'check_out'
+  /** 리더가 박은 상태 — 메시지 표시용 */
+  status: 'missing' | 'wrong'
+  /** 라우팅용 본부 */
+  division: string
+  /** 라우팅용 팀 (본부 직속이면 notify_team 흡수) */
+  team: string
+  /** 리뷰 박은 리더 이름 (이메일 노출 금지) */
+  reviewerName: string
+  /** 리더가 적은 메모 (선택) */
+  note?: string | null
 }
 
 export interface MorningSummaryData {
