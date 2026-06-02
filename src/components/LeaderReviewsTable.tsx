@@ -161,16 +161,16 @@ export default function LeaderReviewsTable({
     return () => { cancelled = true }
   }, [from, to, divisionFilter, teamFilter, refreshTick])
 
-  // v1.74.5 — 리더 관리는 퇴근보고 전용.
-  // 테이블뷰: 퇴근 데이터(actual_end_time 또는 end_time) 있는 row만.
-  // 매트릭스: 사용자×날짜 풀 그리드라 종류 필터 무관 (모든 row 노출).
+  // v1.74.5/.11 — 리더 관리 = 퇴근보고 전용.
+  // 테이블뷰: actual_end_time(실제 퇴근 완료)만 체크. legacy end_time은 사전등록 시에도
+  //   채워지는 컬럼이라 미래 work_log가 섞임 → 제외.
+  // 매트릭스: 사용자×날짜 풀 그리드 — 종류 필터 무관.
   const filteredRows = useMemo(() => {
     if (!data) return []
     const q = nameQuery.trim()
     return data.rows.filter((r) => {
       if (view === 'table') {
-        const hasCheckOut = !!(r.actual_end_time || r.end_time)
-        if (!hasCheckOut) return false
+        if (!r.actual_end_time) return false
       }
       if (q && !(r.display_name ?? '').includes(q)) return false
       return true
@@ -363,7 +363,7 @@ export default function LeaderReviewsTable({
           <Table>
             <thead>
               <tr>
-                <Th className="text-center w-40">리더 피드백</Th>
+                <Th className="text-center w-[160px] min-w-[160px]">리더 피드백</Th>
                 <Th className="text-center w-24">알림</Th>
                 <Th>대상일</Th>
                 <Th>이름</Th>
@@ -389,12 +389,13 @@ export default function LeaderReviewsTable({
                         onChange={(e) => handleStatusChange({ workLogId: r.work_log_id, userEmail: r.user_email, date: r.target_date }, e.target.value as ReviewStatus | '')}
                         disabled={busyRowId === r.work_log_id}
                         className={cn(
-                          'h-7 text-[12px] rounded border px-2 cursor-pointer w-full',
+                          'h-7 text-[12px] rounded border px-2 cursor-pointer w-full min-w-[140px]',
                           statusBadgeClass(r.review_status),
                           busyRowId === r.work_log_id && 'opacity-50 cursor-wait',
                         )}
                       >
-                        <option value="">(미선택)</option>
+                        {/* v1.74.10 — 매트릭스와 동일 prefill: work_log 있으면 '상신', 없으면 '미보고' */}
+                        <option value="">{r.work_log_id ? '상신' : '미보고'}</option>
                         <option value="checked">{statusLabel('checked')}</option>
                         <option value="missing">{statusLabel('missing')}</option>
                         <option value="wrong">{statusLabel('wrong')}</option>
