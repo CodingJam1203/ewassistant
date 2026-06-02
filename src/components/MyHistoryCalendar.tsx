@@ -272,6 +272,8 @@ export default function MyHistoryCalendar({
   const [workLogs, setWorkLogs] = useState<WorkLogRow[]>([])
   const [calendar, setCalendar] = useState<Record<string, UserCalendarLookup>>({})
   const [statusMap, setStatusMap] = useState<Map<string, DayStatus>>(new Map())
+  /** v1.73 Phase 6 — 본인 미상신/오상신 review map (체크완료/미선택은 응답에 없음) */
+  const [leaderReviewByDate, setLeaderReviewByDate] = useState<Record<string, { status: 'missing' | 'wrong'; note: string | null }>>({})
   const [statusSummary, setStatusSummary] = useState<SubmissionStatusResponse['summary'] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -360,6 +362,24 @@ export default function MyHistoryCalendar({
       }
     } catch (err) {
       console.warn('[calendar] submission-status fetch failed (ignored):', err)
+    }
+
+    // 1.7) v1.73 Phase 6 — 본인 leader_reviews (missing/wrong만, best-effort)
+    try {
+      const res = await fetch(
+        `/api/my/leader-reviews?from=${from}&to=${to}`,
+        { credentials: 'same-origin' },
+      )
+      if (res.ok) {
+        const data = await res.json().catch(() => null) as { byDate?: Record<string, { status: 'missing' | 'wrong'; note: string | null }> } | null
+        if (data?.byDate) {
+          setLeaderReviewByDate(data.byDate)
+        } else {
+          setLeaderReviewByDate({})
+        }
+      }
+    } catch (err) {
+      console.warn('[calendar] my/leader-reviews fetch failed (ignored):', err)
     }
 
     // 2) Google 캘린더 일정 (best-effort)
@@ -555,6 +575,7 @@ export default function MyHistoryCalendar({
               key={day.date}
               data={day}
               status={statusMap.get(day.date) ?? null}
+              leaderReview={leaderReviewByDate[day.date] ?? null}
               onClick={() => setSelectedDate(day.date)}
             />
           ))}
@@ -688,7 +709,7 @@ const STATUS_BAR_COLOR: Record<DayStatus, string> = {
   future:           'bg-transparent',
 }
 
-function DayCell({ data, status, onClick }: { data: DayData; status: DayStatus | null; onClick: () => void }) {
+function DayCell({ data, status, leaderReview, onClick }: { data: DayData; status: DayStatus | null; leaderReview: { status: 'missing' | 'wrong'; note: string | null } | null; onClick: () => void }) {
   const items = buildDisplayItems(data)
   const dayNum = getDate(new Date(data.date + 'T00:00:00'))
 
@@ -733,6 +754,18 @@ function DayCell({ data, status, onClick }: { data: DayData; status: DayStatus |
             )}
           >
             {status === 'missing_all' ? '미보고' : '퇴근누락'}
+          </span>
+        )}
+        {/* v1.73 Phase 6 — 리더 미상신/오상신 칩 (체크완료/미선택은 노출 X) */}
+        {data.inMonth && leaderReview && (
+          <span
+            className="inline-flex items-center text-[10px] font-semibold px-1.5 rounded-full leading-[16px] shrink-0 bg-red-600 text-white"
+            title={
+              (leaderReview.status === 'missing' ? '리더 표시: 미상신' : '리더 표시: 오상신') +
+              (leaderReview.note ? `\n메모: ${leaderReview.note}` : '')
+            }
+          >
+            {leaderReview.status === 'missing' ? '미상신' : '오상신'}
           </span>
         )}
       </div>

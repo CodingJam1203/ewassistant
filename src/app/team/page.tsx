@@ -88,12 +88,15 @@ const MemberCard = memo(function MemberCard({
   onAction,
   onOpenCheckIn,
   onCheckOutNeeded,
+  leaderReview,
 }: {
   card: TeamMemberCard
   date: string
   onAction: () => void
   onOpenCheckIn: (card: TeamMemberCard, mode: 'create' | 'edit' | 'complete') => void
   onCheckOutNeeded: (card: TeamMemberCard) => void
+  /** v1.73 Phase 6 — 본인(is_self) 카드에만 전달. missing/wrong일 때만 칩 노출. */
+  leaderReview?: { status: 'missing' | 'wrong'; note: string | null } | null
 }) {
   const [busy, setBusy] = useState(false)
   // v1.65 — 휴게 종료 시 점심 겹침 확인 모달 state
@@ -170,6 +173,18 @@ const MemberCard = memo(function MemberCard({
             <Badge variant="warning">
               {card.calendar_leave_type === 'morning_half' ? '오전반차' : '오후반차'}
             </Badge>
+          )}
+          {/* v1.73 Phase 6 — 본인 카드 리더 미상신/오상신 칩 */}
+          {leaderReview && (
+            <span
+              className="inline-flex items-center text-[10px] font-semibold px-1.5 rounded-full leading-[16px] bg-red-600 text-white"
+              title={
+                (leaderReview.status === 'missing' ? '리더 표시: 미상신' : '리더 표시: 오상신') +
+                (leaderReview.note ? `\n메모: ${leaderReview.note}` : '')
+              }
+            >
+              {leaderReview.status === 'missing' ? '미상신' : '오상신'}
+            </span>
           )}
           <Badge variant={colorToBadgeVariant(card.color)} dot>
             {card.status_text}
@@ -729,6 +744,22 @@ export default function TeamPage() {
   // 사용자가 직접 본부/팀 dropdown을 바꾸면 false로 전환되어 명시 필터 사용.
   const [mineTeamMode, setMineTeamMode] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>(readViewMode)
+  /** v1.73 Phase 6 — 본인의 미상신/오상신 review (현재 선택된 date 한정) */
+  const [selfReview, setSelfReview] = useState<{ status: 'missing' | 'wrong'; note: string | null } | null>(null)
+
+  // date 변경 시 본인 review fetch (best-effort, 비로그인이나 404도 silent)
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/my/leader-reviews?from=${date}&to=${date}`, { credentials: 'same-origin' })
+      .then((r) => r.ok ? r.json() : null)
+      .then((j) => {
+        if (cancelled) return
+        const entry = j?.byDate?.[date] ?? null
+        setSelfReview(entry ? { status: entry.status, note: entry.note ?? null } : null)
+      })
+      .catch(() => { if (!cancelled) setSelfReview(null) })
+    return () => { cancelled = true }
+  }, [date])
 
   // viewMode 변경 시 localStorage 저장
   useEffect(() => {
@@ -1009,6 +1040,7 @@ export default function TeamPage() {
               onAction={fetchCards}
               onOpenCheckIn={handleOpenCheckIn}
               onCheckOutNeeded={setCheckOutTarget}
+              leaderReview={card.is_self ? selfReview : null}
             />
           ))}
         </div>

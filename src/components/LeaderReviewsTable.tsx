@@ -102,6 +102,8 @@ export default function LeaderReviewsTable({
   const [to, setTo] = useState(initial.to)
   const [reportKind, setReportKind] = useState<'all' | 'check_in' | 'check_out'>(defaultReportKind)
   const [nameQuery, setNameQuery] = useState('')
+  /** v1.73 Phase 4 — 테이블 / 매트릭스 view 토글 */
+  const [view, setView] = useState<'table' | 'matrix'>('table')
 
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<ApiResp | null>(null)
@@ -263,8 +265,29 @@ export default function LeaderReviewsTable({
           className="w-32"
         />
 
-        <div className="ml-auto text-[12px] text-text-muted">
-          {filteredRows.length}건 / 총 {data.rows.length}건
+        <div className="ml-auto flex items-center gap-2 text-[12px] text-text-muted">
+          <span>{filteredRows.length}건 / 총 {data.rows.length}건</span>
+          {/* v1.73 Phase 4 — view 토글 */}
+          <div className="ml-2 inline-flex border border-border rounded overflow-hidden">
+            <button
+              onClick={() => setView('table')}
+              className={cn(
+                'px-2 h-7 text-[12px] transition-colors',
+                view === 'table' ? 'bg-primary-600 text-white' : 'bg-white text-text-secondary hover:bg-surface-muted',
+              )}
+            >
+              테이블
+            </button>
+            <button
+              onClick={() => setView('matrix')}
+              className={cn(
+                'px-2 h-7 text-[12px] transition-colors',
+                view === 'matrix' ? 'bg-primary-600 text-white' : 'bg-white text-text-secondary hover:bg-surface-muted',
+              )}
+            >
+              매트릭스
+            </button>
+          </div>
         </div>
       </div>
 
@@ -272,6 +295,14 @@ export default function LeaderReviewsTable({
         <div className="p-6 bg-surface-muted rounded-[10px] text-text-secondary text-sm text-center">
           조회된 보고가 없습니다.
         </div>
+      ) : view === 'matrix' ? (
+        <MatrixView
+          rows={filteredRows}
+          from={from}
+          to={to}
+          busyRowId={busyRowId}
+          onStatusChange={handleStatusChange}
+        />
       ) : (
         <div className="overflow-x-auto">
           <Table>
@@ -368,6 +399,142 @@ export default function LeaderReviewsTable({
         <Badge variant="danger">미상신 / 오상신</Badge>
         <span>붉은 음영 — 알림 발송 가능</span>
       </div>
+    </div>
+  )
+}
+
+// ─── v1.73 Phase 4 — 매트릭스 뷰 ────────────────────────────────────────────────
+
+interface MatrixViewProps {
+  rows: LeaderReviewRow[]
+  from: string
+  to: string
+  busyRowId: string | null
+  onStatusChange: (workLogId: string, next: ReviewStatus | '') => Promise<void>
+}
+
+function MatrixView({ rows, from, to, busyRowId, onStatusChange }: MatrixViewProps) {
+  // 1) 가로 날짜 컬럼
+  const dates = useMemo(() => {
+    const out: string[] = []
+    const start = new Date(from + 'T00:00:00Z')
+    const end = new Date(to + 'T00:00:00Z')
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      out.push(d.toISOString().slice(0, 10))
+    }
+    return out
+  }, [from, to])
+
+  // 2) 사용자별 + 날짜별 row map
+  const { users, byUserDate } = useMemo(() => {
+    const userMap = new Map<string, { email: string; name: string; division: string; team: string }>()
+    const byUd = new Map<string, LeaderReviewRow>()  // key: email|date
+    for (const r of rows) {
+      if (!userMap.has(r.user_email)) {
+        userMap.set(r.user_email, {
+          email: r.user_email,
+          name: r.display_name ?? r.user_email,
+          division: r.division ?? '',
+          team: r.effective_team ?? r.team ?? '',
+        })
+      }
+      byUd.set(`${r.user_email}|${r.target_date}`, r)
+    }
+    return {
+      users: Array.from(userMap.values()).sort((a, b) =>
+        (a.division + a.team).localeCompare(b.division + b.team) || a.name.localeCompare(b.name, 'ko'),
+      ),
+      byUserDate: byUd,
+    }
+  }, [rows])
+
+  const cellBgClass = (status: ReviewStatus | null | undefined): string => {
+    if (status === 'checked') return 'bg-green-50'
+    if (status === 'missing' || status === 'wrong') return 'bg-red-50'
+    return ''
+  }
+
+  const dayLabel = (date: string) => {
+    const d = new Date(date + 'T00:00:00Z')
+    const dow = d.getUTCDay()
+    const md = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`
+    const dowKo = ['일', '월', '화', '수', '목', '금', '토'][dow]
+    return { md, dowKo, isWeekend: dow === 0 || dow === 6 }
+  }
+
+  return (
+    <div className="overflow-x-auto border border-border rounded-[8px]">
+      <table className="min-w-full border-collapse text-[12px]">
+        <thead className="bg-surface-muted">
+          <tr>
+            <th className="sticky left-0 z-10 bg-surface-muted border-b border-r border-border px-2 py-2 text-left font-semibold w-32">
+              구성원 / 날짜
+            </th>
+            {dates.map((d) => {
+              const { md, dowKo, isWeekend } = dayLabel(d)
+              return (
+                <th
+                  key={d}
+                  className={cn(
+                    'border-b border-r border-border px-2 py-1 text-center font-medium whitespace-nowrap w-24',
+                    isWeekend && 'text-red-500',
+                  )}
+                >
+                  <div className="text-[11px]">{md}</div>
+                  <div className="text-[10px] text-text-muted">({dowKo})</div>
+                </th>
+              )
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {users.map((u) => (
+            <tr key={u.email}>
+              <td className="sticky left-0 z-10 bg-white border-b border-r border-border px-2 py-2 text-left w-32 whitespace-nowrap">
+                <div className="font-medium text-text-primary">{u.name}</div>
+                <div className="text-[10px] text-text-muted truncate">{u.team}</div>
+              </td>
+              {dates.map((d) => {
+                const r = byUserDate.get(`${u.email}|${d}`)
+                if (!r) {
+                  return (
+                    <td key={d} className="border-b border-r border-border px-1 py-1 text-center text-text-disabled">
+                      -
+                    </td>
+                  )
+                }
+                const busy = busyRowId === r.work_log_id
+                return (
+                  <td
+                    key={d}
+                    className={cn(
+                      'border-b border-r border-border px-1 py-1 text-center align-middle',
+                      cellBgClass(r.review_status),
+                    )}
+                  >
+                    <select
+                      value={r.review_status ?? ''}
+                      onChange={(e) => onStatusChange(r.work_log_id, e.target.value as ReviewStatus | '')}
+                      disabled={busy}
+                      className={cn(
+                        'h-6 text-[11px] rounded border px-1 w-full cursor-pointer',
+                        statusBadgeClass(r.review_status),
+                        busy && 'opacity-50 cursor-wait',
+                      )}
+                      title={statusLabel(r.review_status)}
+                    >
+                      <option value="">-</option>
+                      <option value="checked">✓</option>
+                      <option value="missing">⚠</option>
+                      <option value="wrong">✗</option>
+                    </select>
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
