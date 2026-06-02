@@ -307,13 +307,17 @@ export default function LeaderReviewsTable({
           <span className="text-text-muted">~</span>
           <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="!h-7 !text-[12px] w-36" />
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-text-secondary whitespace-nowrap">종류</span>
-          <Select value={reportKind} onChange={(e) => setReportKind(e.target.value as 'check_in' | 'check_out')} className="!h-7 !text-[12px] w-32">
-            <option value="check_out">퇴근보고</option>
-            <option value="check_in">출근보고</option>
-          </Select>
-        </div>
+        {/* 매트릭스 view에서는 종류 무의미 (셀이 work_log 단위 단일 review) → hide.
+            매트릭스 알림은 퇴근보고 채널 고정. */}
+        {view === 'table' && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-text-secondary whitespace-nowrap">종류</span>
+            <Select value={reportKind} onChange={(e) => setReportKind(e.target.value as 'check_in' | 'check_out')} className="!h-7 !text-[12px] w-32">
+              <option value="check_out">퇴근보고</option>
+              <option value="check_in">출근보고</option>
+            </Select>
+          </div>
+        )}
         <div className="flex items-center gap-1.5">
           <span className="text-text-secondary whitespace-nowrap">이름</span>
           <Input
