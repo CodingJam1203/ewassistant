@@ -76,16 +76,15 @@ export default function HistoryPage() {
       setOrg(orgData as OrgDivision[])
       if (profile?.division) setFilterDivision(profile.division)
       if (profile?.team) setFilterTeam(profile.team)
-      // v1.74 — leader(admin 제외)가 본인 팀이 use_leader_review=true면 리더 관리 탭을 맨 앞으로
-      // 본인 팀 use_leader_review는 /api/org에 포함된 use_leader_review 필드로 판정.
-      if (profile?.role === 'leader' && profile?.division && profile?.team) {
+      // v1.74 — leader 또는 admin이 본인 팀이 use_leader_review=true면 리더 관리 탭을 맨 앞으로.
+      // (사용자 결정: admin도 본인이 use_leader_review 팀 멤버면 같이 적용.)
+      if ((profile?.role === 'leader' || profile?.role === 'admin') && profile?.division && profile?.team) {
         const teams = (orgData as OrgDivision[] | undefined)
           ?.find((d) => d.name === profile.division)?.teams ?? []
-        type TeamWithFlag = OrgTeam & { use_leader_review?: boolean }
-        const myTeam = teams.find((t) => t.name === profile.team) as TeamWithFlag | undefined
+        const myTeam = teams.find((t) => t.name === profile.team)
         if (myTeam?.use_leader_review) {
           setLeaderTabPrimary(true)
-          setTab('leader')  // 진입 시 자동 선택
+          setTab('leader')
         }
       }
       setProfileReady(true)

@@ -548,8 +548,8 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId
     return { md, dowKo, isWeekend: dow === 0 || dow === 6 }
   }
 
-  // v1.74 — 컬럼/셀 너비를 고정해서 폭 좁아 답답하던 문제 해소.
-  const COL_W = 'w-[88px] min-w-[88px] max-w-[88px]'
+  // v1.74 — 셀 텍스트(미상신/오상신 등) 들어가게 너비 확장.
+  const COL_W = 'w-[110px] min-w-[110px] max-w-[110px]'
   const NAME_COL_W = 'w-[140px] min-w-[140px] max-w-[140px]'
 
   return (
@@ -620,10 +620,11 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId
                       )}
                       title={statusLabel(cell.review_status) + (isVirtual ? ' (보고 없음)' : '')}
                     >
-                      <option value="">-</option>
-                      <option value="checked">✓</option>
-                      <option value="missing">⚠</option>
-                      <option value="wrong">✗</option>
+                      {/* 가상 셀(보고 없음) + review 없는 경우 default 라벨에 "미보고" 표시 */}
+                      <option value="">{isVirtual && cell.review_status === null ? '미보고' : '-'}</option>
+                      <option value="checked">✓ 체크</option>
+                      <option value="missing">⚠ 미상신</option>
+                      <option value="wrong">✗ 오상신</option>
                     </select>
                   </td>
                 )
