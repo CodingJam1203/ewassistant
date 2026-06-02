@@ -21,6 +21,8 @@ interface OrgTeam {
   notify_morning_07?: boolean
   notify_reminder_20?: boolean
   notify_reminder_22?: boolean
+  /** v1.73: 리더 관리 뷰 사용 여부 (default false) */
+  use_leader_review?: boolean
 }
 interface OrgDivision {
   id: string
@@ -219,6 +221,26 @@ function OrgManager({
     setBusy(false)
   }
 
+  /** v1.73: 팀의 use_leader_review 토글 */
+  const toggleTeamLeaderReview = async (team: OrgTeam) => {
+    const current = team.use_leader_review ?? false
+    const next = !current
+    const msg = next
+      ? `"${team.name}" 팀의 리더에게 [제출내역 → 리더 관리] 탭을 노출합니다.\n리더가 팀원 보고에 체크완료/미상신/오상신 피드백을 박을 수 있습니다.`
+      : `"${team.name}" 팀의 리더 관리 탭을 숨깁니다.\n기존에 박힌 피드백 데이터는 보존됩니다.\n\n계속하시겠습니까?`
+    if (!confirm(msg)) return
+    setBusy(true)
+    const res = await fetch(`/api/admin/org/teams/${team.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ use_leader_review: next }),
+    })
+    const data = await res.json()
+    if (!res.ok) { alert(data.error ?? '설정 변경 실패'); setBusy(false); return }
+    await onOrgChange()
+    setBusy(false)
+  }
+
   return (
     <div className="bg-surface border border-border rounded-lg shadow-sm">
       {/* 헤더 (토글) */}
@@ -374,6 +396,24 @@ function OrgManager({
                               </button>
                             )
                           })}
+                          {/* v1.73 — 리더 관리 뷰 사용 토글 */}
+                          <button
+                            onClick={() => toggleTeamLeaderReview(team)}
+                            disabled={busy}
+                            className={
+                              'text-[10px] px-1.5 py-0.5 rounded-full border transition-colors ' +
+                              ((team.use_leader_review ?? false)
+                                ? 'border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100'
+                                : 'border-border bg-surface-muted text-text-muted hover:text-text-primary')
+                            }
+                            title={
+                              (team.use_leader_review ?? false)
+                                ? '리더 관리 뷰 ON (클릭해서 OFF로 변경)'
+                                : '리더 관리 뷰 OFF (클릭해서 ON으로 변경)'
+                            }
+                          >
+                            {(team.use_leader_review ?? false) ? '리더관리 ON' : '리더관리 OFF'}
+                          </button>
                           <button
                             onClick={() => { setEditingTeam(team.id); setEditTeamName(team.name) }}
                             className="opacity-0 group-hover:opacity-100 text-text-disabled hover:text-primary-600 p-0.5 transition-all"
