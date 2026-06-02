@@ -574,8 +574,8 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId
     return { md, dowKo, isWeekend: dow === 0 || dow === 6 }
   }
 
-  // v1.74 — 셀 텍스트(미상신/오상신 등) 들어가게 너비 확장.
-  const COL_W = 'w-[110px] min-w-[110px] max-w-[110px]'
+  // v1.74.20 — 셀 안에 select + 알림버튼 둘 다 들어가면서 텍스트 잘림 → 너비 확장.
+  const COL_W = 'w-[130px] min-w-[130px] max-w-[130px]'
   const NAME_COL_W = 'w-[140px] min-w-[140px] max-w-[140px]'
 
   return (
@@ -633,47 +633,45 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId
                     )}
                     title={isVirtual ? '보고 없음 (가상 review)' : undefined}
                   >
-                    <div className="flex items-center gap-0.5">
-                      <select
-                        value={cell.review_status ?? ''}
-                        onChange={(e) => onStatusChange({ workLogId: cell.work_log_id, userEmail: u.email, date: d }, e.target.value as ReviewStatus | '')}
+                    <select
+                      value={cell.review_status ?? ''}
+                      onChange={(e) => onStatusChange({ workLogId: cell.work_log_id, userEmail: u.email, date: d }, e.target.value as ReviewStatus | '')}
+                      disabled={busy}
+                      className={cn(
+                        'h-6 text-[11px] rounded px-1 w-full cursor-pointer',
+                        isVirtual ? 'border border-dashed' : 'border',
+                        statusBadgeClass(cell.review_status),
+                        busy && 'opacity-50 cursor-wait',
+                      )}
+                      title={statusLabel(cell.review_status) + (isVirtual ? ' (보고 없음)' : '')}
+                    >
+                      <option value="">
+                        {isVirtual ? '❌ Nclick미보고' : '✅ Nclick제출'}
+                      </option>
+                      <option value="checked">✓ 체크</option>
+                      <option value="missing">⚠ EW미상신</option>
+                      <option value="wrong">✗ EW오상신</option>
+                    </select>
+                    {/* v1.74.20 — missing/wrong 셀에 알림 버튼 (select 아래 작게) */}
+                    {(cell.review_status === 'missing' || cell.review_status === 'wrong') && (
+                      <button
+                        onClick={() => onNotify({
+                          workLogId: cell.work_log_id,
+                          userEmail: u.email,
+                          userName: u.name,
+                          date: d,
+                          status: cell.review_status as ReviewStatus,
+                        })}
                         disabled={busy}
                         className={cn(
-                          'h-6 text-[11px] rounded px-1 flex-1 min-w-0 cursor-pointer',
-                          isVirtual ? 'border border-dashed' : 'border',
-                          statusBadgeClass(cell.review_status),
+                          'mt-0.5 inline-flex items-center justify-center gap-1 px-1 h-5 w-full text-[10px] rounded border border-red-300 bg-white text-red-700 hover:bg-red-100 transition-colors',
                           busy && 'opacity-50 cursor-wait',
                         )}
-                        title={statusLabel(cell.review_status) + (isVirtual ? ' (보고 없음)' : '')}
+                        title="알림 발송"
                       >
-                        <option value="">
-                          {isVirtual ? '❌ Nclick미보고' : '✅ Nclick제출'}
-                        </option>
-                        <option value="checked">✓ 체크</option>
-                        <option value="missing">⚠ EW미상신</option>
-                        <option value="wrong">✗ EW오상신</option>
-                      </select>
-                      {/* v1.74.18 — missing/wrong 셀에 알림 버튼 */}
-                      {(cell.review_status === 'missing' || cell.review_status === 'wrong') && (
-                        <button
-                          onClick={() => onNotify({
-                            workLogId: cell.work_log_id,
-                            userEmail: u.email,
-                            userName: u.name,
-                            date: d,
-                            status: cell.review_status as ReviewStatus,
-                          })}
-                          disabled={busy}
-                          className={cn(
-                            'shrink-0 inline-flex items-center justify-center w-5 h-6 rounded border border-red-300 bg-white text-red-700 hover:bg-red-100 transition-colors',
-                            busy && 'opacity-50 cursor-wait',
-                          )}
-                          title="알림 발송"
-                        >
-                          <Bell className="h-3 w-3" />
-                        </button>
-                      )}
-                    </div>
+                        <Bell className="h-2.5 w-2.5" /> 알림
+                      </button>
+                    )}
                   </td>
                 )
               })}
