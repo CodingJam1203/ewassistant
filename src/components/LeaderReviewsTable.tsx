@@ -301,13 +301,13 @@ export default function LeaderReviewsTable({
       {/* v1.74 — 압축 필터바. 데스크탑 1행, 모바일은 자연 wrap. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 bg-surface-muted rounded-[8px] text-[12px]">
         <div className="flex items-center gap-1.5">
-          <span className="text-text-secondary">기간</span>
+          <span className="text-text-secondary whitespace-nowrap">기간</span>
           <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="!h-7 !text-[12px] w-36" />
           <span className="text-text-muted">~</span>
           <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="!h-7 !text-[12px] w-36" />
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-text-secondary">종류</span>
+          <span className="text-text-secondary whitespace-nowrap">종류</span>
           <Select value={reportKind} onChange={(e) => setReportKind(e.target.value as 'all' | 'check_in' | 'check_out')} className="!h-7 !text-[12px] w-28">
             <option value="check_out">퇴근보고</option>
             <option value="check_in">출근보고</option>
@@ -315,7 +315,7 @@ export default function LeaderReviewsTable({
           </Select>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-text-secondary">이름</span>
+          <span className="text-text-secondary whitespace-nowrap">이름</span>
           <Input
             type="text"
             value={nameQuery}
@@ -620,8 +620,13 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId
                       )}
                       title={statusLabel(cell.review_status) + (isVirtual ? ' (보고 없음)' : '')}
                     >
-                      {/* 가상 셀(보고 없음) + review 없는 경우 default 라벨에 "미보고" 표시 */}
-                      <option value="">{isVirtual && cell.review_status === null ? '미보고' : '-'}</option>
+                      {/* default 라벨 분기:
+                          - work_log 없음 + review 없음 → '미보고' (보고 자체 X)
+                          - work_log 있음 + review 없음 → '상신' (보고 OK, 리더 미선택)
+                          - review 있음 → '-' (드롭다운 펼친 상태 라벨, 실제 표시는 review 텍스트) */}
+                      <option value="">
+                        {cell.review_status === null ? (isVirtual ? '미보고' : '상신') : '-'}
+                      </option>
                       <option value="checked">✓ 체크</option>
                       <option value="missing">⚠ 미상신</option>
                       <option value="wrong">✗ 오상신</option>
