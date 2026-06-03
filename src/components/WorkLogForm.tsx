@@ -1631,8 +1631,8 @@ export default function WorkLogForm({
             ariaLabel="출근보고 진행 여부"
             className="sm:w-1/2"
             options={[
-              { value: '출근보고 진행 (주말출근, 휴가 포함)', label: '출근보고 진행 (주말출근, 휴가 포함)' },
-              { value: '스킵(누락퇴근보고, 퇴근보고 수정)', label: '스킵(누락퇴근보고, 퇴근보고 수정)' },
+              { value: '출근보고 진행 (주말출근, 휴가 포함)', label: '출근보고 진행 (주말출근 포함)' },
+              { value: '스킵(누락퇴근보고, 퇴근보고 수정)', label: '스킵 (나중에 진행)' },
             ]}
           />
 
