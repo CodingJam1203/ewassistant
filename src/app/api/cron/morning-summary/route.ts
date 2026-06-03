@@ -243,6 +243,8 @@ export async function GET(request: Request) {
     const completedSection: Array<{ name: string; status: string }> = []
     const needSection: Array<{ name: string }> = []
     const needAfterSection: Array<{ name: string; label: string }> = []
+    // v1.74.22 — 종일 휴가 + 출근보고 동시 등록 케이스. 휴가/완료 양쪽에서 빠지고 별도 섹션에 노출.
+    const conflictSection: Array<{ name: string; leaveLabel: string; checkinStatus: string }> = []
 
     for (const u of group.users) {
       const name = u.display_name || u.email
@@ -280,7 +282,17 @@ export async function GET(request: Request) {
       const hasCheckin = !!checkinInfo
 
       if (leaveType === 'full_day') {
-        // 종일 휴가 — 휴가 섹션만, 출근보고 필요 안 함
+        // v1.74.22 — 종일 휴가 + 출근보고 동시 등록 시 충돌 섹션에 둘 다 노출.
+        // 휴가 출처(본인 todayLeave / 전일 expected / 캘린더)를 따지지 않고 hasCheckin이
+        // true이면 무조건 충돌로 본다 — "어디서든 휴가가 등록돼 있는데 출근보고도 함께
+        // 들어온 케이스"가 검토 필요 상황이라는 사용자 정책.
+        if (hasCheckin) {
+          const status = (checkinInfo?.expected_work_location || checkinInfo?.expected_work_time)
+            ? formatMorningCheckinStatus(checkinInfo ?? undefined)
+            : '작성됨'
+          conflictSection.push({ name, leaveLabel: leaveLabel || '휴가', checkinStatus: status })
+          continue
+        }
         leaveSection.push({ name, label: leaveLabel || '휴가', leaveType })
         continue
       }
@@ -320,8 +332,17 @@ export async function GET(request: Request) {
         calendarLookup: yesterdayCal,
       })
       // 종일 휴가자 — '🌴 휴가 (라벨)'로 status 대체. 야근 false.
+      // v1.74.22 — 어제 휴가 + 실제 근무 둘 다 있으면 충돌로 '⚠️ 🌴 휴가 + 실제근무' 한 줄에 노출.
       if (judged.leaveType === 'full_day') {
         const label = (judged.leaveLabel ?? '').trim()
+        const hasActual = !!(log?.start_time && log?.end_time)
+        if (hasActual) {
+          return {
+            name:   u.display_name || u.email,
+            status: `⚠️ 🌴 휴가${label ? ` (${label})` : ''} + ${formatMorningWorklogStatus(log)}`,
+            isOvertime: false,
+          }
+        }
         return {
           name:   u.display_name || u.email,
           status: `🌴 휴가${label ? ` (${label})` : ''}`,
@@ -355,6 +376,8 @@ export async function GET(request: Request) {
       completedSection,
       needSection,
       needAfterSection,
+      // v1.74.22 — 휴가+출근보고 동시 안내
+      conflictSection,
       // 어제 퇴근보고 (기존 표시 유지)
       yesterdayWorkLogs,
       // legacy 필드는 빈 배열로 유지 (타입 호환)

@@ -337,6 +337,12 @@ export interface MorningSummaryData {
   needSection?: Array<{ name: string }>
   /** 🕐 오후 출근보고 필요 (오전반차 + 미작성) */
   needAfterSection?: Array<{ name: string; label: string }>
+  /**
+   * v1.74.22 — ⚠️ 휴가+출근보고 동시 안내.
+   * 종일 휴가(본인 입력/전일 예약/캘린더 어디서든)와 오늘 출근보고가 같이 잡힌 사용자.
+   * 별도 섹션으로 노출하고 휴가/완료 양쪽에서 모두 제외해 더블카운트 방지.
+   */
+  conflictSection?: Array<{ name: string; leaveLabel: string; checkinStatus: string }>
 
   /** 어제 퇴근보고 요약 (기존 표시 유지) */
   yesterdayWorkLogs: Array<{

@@ -610,10 +610,19 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       const headerEmoji = isLate ? '🌙' : '🕘'
       const header = `${headerEmoji} ${koreanDate(p.targetDate)} 출근보고 — ${teamLabel}`
 
-      // 1줄 per member: ✅ 이름 장소 start~end / 🌴 이름 휴가 / ⚠️ 이름 미보고
+      // 1줄 per member: ✅ 이름 장소 start~end / 🌴 이름 휴가 / ⚠️ 이름 미보고 / ⚠️ 이름 휴가+출근보고
       // v1.58: 종일 휴가(full_day)는 미보고 대신 휴가로 표시 + 미보고 통계 제외.
       //        반차는 반일 근무라 출근보고 여전히 필요 → 미보고 판정 유지.
+      // v1.74.22: 종일 휴가 + 출근보고 동시 등록 → 충돌 라인 ('⚠️ 🌴 휴가 + 장소 start~end').
       const memberLines = p.members.map(m => {
+        if (m.leaveType === 'full_day' && m.hasReport) {
+          const label = (m.leaveLabel ?? '').trim()
+          const loc = m.scheduledWorkLocation || '미입력'
+          const st  = m.scheduledWorkTime    ? fmtTime(m.scheduledWorkTime)    : ''
+          const et  = m.scheduledWorkEndTime ? fmtTime(m.scheduledWorkEndTime) : ''
+          const range = st && et ? `${st}~${et}` : st ? `${st}~` : ''
+          return `⚠️ ${m.name}  🌴 휴가${label ? ` (${label})` : ''} + ${loc} ${range}`.trimEnd()
+        }
         if (m.leaveType === 'full_day') {
           const label = (m.leaveLabel ?? '').trim()
           return `🌴 ${m.name}  휴가${label ? ` (${label})` : ''}`
@@ -628,13 +637,15 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
         return `⚠️ ${m.name}  미보고`
       })
 
-      // 통계 줄 — 종일 휴가자는 미보고에서 빼고 별도 카운트.
-      const onLeaveMembers = p.members.filter(m => m.leaveType === 'full_day')
-      const workingMembers = p.members.filter(m => m.leaveType !== 'full_day')
-      const reported = workingMembers.filter(m => m.hasReport).length
-      const missing  = workingMembers.length - reported
-      const onLeave  = onLeaveMembers.length
-      const statsLine = `(보고 ${reported} / 미보고 ${missing}${onLeave > 0 ? ` / 휴가 ${onLeave}` : ''} / 총 ${p.members.length}명)`
+      // 통계 줄 — 종일 휴가자는 미보고에서 빼고 별도 카운트. 충돌(휴가+출근보고)도 별도 카운트.
+      const conflictMembers = p.members.filter(m => m.leaveType === 'full_day' && m.hasReport)
+      const onLeaveMembers  = p.members.filter(m => m.leaveType === 'full_day' && !m.hasReport)
+      const workingMembers  = p.members.filter(m => m.leaveType !== 'full_day')
+      const reported  = workingMembers.filter(m => m.hasReport).length
+      const missing   = workingMembers.length - reported
+      const onLeave   = onLeaveMembers.length
+      const conflicts = conflictMembers.length
+      const statsLine = `(보고 ${reported} / 미보고 ${missing}${onLeave > 0 ? ` / 휴가 ${onLeave}` : ''}${conflicts > 0 ? ` / 충돌 ${conflicts}` : ''} / 총 ${p.members.length}명)`
 
       const sections: string[] = [header, '', ...memberLines, '', statsLine]
 
@@ -665,7 +676,7 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       const p = payload as MorningSummaryData
 
       // 신규 섹션이 들어왔으면 새 템플릿, 아니면 기존 호환 템플릿
-      const useNewTemplate = !!(p.leaveSection || p.completedSection || p.needSection || p.needAfterSection)
+      const useNewTemplate = !!(p.leaveSection || p.completedSection || p.needSection || p.needAfterSection || p.conflictSection)
 
       if (!useNewTemplate) {
         // legacy
@@ -685,11 +696,21 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
       const completed = p.completedSection ?? []
       const need = p.needSection ?? []
       const needAfter = p.needAfterSection ?? []
+      const conflicts = p.conflictSection ?? []
 
       if (leaveItems.length > 0) {
         lines.push(`🏖️ 휴가/반차 (${leaveItems.length})`)
         for (const it of leaveItems) {
           lines.push(`- ${it.name}: ${it.label}`)
+        }
+        lines.push('')
+      }
+
+      // v1.74.22 — 휴가+출근보고 동시 등록자: 휴가/완료에서 빠지고 별도 섹션에 둘 다 노출.
+      if (conflicts.length > 0) {
+        lines.push(`⚠️ 휴가+출근보고 동시 안내 (${conflicts.length})`)
+        for (const it of conflicts) {
+          lines.push(`- ${it.name}: 🌴 ${it.leaveLabel} / ✅ ${it.checkinStatus}`)
         }
         lines.push('')
       }
