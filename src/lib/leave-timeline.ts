@@ -44,6 +44,69 @@ export const LEAVE_TIME_OPTIONS: { minutes: number; label: string }[] = (() => {
   return opts
 })()
 
+/**
+ * v1.75 — 시작/끝 시간 선택용 30분 step 옵션.
+ *
+ *   - LEAVE_START_HHMM_OPTIONS: 00:00 ~ 23:30 (48개)
+ *   - LEAVE_END_HHMM_OPTIONS:   00:30 ~ 24:00 (48개) — 24:00은 자정(다음날 X) 표현
+ *
+ * UI dropdown 옵션으로 사용. 24:00 = 1440분 (다음날 00:00 의미가 아니라 그 날의 종료).
+ */
+function buildHhmmOptions(startMin: number, endMin: number): { value: string; label: string }[] {
+  const opts: { value: string; label: string }[] = []
+  for (let m = startMin; m <= endMin; m += 30) {
+    const h  = Math.floor(m / 60)
+    const mm = m % 60
+    const label = `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+    opts.push({ value: label, label })
+  }
+  return opts
+}
+
+export const LEAVE_START_HHMM_OPTIONS = buildHhmmOptions(0, 23 * 60 + 30)
+export const LEAVE_END_HHMM_OPTIONS   = buildHhmmOptions(30, 24 * 60)
+
+/**
+ * v1.75 — 휴가 시작/끝 + 점심포함 여부 → 실 휴가 분 계산.
+ *
+ *   실휴가(분) = (끝 - 시작) - (점심포함이면 60 else 0)
+ *
+ * 점심차감 조건: 시작 ≤ 12:00 AND 끝 ≥ 13:00 (12~13시 구간을 완전히 포함). 호출자가 사전
+ * 검증해서 lunchIncluded=false로 호출하든지, 본 함수가 자체 가드. 본 함수는 자체 가드 —
+ * 12~13시를 포함하지 않으면 lunchIncluded 무시.
+ */
+export function computeLeaveMinutes(
+  startHhmm: string,
+  endHhmm: string,
+  lunchIncluded: boolean,
+): number {
+  const s = toMinutes(startHhmm)
+  const e = toMinutes(endHhmm)
+  if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) return 0
+  const spansLunch = s <= 12 * 60 && e >= 13 * 60
+  const lunchCut   = lunchIncluded && spansLunch ? 60 : 0
+  return Math.max(0, e - s - lunchCut)
+}
+
+/**
+ * v1.75 — 시작 시각 + 실 휴가 분 → leaveType 분류.
+ *
+ *   - 실휴가 ≥ 480 (8H)      → full_day
+ *   - 시작 ≥ 13:00           → afternoon_half
+ *   - else                   → morning_half
+ *
+ * EW 차감(v1.59 정책)은 full_day만 적용. 반차는 표시·캘린더·상태 용도.
+ */
+export function classifyLeaveTypeByRange(
+  startHhmm: string,
+  minutes: number,
+): LeaveType | null {
+  if (minutes <= 0) return null
+  if (minutes >= 480) return 'full_day'
+  const s = toMinutes(startHhmm)
+  return s >= 13 * 60 ? 'afternoon_half' : 'morning_half'
+}
+
 // ─── 휴가: 파싱 / 빌드 ────────────────────────────────────────────────────────
 
 /**
