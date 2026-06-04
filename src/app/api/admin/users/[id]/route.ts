@@ -227,13 +227,52 @@ export async function DELETE(
   const targetEmail = decodeURIComponent(id)
   const adminClient = createAdminClient()
 
-  const { data: target, error: fetchError } = await adminClient
+  // user_profiles 우선 조회
+  const { data: target } = await adminClient
     .from('user_profiles')
     .select('email, id, role')
     .eq('email', targetEmail)
-    .single()
+    .maybeSingle()
 
-  if (fetchError || !target) return NextResponse.json({ error: '계정을 찾을 수 없습니다.' }, { status: 404 })
+  // v1.77 — 미접속(사전등록) 사용자 fallback. PATCH 처럼 user_profiles 없으면
+  // pre_approved_emails 에서 직접 삭제. 종전엔 .single() + 404 로 떨어져
+  // 어드민에서 미접속 row 삭제 자체가 불가능했음.
+  if (!target) {
+    const { data: pre } = await adminClient
+      .from('pre_approved_emails')
+      .select('email, role')
+      .eq('email', targetEmail)
+      .maybeSingle()
+
+    if (!pre) {
+      return NextResponse.json({ error: '계정을 찾을 수 없습니다.' }, { status: 404 })
+    }
+    if (pre.role === 'admin') {
+      return NextResponse.json({ error: '관리자 계정은 삭제할 수 없습니다.' }, { status: 400 })
+    }
+
+    const { error: preDeleteError } = await adminClient
+      .from('pre_approved_emails')
+      .delete()
+      .eq('email', targetEmail)
+    if (preDeleteError) {
+      console.error('Admin DELETE (pre_approved) Error:', preDeleteError)
+      return NextResponse.json({ error: '서버 에러가 발생했습니다.' }, { status: 500 })
+    }
+
+    const preMeta = extractRequestMeta(request)
+    recordAudit({
+      actorId: adminUser.id,
+      actorEmail: adminUser.email ?? null,
+      action: 'admin_user_delete',
+      targetTable: 'pre_approved_emails',
+      targetId: targetEmail,
+      ipAddress: preMeta.ipAddress,
+      userAgent: preMeta.userAgent,
+      details: { mode: 'pre-approved' },
+    })
+    return NextResponse.json({ success: true })
+  }
 
   if (isBootstrapAdmin(target.email) || target.role === 'admin') {
     return NextResponse.json({ error: '관리자 계정은 삭제할 수 없습니다.' }, { status: 400 })
@@ -261,7 +300,7 @@ export async function DELETE(
     return NextResponse.json({ success: true })
   }
 
-  // 사전 등록 계정 (auth.users 없음) — user_profiles만 삭제
+  // user_profiles row 만 있는 경우 (auth.users 없음) — user_profiles 만 삭제
   const { error } = await adminClient.from('user_profiles').delete().eq('email', targetEmail)
   if (error) {
     console.error('Admin DELETE Error:', error)
