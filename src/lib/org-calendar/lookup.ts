@@ -149,6 +149,12 @@ export async function fetchOrgCalendarLookup(args: {
     })
   }
 
+  // v1.75 — 같은 Google 이벤트가 여러 org_calendars row(다른 팀·유형)에 걸쳐 sync 되어
+  // org_calendar_events 가 N row 인 케이스 dedupe. key = email | dateIso | google_event_id.
+  // 같은 (사용자, 일자, Google event) 조합에 두 번째 row 가 오면 events.push skip.
+  // 휴가는 위쪽 `if (lookup.leaveType === null)` 가드로 이미 자연 dedupe 되므로 별도 처리 X.
+  const seenEventByEmailDate = new Map<string, Set<string>>()
+
   for (const r of rows ?? []) {
     const evStartMs = new Date(r.start_at).getTime()
     const evEndMs   = new Date(r.end_at).getTime()
@@ -195,6 +201,17 @@ export async function fetchOrgCalendarLookup(args: {
             lookup.leaveOrgCalendarId = r.org_calendar_id
           }
         } else {
+          // v1.75 — 같은 Google 이벤트가 여러 org_calendars row 에 sync 되어
+          // 한 사용자에게 같은 일자에 두 번 이상 들어오면 첫 번째만 채택.
+          // key = email|dateIso|google_event_id (google_event_id 없으면 dedupe skip — fallback)
+          const evId = r.google_event_id
+          if (evId) {
+            const seenKey = `${email}|${dateIso}`
+            let seen = seenEventByEmailDate.get(seenKey)
+            if (!seen) { seen = new Set(); seenEventByEmailDate.set(seenKey, seen) }
+            if (seen.has(evId)) continue
+            seen.add(evId)
+          }
           const chunk: CalendarEventChunk = {
             startTime: r.is_all_day ? null : toKstTime(r.start_at),
             endTime:   r.is_all_day ? null : toKstTime(r.end_at),
