@@ -70,14 +70,18 @@ export async function GET(request: Request) {
 
         if (preApproved) {
           // 사전등록된 유저: is_active=true로 프로필 생성 + pre_approved_emails 삭제
+          // v1.76 — notify_team / display_order 도 함께 이관 (어드민이 사전등록 단계에서
+          // 설정한 값이 첫 로그인 시점에 그대로 user_profiles 로 전달되도록).
           await adminClient.from('user_profiles').insert({
             id: user.id,
             email: user.email,
             display_name: preApproved.display_name ?? null,
             division: preApproved.division ?? null,
             team: preApproved.team ?? null,
+            notify_team: preApproved.notify_team ?? null,
             role: preApproved.role ?? 'user',
             is_active: true,
+            display_order: preApproved.display_order ?? 999,
             last_login_at: new Date().toISOString(),
           })
           await adminClient.from('pre_approved_emails').delete().eq('email', user.email)

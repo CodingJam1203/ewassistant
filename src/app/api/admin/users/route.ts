@@ -67,7 +67,7 @@ export async function GET() {
     role: p.role,
     is_active: true,
     is_pre_registered: true,
-    display_order: 999,  // pre_approved_emails는 컬럼 없음 → default 999 (가입 후 admin이 설정)
+    display_order: p.display_order ?? 999,  // v1.76: pre_approved_emails 에도 display_order 컬럼 추가됨
     created_at: p.created_at,
     last_login_at: null,
     last_submitted_at: null,

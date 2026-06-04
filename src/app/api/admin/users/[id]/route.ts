@@ -39,7 +39,8 @@ export async function PATCH(
       return NextResponse.json({ error: '계정을 찾을 수 없습니다.' }, { status: 404 })
     }
 
-    // pre_approved_emails는 is_active/display_order 없음 — display_name/division/team/role만 수정
+    // pre_approved_emails는 is_active 없음(가입 전이라 활성 개념 없음).
+    // v1.76: display_order 컬럼이 추가되어 사전등록 단계에서도 표시 순서 설정 가능.
     const preUpdates: Record<string, unknown> = {}
     if (typeof body.display_name === 'string') preUpdates.display_name = body.display_name.trim() || null
     if (typeof body.division === 'string')     preUpdates.division     = body.division.trim() || null
@@ -48,6 +49,7 @@ export async function PATCH(
     if (typeof body.role === 'string' && ['admin', 'leader', 'user'].includes(body.role)) {
       preUpdates.role = body.role
     }
+    if (typeof body.display_order === 'number') preUpdates.display_order = body.display_order
     // 이메일 변경
     if (typeof body.email === 'string' && body.email.trim() !== targetEmail) {
       const newEmail = body.email.toLowerCase().trim()
