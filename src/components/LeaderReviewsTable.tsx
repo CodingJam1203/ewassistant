@@ -61,6 +61,10 @@ interface VirtualReview {
   reviewed_at: string | null
 }
 
+/** v1.75 — 비근무일 사유. 'full_day_leave': 종일 휴가 / 'holiday': 주말·공휴일.
+ *  반차는 무시 (기존 work_log 유무 표시 그대로). */
+type NonWorkDayReason = 'full_day_leave' | 'holiday'
+
 interface ApiResp {
   rows: LeaderReviewRow[]
   /** v1.74 — work_log 없는데 review 박힌 케이스 (매트릭스 가상 셀) */
@@ -68,6 +72,8 @@ interface ApiResp {
   /** v1.74 — 매트릭스 사용자 목록 (보고 없어도 row 표시) */
   reviewableUsers?: ReviewableUser[]
   reviewableTeams: Array<{ division: string; team: string }>
+  /** v1.75 — (email|date) → 비근무일 사유. 매트릭스·테이블뷰 셀 라벨 분기용. */
+  nonWorkDayByUserDate?: Record<string, NonWorkDayReason>
 }
 
 interface Props {
@@ -111,6 +117,22 @@ function statusLabel(status: ReviewStatus | null): string {
     case 'wrong':   return '✗ EW오상신'
     default:        return '(미선택)'
   }
+}
+
+/** v1.75 — 셀의 기본(미선택) 옵션 라벨. 우선순위:
+ *   1) 종일 휴가 → 🌴 휴가
+ *   2) 주말/공휴일 → 📅 휴일
+ *   3) work_log 있음 → ✅ Nclick제출
+ *   4) 그 외 평일 → ❌ Nclick미보고
+ * 반차는 휴가로 보지 않음 — 기존 동작 그대로(3 또는 4).
+ */
+function defaultCellLabel(args: {
+  reason: NonWorkDayReason | undefined
+  hasWorkLog: boolean
+}): string {
+  if (args.reason === 'full_day_leave') return '🌴 휴가'
+  if (args.reason === 'holiday') return '📅 휴일'
+  return args.hasWorkLog ? '✅ Nclick제출' : '❌ Nclick미보고'
 }
 
 export default function LeaderReviewsTable({
@@ -359,6 +381,7 @@ export default function LeaderReviewsTable({
           rows={filteredRows}
           virtualReviews={data.virtualReviews ?? []}
           reviewableUsers={data.reviewableUsers ?? []}
+          nonWorkDayByUserDate={data.nonWorkDayByUserDate ?? {}}
           from={from}
           to={to}
           busyRowId={busyRowId}
@@ -428,8 +451,12 @@ export default function LeaderReviewsTable({
                           busyRowId === r.work_log_id && 'opacity-50 cursor-wait',
                         )}
                       >
-                        {/* v1.74.12 — 이모지로 구분 (상신 ⭕ / 미보고 ❌) */}
-                        <option value="">{r.work_log_id ? '✅ Nclick제출' : '❌ Nclick미보고'}</option>
+                        {/* v1.74.12 — 이모지로 구분 (상신 ⭕ / 미보고 ❌)
+                            v1.75 — 종일 휴가/주말·공휴일은 🌴/📅 라벨로 우선 표시 */}
+                        <option value="">{defaultCellLabel({
+                          reason: data.nonWorkDayByUserDate?.[`${r.user_email}|${r.target_date}`],
+                          hasWorkLog: !!r.work_log_id,
+                        })}</option>
                         <option value="checked">{statusLabel('checked')}</option>
                         <option value="missing">{statusLabel('missing')}</option>
                         <option value="wrong">{statusLabel('wrong')}</option>
@@ -503,6 +530,8 @@ interface MatrixViewProps {
   virtualReviews: VirtualReview[]
   /** v1.74 — 전체 사용자 목록 (보고 없는 사용자도 행 노출) */
   reviewableUsers: ReviewableUser[]
+  /** v1.75 — (email|date) → 비근무일 사유 (full_day 휴가 / 주말·공휴일) */
+  nonWorkDayByUserDate: Record<string, NonWorkDayReason>
   from: string
   to: string
   busyRowId: string | null
@@ -514,7 +543,7 @@ interface MatrixViewProps {
   onNotify: (args: { workLogId: string | null; userEmail: string; userName: string; date: string; status: ReviewStatus }) => Promise<void>
 }
 
-function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId, onStatusChange, onNotify }: MatrixViewProps) {
+function MatrixView({ rows, virtualReviews, reviewableUsers, nonWorkDayByUserDate, from, to, busyRowId, onStatusChange, onNotify }: MatrixViewProps) {
   // 가로 날짜 컬럼
   const dates = useMemo(() => {
     const out: string[] = []
@@ -621,6 +650,12 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId
                 const busyKey = cell.work_log_id ?? `virtual:${u.email}|${d}`
                 const busy = busyRowId === busyKey
                 const isVirtual = !cell.hasWorkLog
+                // v1.75 — 비근무일 사유 (종일 휴가 / 주말·공휴일)
+                const nonWorkReason = nonWorkDayByUserDate[`${u.email}|${d}`]
+                const defaultLabel = defaultCellLabel({
+                  reason: nonWorkReason,
+                  hasWorkLog: cell.hasWorkLog,
+                })
                 return (
                   <td
                     key={d}
@@ -630,8 +665,16 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId
                       cellBgClass(cell.review_status),
                       // 보고 없는 셀: 옅은 회색 + 점선 border로 구분
                       isVirtual && cell.review_status === null && 'bg-surface-muted/40',
+                      // v1.75 — 종일 휴가/주말·공휴일은 옅은 색조 배경으로 노이즈 감소
+                      nonWorkReason === 'full_day_leave' && cell.review_status === null && 'bg-amber-50/60',
+                      nonWorkReason === 'holiday' && cell.review_status === null && 'bg-surface-muted/60',
                     )}
-                    title={isVirtual ? '보고 없음 (가상 review)' : undefined}
+                    title={
+                      nonWorkReason === 'full_day_leave' ? '종일 휴가'
+                      : nonWorkReason === 'holiday' ? '주말/공휴일'
+                      : isVirtual ? '보고 없음 (가상 review)'
+                      : undefined
+                    }
                   >
                     <select
                       value={cell.review_status ?? ''}
@@ -645,9 +688,7 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, from, to, busyRowId
                       )}
                       title={statusLabel(cell.review_status) + (isVirtual ? ' (보고 없음)' : '')}
                     >
-                      <option value="">
-                        {isVirtual ? '❌ Nclick미보고' : '✅ Nclick제출'}
-                      </option>
+                      <option value="">{defaultLabel}</option>
                       <option value="checked">✓ 체크</option>
                       <option value="missing">⚠ EW미상신</option>
                       <option value="wrong">✗ EW오상신</option>

@@ -21,10 +21,29 @@ import { NextResponse } from 'next/server'
 import { requireLeaderOrAdmin } from '@/lib/admin-check'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveRoutingTeam } from '@/lib/org'
+import { fetchOrgCalendarLookup } from '@/lib/org-calendar/lookup'
+import { judgeLeave } from '@/lib/notifications/leave-judge'
+import type { LeaveTimeline } from '@/types/leave-timeline'
+import { isKoreanHoliday, isSaturday, isSunday } from '@/lib/kr-holidays'
 
 export const maxDuration = 30
 
 type ReviewStatus = 'checked' | 'missing' | 'wrong'
+
+/** v1.75 — 매트릭스/테이블뷰가 표시할 비근무 사유 코드.
+ *   'full_day_leave' : 종일 휴가 (8H 이상)
+ *   'holiday'        : 토/일/한국 공휴일
+ *   undefined        : 평일 근무일
+ * 일부시간 휴가(반차)는 기존처럼 work_log 유무로 표시 — 무시.
+ */
+type NonWorkDayReason = 'full_day_leave' | 'holiday'
+
+/** YYYY-MM-DD에 N일 더한 값. */
+function addDays(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
 
 interface UserProfileRow {
   email: string
@@ -130,11 +149,11 @@ export async function GET(request: Request) {
 
   const emails = filteredProfiles.map((p) => p.email)
 
-  // work_logs 조회
+  // work_logs 조회 — v1.75: leave_timeline / expected_leave_timeline도 함께 가져옴 (휴가 판정용)
   const { data: workLogs } = await adminClient
     .from('work_logs')
     .select(
-      'id, user_email, leave_date, planned_start_time, planned_end_time, actual_start_time, actual_end_time, start_time, end_time, work_location, work_content, ew_value',
+      'id, user_email, leave_date, planned_start_time, planned_end_time, actual_start_time, actual_end_time, start_time, end_time, work_location, work_content, ew_value, leave_timeline, expected_leave_timeline',
     )
     .in('user_email', emails)
     .gte('leave_date', from)
@@ -219,7 +238,73 @@ export async function GET(request: Request) {
     })
   }
 
-  return NextResponse.json({ rows, virtualReviews, reviewableUsers, reviewableTeams })
+  // ── v1.75 — 비근무일 사유 매핑 (full_day 휴가 + 주말/공휴일) ──────────────
+  // 1) work_logs.leave_timeline / expected_leave_timeline 기반 일일 휴가 인덱스
+  type LeaveTl = LeaveTimeline | null
+  const todayLeaveByKey = new Map<string, LeaveTl>()        // 'email|date' → leave_timeline
+  const expectedLeaveByKey = new Map<string, LeaveTl>()      // 'email|date' → expected_leave_timeline (전날 사전예약)
+  for (const w of wlRows) {
+    const email = w.user_email as string
+    const date = w.leave_date as string
+    if (!email || !date) continue
+    const tl = (w.leave_timeline as LeaveTl) ?? null
+    const expTl = (w.expected_leave_timeline as LeaveTl) ?? null
+    if (tl) todayLeaveByKey.set(`${email}|${date}`, tl)
+    if (expTl) {
+      // expected_leave_timeline은 다음날 D+1을 위한 사전예약 — D-1의 row에 박힘
+      const nextDate = addDays(date, 1)
+      expectedLeaveByKey.set(`${email}|${nextDate}`, expTl)
+    }
+  }
+
+  // 2) 외부 캘린더(GCal + 시트) 휴가 lookup — 매트릭스 전체 범위
+  const dateRange: string[] = []
+  for (let d = from; d <= to; d = addDays(d, 1)) dateRange.push(d)
+  const calLookup = await fetchOrgCalendarLookup({
+    adminClient,
+    emails,
+    dates: dateRange,
+  }).catch((err) => {
+    console.warn('[leader-reviews] calendar lookup failed:', err)
+    return null
+  })
+
+  // 3) (email, date) → non-work-day reason 매핑.
+  //    - judgeLeave 3단 우선순위 (오늘 leave_timeline → 어제 expected → 캘린더)
+  //    - 결과가 'full_day'면 'full_day_leave'
+  //    - 그 외에도 토/일/한국 공휴일이면 'holiday'
+  //    - 반차(morning_half/afternoon_half)는 무시 (기존 동작)
+  const nonWorkDayByUserDate: Record<string, NonWorkDayReason> = {}
+  for (const p of filteredProfiles) {
+    const email = p.email
+    for (const date of dateRange) {
+      const key = `${email}|${date}`
+      const todayTl = todayLeaveByKey.get(key) ?? null
+      const expTl = expectedLeaveByKey.get(key) ?? null
+      const calDay = calLookup?.byEmail.get(email.toLowerCase())?.[date] ?? null
+      const judged = judgeLeave({
+        todayLeaveTimeline: todayTl,
+        expectedLeaveTimeline: expTl,
+        calendarLookup: calDay,
+      })
+      if (judged.leaveType === 'full_day') {
+        nonWorkDayByUserDate[key] = 'full_day_leave'
+        continue
+      }
+      // 휴가 없으면 주말/공휴일 체크
+      if (isSaturday(date) || isSunday(date) || isKoreanHoliday(date)) {
+        nonWorkDayByUserDate[key] = 'holiday'
+      }
+    }
+  }
+
+  return NextResponse.json({
+    rows,
+    virtualReviews,
+    reviewableUsers,
+    reviewableTeams,
+    nonWorkDayByUserDate,
+  })
 }
 
 // ─── PATCH ─────────────────────────────────────────────────────────────────────
