@@ -55,7 +55,7 @@ export async function GET(request: Request) {
       id, title, description, location,
       start_at, end_at, is_all_day,
       matched_user_emails, inferred_type,
-      rrule, recurring_event_id,
+      rrule, recurring_event_id, google_event_id,
       org_calendar:org_calendars!inner(
         id, label, calendar_type, is_active,
         division_id, team_id,
@@ -102,10 +102,52 @@ export async function GET(request: Request) {
     inferred_type: string | null
     rrule: string | null
     recurring_event_id: string | null
+    google_event_id: string | null
     org_calendar: OrgCalendarShape | OrgCalendarShape[] | null
   }
 
-  const rows = (data ?? []) as unknown as RowShape[]
+  // v1.75 — 같은 Google 이벤트가 여러 org_calendars row 에 sync 되어 N row 가 된 케이스 dedupe.
+  // 매트릭스 뷰 정책상 본부 일정(teamId NULL) 이 본부 행에 노출되므로 본부 row 우선 채택,
+  // 그 외엔 최초 등장 row 채택. matched_user_emails 는 전체 row 합집합으로 보존 — 어느
+  // 캘린더 row 에서 매칭됐든 사용자 매칭 정보가 잃어버려지지 않도록.
+  // key = google_event_id + start_at (recurring occurrence 도 startMs 다르면 다른 일정).
+  const allRows = (data ?? []) as unknown as RowShape[]
+  const dedupeMap = new Map<string, { row: RowShape; mergedEmails: Set<string>; isHqOwned: boolean }>()
+  for (const r of allRows) {
+    const eid = r.google_event_id
+    if (!eid) {
+      // google_event_id 없으면 dedupe 대상에서 제외 (legacy/시트 case 안전망) — 그대로 push.
+      const onceKey = `__no-eid__/${r.id}`
+      dedupeMap.set(onceKey, { row: r, mergedEmails: new Set(r.matched_user_emails ?? []), isHqOwned: false })
+      continue
+    }
+    const cal: OrgCalendarShape | null = Array.isArray(r.org_calendar)
+      ? (r.org_calendar[0] ?? null)
+      : r.org_calendar
+    const isHq = cal?.team_id == null
+    const key = `${eid}|${r.start_at}`
+    const existing = dedupeMap.get(key)
+    if (!existing) {
+      dedupeMap.set(key, {
+        row: r,
+        mergedEmails: new Set(r.matched_user_emails ?? []),
+        isHqOwned: isHq,
+      })
+    } else {
+      // matched_user_emails 합집합으로 누적
+      for (const em of r.matched_user_emails ?? []) existing.mergedEmails.add(em)
+      // 본부(teamId NULL) row 가 들어오면 우선 채택으로 swap
+      if (isHq && !existing.isHqOwned) {
+        existing.row = r
+        existing.isHqOwned = true
+      }
+    }
+  }
+  const rows = Array.from(dedupeMap.values()).map(d => {
+    // matched_user_emails 합집합 적용
+    return { ...d.row, matched_user_emails: Array.from(d.mergedEmails) }
+  })
+
   const events = rows.map(r => {
     // Supabase nested select은 단건 join이라도 배열로 올 수도 — 둘 다 처리
     const cal: OrgCalendarShape | null = Array.isArray(r.org_calendar)
