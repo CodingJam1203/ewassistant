@@ -587,9 +587,12 @@ export default function CalendarMatrixPage() {
   }, [divEvents, selectedTeamId])
 
   // events를 (user_email + date)로 그룹화 + division 단위 이벤트는 division별 그룹
+  // v1.82 — 같은 (email, dateIso) 셀에서 같은 (시간, 제목) 이벤트는 1번만 표시.
+  // GCal + 시트 두 source 가 같은 일정을 보낼 때 중복 칩 차단.
   const userMatrix = useMemo(() => {
     // map[email][dateIso] = events
     const m = new Map<string, Map<string, EventCellEntry[]>>()
+    const seenByCell = new Map<string, Set<string>>()  // 'email|dateIso' → entryKey Set
     for (const u of filteredUsers) {
       m.set(u.email.toLowerCase(), new Map())
     }
@@ -598,9 +601,16 @@ export default function CalendarMatrixPage() {
         const dateIso = toKstIsoDate(day)
         const entry = eventOnDate(ev, dateIso)
         if (!entry) continue
+        const entryKey = `${entry.timeLabel}|${(ev.title ?? '').trim()}`
         for (const em of ev.matchedUserEmails) {
-          const userMap = m.get(em.toLowerCase())
+          const emKey = em.toLowerCase()
+          const userMap = m.get(emKey)
           if (!userMap) continue
+          const cellKey = `${emKey}|${dateIso}`
+          let seen = seenByCell.get(cellKey)
+          if (!seen) { seen = new Set(); seenByCell.set(cellKey, seen) }
+          if (seen.has(entryKey)) continue
+          seen.add(entryKey)
           const cell = userMap.get(dateIso) ?? []
           cell.push(entry)
           userMap.set(dateIso, cell)
@@ -612,8 +622,10 @@ export default function CalendarMatrixPage() {
 
   // 본부 단위 이벤트 (teamId == null인 캘린더의 이벤트) — division별 그룹
   // Phase B.5 — 시트 events이고 화면 사용자에 매칭된 게 있으면 본부 row에서 제외 (사용자 row에 표시되므로 중복 방지)
+  // v1.82 — (divisionId, dateIso) 셀 안에서 같은 (시간, 제목) 이벤트는 1번만.
   const divisionMatrix = useMemo(() => {
     const m = new Map<string, Map<string, EventCellEntry[]>>()
+    const seenByCell = new Map<string, Set<string>>()
     const filteredUserEmails = new Set(filteredUsers.map(u => u.email.toLowerCase()))
     for (const ev of filteredEvents) {
       if (ev.teamId !== null) continue  // 본부 단위만
@@ -626,6 +638,12 @@ export default function CalendarMatrixPage() {
         const dateIso = toKstIsoDate(day)
         const entry = eventOnDate(ev, dateIso)
         if (!entry) continue
+        const entryKey = `${entry.timeLabel}|${(ev.title ?? '').trim()}`
+        const cellKey = `${ev.divisionId}|${dateIso}`
+        let seen = seenByCell.get(cellKey)
+        if (!seen) { seen = new Set(); seenByCell.set(cellKey, seen) }
+        if (seen.has(entryKey)) continue
+        seen.add(entryKey)
         const divMap = m.get(ev.divisionId) ?? new Map()
         const cell = divMap.get(dateIso) ?? []
         cell.push(entry)
@@ -639,8 +657,10 @@ export default function CalendarMatrixPage() {
   // "기타" 행 먼저 정의 — divisionGroups가 이걸 참조
   // 사용자에 매칭 안 된 events. 팀 단위로 1행씩.
   // 본부 단위(team_id null) 일정은 별도 본부 헤더 행에서 처리되므로 여기서는 제외.
+  // v1.82 — (teamId, dateIso) 셀 안에서 같은 (시간, 제목) 이벤트는 1번만.
   const otherTeamMatrix = useMemo(() => {
     const m = new Map<string, { teamName: string | null; divisionId: string; cells: Map<string, EventCellEntry[]> }>()
+    const seenByCell = new Map<string, Set<string>>()
     const filteredUserEmails = new Set(filteredUsers.map(u => u.email.toLowerCase()))
     for (const ev of filteredEvents) {
       if (ev.teamId === null) continue
@@ -650,6 +670,12 @@ export default function CalendarMatrixPage() {
         const dateIso = toKstIsoDate(day)
         const entry = eventOnDate(ev, dateIso)
         if (!entry) continue
+        const entryKey = `${entry.timeLabel}|${(ev.title ?? '').trim()}`
+        const cellKey = `${ev.teamId}|${dateIso}`
+        let seen = seenByCell.get(cellKey)
+        if (!seen) { seen = new Set(); seenByCell.set(cellKey, seen) }
+        if (seen.has(entryKey)) continue
+        seen.add(entryKey)
         const g = m.get(ev.teamId) ?? { teamName: ev.teamName, divisionId: ev.divisionId, cells: new Map<string, EventCellEntry[]>() }
         const cell = g.cells.get(dateIso) ?? []
         cell.push(entry)
