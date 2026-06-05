@@ -15,6 +15,7 @@ import { extractCalendarRawId } from '@/lib/google-calendar/client'
 import { pushEventInsert, pushEventDelete, syncMasterById } from '@/lib/google-calendar/events'
 import { resolveUserAuthz, canWriteToCalendar } from '@/lib/google-calendar/authz'
 import { loadUserLookup, matchUsers, inferEventType } from '@/lib/org-calendar/match-users'
+import { stripBracketPrefix } from '@/lib/org-calendar/lookup'
 import { parseCell } from '@/lib/leave-calendar'
 import { getUserCalendarMode, modeBlocksEventWrite } from '@/lib/org-calendar/calendar-mode'
 import { normalizeName } from '@/lib/org-calendar/name-match'
@@ -155,7 +156,11 @@ export async function GET(request: Request) {
       : r.org_calendar
     return {
       id: r.id,
-      title: r.title ?? '',
+      // v1.80 — title 의 `[이름1, 이름2 ...]` 또는 `[팀 라벨]` prefix 제거.
+      // lookup.ts(마이페이지 캘린더)에선 이미 stripBracketPrefix 적용 중이었는데
+      // 매트릭스 뷰 데이터 경로(/api/calendar/events)에만 누락되어 매트릭스에만
+      // prefix 가 그대로 노출되던 정합성 차이 해소.
+      title: stripBracketPrefix(r.title ?? ''),
       description: r.description,
       location: r.location,
       startAt: r.start_at,
