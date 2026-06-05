@@ -273,9 +273,12 @@ export async function PATCH(
     const effActual = actualWorkLocationsPatch !== undefined
       ? actualWorkLocationsPatch
       : normalizeWorkLocations(log.actual_work_locations)
-    const effPlanned = plannedWorkLocationsPatch !== undefined
-      ? plannedWorkLocationsPatch
-      : normalizeWorkLocations(log.planned_work_locations)
+    // v1.78 — D-day 본문 location 결정 시 plannedWorkLocationsPatch(=D+1 사전등록의
+    // 다음날 plan)는 무시하고 기존 row의 보존된 planned 만 사용. patch 가 들어와도
+    // displayLocs 에는 영향 X. _editScope='check_in' 모드는 본문 안 건드리고,
+    // 'check_out' 모드는 plannedWorkLocations 변경 시도 자체가 라인 가드로 차단,
+    // undefined 모드에서 D+1 콤보 시 D-day 본문 오염되던 버그 차단.
+    const effPlanned = normalizeWorkLocations(log.planned_work_locations)
     const displayLocs: WorkLocations | null =
       effActual
       ?? effPlanned

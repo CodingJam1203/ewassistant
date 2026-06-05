@@ -170,9 +170,15 @@ export async function POST(request: Request) {
       ? '18:00'
       : (body.endTime ?? workTimelineEnd?.startTime ?? '18:00')
 
+    // v1.78 — D-day 본문 location 결정 시 plannedWorkLocations 변수 제외.
+    // 라인 113에서 attendanceRecordType==='출근보고 진행' 일 때만 set되며 그 값은 D+1
+    // 사전등록의 다음날 출근 plan(예: 재택)이라 D-day 본문과 무관. 종전엔 fallback chain
+    // 두번째에 들어가 actualWorkLocations이 null일 때 D-day의 work_location/copy_text 가
+    // D+1 값으로 오염되던 버그가 있었음(김용빈 6/4 사례 외 다수).
+    // INSERT 시 planned_work_locations 컬럼 자체에는 라인 386에서 별도로 plannedWorkLocations
+    // 박으므로 DB 무결성은 그대로.
     const displayLocs: WorkLocations | null =
       actualWorkLocations
-      ?? plannedWorkLocations
       ?? legacyTimelineToLocations(workLocationTimeline)
       ?? legacySingleToLocations(body.workLocation ?? null)
 
