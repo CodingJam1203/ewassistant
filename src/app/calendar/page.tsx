@@ -200,24 +200,52 @@ function AgendaView({
         if (entry) dayEntries.push({ ev, entry })
       }
 
-      const divEntries = dayEntries.filter(x => x.ev.teamId === null)
+      // v1.81 — dedupe 키 빌더. 같은 화면 영역(본부/사용자/기타) 안에서 같은
+      // (시간, 제목) 조합은 한 번만 노출. 시트 ↔ GCal 두 source 가 같은 일정 / 같은 사용자
+      // 매칭으로 동시 들어와 같은 칩이 2개 보이는 케이스 차단 (이성훈 휴가가 GCal+시트
+      // 양쪽에 박혀 사용자 행에 2개 노출되던 사례). title 은 v1.80 stripBracketPrefix
+      // 적용 이후라 trim 만으로 충분.
+      const entryKey = (x: { ev: ApiEvent; entry: EventCellEntry }): string =>
+        `${x.entry.timeLabel}|${(x.ev.title ?? '').trim()}`
+
+      const divSeen = new Set<string>()
+      const divEntries: Array<{ ev: ApiEvent; entry: EventCellEntry }> = []
+      for (const x of dayEntries) {
+        if (x.ev.teamId !== null) continue
+        const k = entryKey(x)
+        if (divSeen.has(k)) continue
+        divSeen.add(k)
+        divEntries.push(x)
+      }
 
       const userMap = new Map<string, EventCellEntry[]>()
+      const userSeenByEmail = new Map<string, Set<string>>()
       for (const x of dayEntries) {
         if (x.ev.teamId === null) continue
         for (const em of x.ev.matchedUserEmails) {
           const k = em.toLowerCase()
           if (!userEmailSet.has(k)) continue
+          let seen = userSeenByEmail.get(k)
+          if (!seen) { seen = new Set(); userSeenByEmail.set(k, seen) }
+          const dedupKey = entryKey(x)
+          if (seen.has(dedupKey)) continue
+          seen.add(dedupKey)
           const list = userMap.get(k) ?? []
           list.push(x.entry)
           userMap.set(k, list)
         }
       }
 
-      const otherEntries = dayEntries.filter(x =>
-        x.ev.teamId !== null &&
-        !x.ev.matchedUserEmails.some(em => userEmailSet.has(em.toLowerCase())),
-      )
+      const otherSeen = new Set<string>()
+      const otherEntries: Array<{ ev: ApiEvent; entry: EventCellEntry }> = []
+      for (const x of dayEntries) {
+        if (x.ev.teamId === null) continue
+        if (x.ev.matchedUserEmails.some(em => userEmailSet.has(em.toLowerCase()))) continue
+        const k = entryKey(x)
+        if (otherSeen.has(k)) continue
+        otherSeen.add(k)
+        otherEntries.push(x)
+      }
 
       // userMap key를 매트릭스 정렬 정책으로 정렬
       const sortedUserEmails = Array.from(userMap.keys())
