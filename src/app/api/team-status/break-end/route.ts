@@ -34,6 +34,18 @@ export async function POST(request: Request) {
         : lunchOverlapChoiceRaw === LUNCH_OVERLAP_CHOICE.EXTRA
           ? 'extra'
           : null
+    // v1.79 — 클라가 모달에서 조정한 휴게 시작/종료 시각을 ISO로 보내면 그 값을 사용.
+    // 미전송 시 종전 동작 — break_started_at은 existing 그대로, break_ended_at은 NOW.
+    // 형식 검증: ISO 형식이 아니면 fallback.
+    const isoRe = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/
+    const overrideStartedAt: string | null =
+      typeof body.breakStartedAt === 'string' && isoRe.test(body.breakStartedAt)
+        ? body.breakStartedAt
+        : null
+    const overrideEndedAt: string | null =
+      typeof body.breakEndedAt === 'string' && isoRe.test(body.breakEndedAt)
+        ? body.breakEndedAt
+        : null
     const now = new Date().toISOString()
     const adminClient = createAdminClient()
 
@@ -56,14 +68,23 @@ export async function POST(request: Request) {
 
     const newStatus = (existing.checked_in_at && !existing.checked_out_at) ? 'working' : 'reported'
 
+    // v1.79 — 클라가 시각 조정값을 보냈으면 그 값으로 박음.
+    const finalBreakStartedAt: string = overrideStartedAt ?? (existing.break_started_at as string | null) ?? now
+    const finalBreakEndedAt: string = overrideEndedAt ?? now
+
+    const updatePayload: Record<string, unknown> = {
+      status:         newStatus,
+      is_on_break:    false,
+      break_ended_at: finalBreakEndedAt,
+      updated_at:     now,
+    }
+    if (overrideStartedAt) {
+      updatePayload.break_started_at = overrideStartedAt
+    }
+
     const { data: daily, error } = await adminClient
       .from('daily_work_status')
-      .update({
-        status:         newStatus,
-        is_on_break:    false,
-        break_ended_at: now,
-        updated_at:     now,
-      })
+      .update(updatePayload)
       .eq('work_date', date)
       .eq('user_email', user.email!)
       .select()
@@ -74,15 +95,15 @@ export async function POST(request: Request) {
     // ─── 휴게 자동값 누적 (break_auto_actual_minutes / break_auto_rounded_minutes) ─
     let breakSessionMinutes = 0
     let lunchOverlapMinutes = 0
-    if (existing.break_started_at) {
+    {
+      // v1.79 — overlap/세션 분 계산도 조정된 시각 기준으로 (서버에서 재계산해 신뢰).
       breakSessionMinutes = calculateBreakAutoMinutesFromIso(
-        existing.break_started_at as string,
-        now
+        finalBreakStartedAt,
+        finalBreakEndedAt
       )
-      // v1.65 — 12:00~13:00 KST 겹침 분 서버 재계산 (클라 신뢰 X)
       lunchOverlapMinutes = calculateLunchOverlapMinutes(
-        existing.break_started_at as string,
-        now
+        finalBreakStartedAt,
+        finalBreakEndedAt
       )
     }
 
@@ -155,12 +176,13 @@ export async function POST(request: Request) {
     await notifyBreakEnded({
       name: profile?.display_name || user.email!,
       date,
-      breakAt: now,
+      // v1.79 — 알림에 박는 시각도 조정된 값 기준
+      breakAt: finalBreakEndedAt,
       workLocation: existing.current_location ?? '',
       division: profile?.division ?? null,
       // 본부 직속(team 없음) → admin 지정 notify_team으로 라우팅
       team: resolveRoutingTeam(profile?.team, profile?.notify_team) || null,
-      breakStartedAt: (existing.break_started_at as string | null) ?? null,
+      breakStartedAt: finalBreakStartedAt,
       actualMinutes: breakSessionMinutes,
       roundedMinutes: breakSessionMinutes > 0 ? ceilTo30Min(breakSessionMinutes) : 0,
       memo: memoForNotify,
