@@ -21,6 +21,7 @@ import { X, Loader2, Trash2 } from 'lucide-react'
 import CustomDropdown from '@/components/ui/CustomDropdown'
 import TimeSelect from '@/components/TimeSelect'
 import MultiTagPicker, { buildSuffixCount, userShortLabel, type PickerToken, type PickerUser, type PickerTag } from './MultiTagPicker'
+import { extractFirstName } from '@/lib/users/first-name'
 
 export type CalendarType = 'meeting' | 'vacation' | 'birthday' | 'other'
 
@@ -465,13 +466,18 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved, re
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const json = await res.json() as PickerData
         setData(json)
-        // 초기 본인 토큰: 생성 모드에서 tokens 비어있으면 본인 default (suffix unique 시 짧은 label).
+        // 초기 본인 토큰: 생성 모드에서 tokens 비어있으면 본인 default.
+        // v1.83 — 본인 라벨은 extractFirstName(성 trim) 우선 적용.
+        //         실패 시 userShortLabel fallback(suffix unique 검사).
+        //         사유: 본인 일정은 동명이인 충돌 무관하게 짧은 first-name이 자연스러움.
         if (isCreate && tokens.length === 0 && json.myProfile.email && json.myProfile.displayName) {
           const sfxCount = buildSuffixCount(json.users)
+          const firstName = extractFirstName(json.myProfile.displayName)
+          const label = firstName || userShortLabel(json.myProfile.displayName, json.myProfile.email, sfxCount)
           setTokens([{
             kind: 'user',
             key: `user:${json.myProfile.email.toLowerCase()}`,
-            label: userShortLabel(json.myProfile.displayName, json.myProfile.email, sfxCount),
+            label,
             email: json.myProfile.email,
           }])
         }
