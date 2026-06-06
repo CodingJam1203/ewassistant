@@ -14,7 +14,7 @@
  *
  * vacation-sync — 기존 row의 leave_timeline에 calendar source 항목이 있었다면 같이 events.delete 시도.
  */
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireActiveUser } from '@/lib/admin-check'
 import { recordAudit, extractRequestMeta } from '@/lib/audit-log'
@@ -154,9 +154,10 @@ export async function POST(request: Request) {
   }
 
   // v1.83.10 — 응답 latency 최적화. vacation-sync (Google events.delete) + audit를
-  //   fire-and-forget으로 분리. UI 즉시 갱신 — Google 이벤트 삭제는 백그라운드.
-  //   dismissed_google_event_ids에 이미 박혀있어서 다음 lookup 시점부터 N-Click 표시에서
-  //   숨겨지므로 Google delete가 약간 늦어도 사용자 경험상 무영향.
+  //   백그라운드로 분리. UI 즉시 갱신 — Google 이벤트 삭제는 응답 후 실행.
+  //   v1.83.11 — Next.js after() API로 강화. Vercel serverless에서 응답 후 백그라운드 작업
+  //   100% 실행 보장 (이전 void IIFE 패턴은 컨테이너 종료 시 중단 위험 있었음).
+  //   dismissed_google_event_ids에 이미 박혀있어서 N-Click 표시는 즉시 차단됨.
   const shouldGcalDelete = leaveSource === 'gcal' && leaveEventId
   const effectivePrev: LeaveTimeline = shouldGcalDelete
     ? [
@@ -175,11 +176,12 @@ export async function POST(request: Request) {
       ]
     : prevLeaveTimeline
 
-  // 응답 즉시 — Google sync + audit는 백그라운드.
-  const response = NextResponse.json({ ok: true, workLogId })
+  // audit meta는 response 반환 전에 추출 (request 객체 참조).
+  const auditMeta = extractRequestMeta(request)
 
+  // Google sync — after()로 응답 후 백그라운드 보장 (Vercel)
   if (effectivePrev.length > 0) {
-    void (async () => {
+    after(async () => {
       try {
         const result = await syncLeaveTimelineWithGoogle({
           adminClient,
@@ -198,13 +200,12 @@ export async function POST(request: Request) {
       } catch (err) {
         console.warn('[dismiss-calendar-prefill] vacation-sync failed (non-fatal):', err)
       }
-    })()
+    })
   }
 
-  // audit (fire-and-forget)
-  void (async () => {
+  // audit — after()로 응답 후 백그라운드 보장
+  after(async () => {
     try {
-      const meta = extractRequestMeta(request)
       await recordAudit({
         action: 'work_log_dismiss_calendar_prefill',
         actorId: user.id,
@@ -217,11 +218,11 @@ export async function POST(request: Request) {
           prev: prevLeaveTimeline,
           next: nextLeaveTimeline,
         },
-        ipAddress: meta.ipAddress,
-        userAgent: meta.userAgent,
+        ipAddress: auditMeta.ipAddress,
+        userAgent: auditMeta.userAgent,
       })
     } catch { /* silent */ }
-  })()
+  })
 
-  return response
+  return NextResponse.json({ ok: true, workLogId })
 }
