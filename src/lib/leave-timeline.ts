@@ -147,23 +147,30 @@ export function parseLeaveLabel(raw: string | null | undefined): LeaveType | nul
  * - displayLabel은 사용자 입력값 보존용 (예: '연차'). 미지정 시 기본 라벨.
  * - deductionMinutes 미지정 시 LEAVE_TYPE_DEFINITIONS의 default 사용.
  *   사용자가 UI에서 차감시간을 조정한 경우 호출자가 직접 값을 넘김.
+ *
+ * v1.83 — startTime/endTime 사용자 입력 인자 추가. 누락 시 LEAVE_TYPE_DEFINITIONS fallback
+ * (= 기존 row prefill 케이스 09:00~18:00 등 자연스럽게 동작). HH:mm 정규식 미통과면 같은 fallback.
  */
 export function buildLeaveItem(
   leaveType: LeaveType,
   displayLabel?: string,
   source: LeaveTimelineItem['source'] = 'manual',
   deductionMinutes?: number,
+  startTime?: string,
+  endTime?: string,
 ): LeaveTimelineItem {
   const def = LEAVE_TYPE_DEFINITIONS[leaveType]
   const minutes = (typeof deductionMinutes === 'number' && deductionMinutes >= 0)
     ? deductionMinutes
     : def.defaultDeductionMinutes
+  const start = startTime && LEAVE_HHMM_REGEX.test(startTime) ? startTime : def.startTime
+  const end   = endTime   && LEAVE_HHMM_REGEX.test(endTime)   ? endTime   : def.endTime
   return {
     kind: 'leave',
     leaveType,
     label: displayLabel?.trim() || LEAVE_TYPE_LABELS[leaveType],
-    startTime: def.startTime,
-    endTime: def.endTime,
+    startTime: start,
+    endTime: end,
     actualMinutes: minutes,    // 사용자가 조정 가능한 차감 시간
     roundedMinutes: minutes,
     source,
@@ -177,7 +184,11 @@ export interface LeaveValidationError {
   index?: number
 }
 
-const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
+/**
+ * v1.83 — 휴가 시각 검증 정규식. 일반 HH:mm + 자정 종료 표현 '24:00' 허용.
+ * UI 종료 dropdown에 24:00이 마지막 옵션으로 들어가서 사용자가 선택 가능.
+ */
+const LEAVE_HHMM_REGEX = /^(?:(?:[01]\d|2[0-3]):[0-5]\d|24:00)$/
 
 export function validateLeaveTimeline(timeline: LeaveTimeline): LeaveValidationError[] {
   const errors: LeaveValidationError[] = []
@@ -202,8 +213,13 @@ export function validateLeaveTimeline(timeline: LeaveTimeline): LeaveValidationE
   }
 
   timeline.forEach((it, i) => {
-    if (!TIME_REGEX.test(it.startTime) || !TIME_REGEX.test(it.endTime)) {
+    const startOk = LEAVE_HHMM_REGEX.test(it.startTime)
+    const endOk   = LEAVE_HHMM_REGEX.test(it.endTime)
+    if (!startOk || !endOk) {
       errors.push({ message: '휴가 시간 형식이 올바르지 않습니다.', index: i })
+    } else if (toMinutes(it.endTime) <= toMinutes(it.startTime)) {
+      // v1.83 — 자정 넘김 불가. 끝 > 시작 강제.
+      errors.push({ message: '휴가 종료 시간이 시작보다 늦어야 합니다.', index: i })
     }
     if (typeof it.roundedMinutes !== 'number' || it.roundedMinutes < 0) {
       errors.push({ message: '휴가 분 계산값이 올바르지 않습니다.', index: i })
