@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import { kstHHmmToIso } from '@/lib/utils/kst-datetime'
@@ -751,8 +751,8 @@ export async function PATCH(
         // 본부 직속(team 없음)이면 작성자의 notify_team으로 라우팅 치환 (work_log row의 team은 NULL 유지)
         const updateRoutingTeam = await resolveRoutingTeamForLog(adminClient, log)
 
-        // 2026-05-19 v1.21: await — fire-and-forget 시 Vercel function 종료로 promise 끊김.
-        await notifyWorkLogUpdatedSplit({
+        // v1.83.12 — after()로 응답 후 백그라운드 실행 보장.
+        const updatePayload = {
           name: body.name ?? log.name ?? '',
           leaveDate: body.leaveDate ?? log.leave_date ?? '',
           division: log.division ?? null,
@@ -761,7 +761,8 @@ export async function PATCH(
           originalReportType,
           scheduledWorkDate,
           changedFields,
-        })
+        }
+        after(() => notifyWorkLogUpdatedSplit(updatePayload))
       }
 
       const checkInChanges  = changedFields.filter(f => f.kind === 'check_in')
@@ -769,13 +770,13 @@ export async function PATCH(
       const submittedNow2 = new Date().toISOString()
 
       if (checkInChanges.length > 0) {
-        await recordSubmission({
+        const checkInPayload = {
           user_id: log.user_id ?? null,
           user_email: log.user_email ?? user.email ?? '',
           name: body.name ?? log.name ?? null,
           division: log.division ?? null,
           team: log.team ?? null,
-          report_type: 'check_in_update',
+          report_type: 'check_in_update' as const,
           target_date: body.expectedStartDate ?? log.expected_start_date ?? log.leave_date,
           submitted_at: submittedNow2,
           work_log_id: id,
@@ -790,17 +791,18 @@ export async function PATCH(
           changed_fields: checkInChanges,
           work_type_label: body.workTypeLabel ?? log.work_type_label,
           attendance_record_type: body.attendanceRecordType ?? log.attendance_record_type,
-        })
+        }
+        after(() => recordSubmission(checkInPayload))
       }
 
       if (checkOutChanges.length > 0) {
-        await recordSubmission({
+        const checkOutPayload = {
           user_id: log.user_id ?? null,
           user_email: log.user_email ?? user.email ?? '',
           name: body.name ?? log.name ?? null,
           division: log.division ?? null,
           team: log.team ?? null,
-          report_type: 'check_out_update',
+          report_type: 'check_out_update' as const,
           target_date: body.leaveDate ?? log.leave_date,
           submitted_at: submittedNow2,
           work_log_id: id,
@@ -833,7 +835,8 @@ export async function PATCH(
           work_type_label: body.workTypeLabel ?? log.work_type_label,
           work_type_code: calcResult.workTypeCode,
           attendance_record_type: body.attendanceRecordType ?? log.attendance_record_type,
-        })
+        }
+        after(() => recordSubmission(checkOutPayload))
       }
 
       const auditMeta = extractRequestMeta(request)
@@ -1106,7 +1109,10 @@ export async function DELETE(
     // ─── Teams 알림 (함정 — scope-aware 메시지) ─────────────────────────────────
     // partial delete는 scope에 맞춰 라우팅(출근보고/퇴근보고 채널 분기).
     // 양쪽 다 비어 row 전체 delete된 경우엔 scope=undefined로 발송 → 기존 메시지.
-    await notifyWorkLogDeleted({
+    // v1.83.12 — after()로 응답 후 백그라운드 실행 보장.
+    //   resolveRoutingTeamForLog는 비동기 query → 응답 전에 채워둔다.
+    const teamRouted = (await resolveRoutingTeamForLog(adminClient, log)) || null
+    const deletePayload = {
       name: log.name ?? '',
       leaveDate: log.leave_date ?? '',
       deletedByName,
@@ -1117,34 +1123,31 @@ export async function DELETE(
       breakTime: log.break_time ?? '00:00:00',
       workContent: log.work_content ?? null,
       division: log.division ?? null,
-      // 본부 직속(team 없음)이면 작성자의 notify_team으로 라우팅 치환
-      team: (await resolveRoutingTeamForLog(adminClient, log)) || null,
+      team: teamRouted,
       scope: wholeRowDelete ? null : scope,
-    })
+    }
+    after(() => notifyWorkLogDeleted(deletePayload))
 
     // ─── work_log_submissions append (함정 3 대응) ─────────────────────────────
     // 사용자가 history에서 "이 보고 삭제됨" history를 추적할 수 있도록.
-    // 라벨은 사용자 의도(누른 버튼) 기준 — wholeRowDelete 격상 여부와 무관.
-    // 예: 출근만 있던 row의 [출근보고 삭제] → wholeRowDelete=true로 격상되지만 라벨은 'check_in_delete'.
-    //     ?scope 없이 호출되는 진짜 전체 삭제(API 직접 호출 등)만 'work_log_delete'.
-    try {
-      const submissionReportType:
-        | 'check_in_delete' | 'check_out_delete' | 'work_log_delete' =
-        scope === 'check_in' ? 'check_in_delete'
-          : scope === 'check_out' ? 'check_out_delete'
-          : 'work_log_delete'
-      await recordSubmission({
-        user_id: log.user_id ?? null,
-        user_email: log.user_email ?? user.email ?? '',
-        name: log.name ?? null,
-        division: log.division ?? null,
-        team: log.team ?? null,
-        report_type: submissionReportType,
-        target_date: log.leave_date,
-        submitted_at: nowIso,
-        work_log_id: id,
-      })
-    } catch { /* 무시 */ }
+    // v1.83.12 — recordSubmission도 after()로 백그라운드.
+    const submissionReportType:
+      | 'check_in_delete' | 'check_out_delete' | 'work_log_delete' =
+      scope === 'check_in' ? 'check_in_delete'
+        : scope === 'check_out' ? 'check_out_delete'
+        : 'work_log_delete'
+    const submissionPayload = {
+      user_id: log.user_id ?? null,
+      user_email: log.user_email ?? user.email ?? '',
+      name: log.name ?? null,
+      division: log.division ?? null,
+      team: log.team ?? null,
+      report_type: submissionReportType,
+      target_date: log.leave_date,
+      submitted_at: nowIso,
+      work_log_id: id,
+    }
+    after(() => recordSubmission(submissionPayload))
 
     try {
       const meta = extractRequestMeta(request)

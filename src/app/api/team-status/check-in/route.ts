@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
@@ -419,14 +419,15 @@ export async function POST(request: Request) {
     //   - 예정값 변경 (기존 row UPDATE + 예정 다름)  → 'check_in_update'
     //   - 실제출근만 변경                            → 'check_in_complete'
     //   - 둘 다 변경 시 → 두 행 모두 기록
+    // v1.83.12 — recordSubmission은 audit 로그 — after()로 응답 후 백그라운드 실행 보장.
     if (willCreateNewLog) {
-      await recordSubmission({
+      const payload = {
         user_id: user.id,
         user_email: user.email!,
         name,
         division: profile?.division ?? null,
         team:     profile?.team ?? null,
-        report_type: 'check_in',
+        report_type: 'check_in' as const,
         target_date: date,
         submitted_at: submissionNow,
         work_log_id: workLogId,
@@ -439,16 +440,17 @@ export async function POST(request: Request) {
         work_type_label: '기본근무 등록',
         work_type_code:  calcResult.workTypeCode,
         attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
-      })
+      }
+      after(() => recordSubmission(payload))
     } else {
       if (plannedChanged) {
-        await recordSubmission({
+        const payload = {
           user_id: user.id,
           user_email: user.email!,
           name,
           division: profile?.division ?? null,
           team:     profile?.team ?? null,
-          report_type: 'check_in_update',
+          report_type: 'check_in_update' as const,
           target_date: date,
           submitted_at: submissionNow,
           work_log_id: workLogId,
@@ -461,23 +463,25 @@ export async function POST(request: Request) {
           work_type_label: '기본근무 등록',
           work_type_code:  calcResult.workTypeCode,
           attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
-        })
+        }
+        after(() => recordSubmission(payload))
       }
       if (checkedInChanged) {
-        await recordSubmission({
+        const payload = {
           user_id: user.id,
           user_email: user.email!,
           name,
           division: profile?.division ?? null,
           team:     profile?.team ?? null,
-          report_type: 'check_in_complete',
+          report_type: 'check_in_complete' as const,
           target_date: date,
           submitted_at: submissionNow,
           work_log_id: workLogId,
           start_time:      actualCheckInTime,
           work_location:   currentLocation,
           attendance_record_type: '출근보고 진행 (주말출근, 휴가 포함)',
-        })
+        }
+        after(() => recordSubmission(payload))
       }
     }
 
@@ -505,9 +509,10 @@ export async function POST(request: Request) {
     })
 
     // Teams 알림은 실제 출근(check_in_complete) 시에만 — 단순 보고만 작성한 경우 알림 X
-    // 2026-05-19 v1.21: await — fire-and-forget 시 Vercel function 종료로 promise 끊김.
+    // v1.83.12 — after()로 응답 후 백그라운드 실행 보장 (Vercel 컨테이너 종료에도 안 잘림).
+    //   기존 사고(최승현 5/19 18:23)의 원인이었던 void fire-and-forget과 다름.
     if (checkedInAtIso) {
-      await notifyCheckinSubmitted({
+      const checkinPayload = {
         name: profile?.display_name || body.name || user.email!,
         date,
         checkedInAt: checkedInAtIso,
@@ -515,17 +520,13 @@ export async function POST(request: Request) {
         timeline: timeline ?? undefined,
         plannedWorkLocations: plannedLocations ?? undefined,
         leaveTimeline: leaveTimeline ?? undefined,
-        // v1.27: 알림 헤드라인 'start~end' 표시용. 미보고 토글 ON이면 출근예정만 NULL.
-        // v1.55 hotfix (2026-05-27): expectedEndTime은 미보고와 무관 — 퇴근예정시간은
-        // form에서 받아 DB의 planned_end_time에도 정상 저장 중. 알림에서만 NULL로 보내
-        // 메시지 빌더가 퇴근예정 라인을 skip하던 버그 fix (당일 미보고 첫 출근 케이스).
         expectedStartTime: plannedStartUnreported ? null : startTime,
         expectedEndTime:   endTime,
         workContent: workContent || null,
         division: profile?.division ?? null,
-        // 본부 직속(team 없음) → admin 지정 notify_team으로 라우팅
         team: resolveRoutingTeam(profile?.team, profile?.notify_team) || null,
-      })
+      }
+      after(() => notifyCheckinSubmitted(checkinPayload))
     }
 
     // v1.50 (2026-05-27) — 사전등록 알림 (당일 첫 출근보고 / 미래 일자 사전등록).
@@ -536,7 +537,8 @@ export async function POST(request: Request) {
     // advance skip — 한 일자에 동일 의미 알림 1건만. 사전등록만 한 경우(checkedInAtIso
     // 빈 값)는 변동 없이 advance만 fire되어 1건 유지.
     if (willCreateNewLog && !plannedStartUnreported && !checkedInAtIso) {
-      await maybeNotifyAdvanceCheckin({
+      // v1.83.12 — 사전등록 알림도 after()로 백그라운드 (응답 후 보장 실행)
+      const advancePayload = {
         adminClient,
         userEmail: (user.email ?? '').toLowerCase(),
         userName: profile?.display_name || body.name || user.email!,
@@ -548,7 +550,8 @@ export async function POST(request: Request) {
         plannedEnd: endTime,
         plannedLocation: currentLocation,
         memo: workContent || null,
-      })
+      }
+      after(() => maybeNotifyAdvanceCheckin(advancePayload))
     }
 
     return NextResponse.json(daily)

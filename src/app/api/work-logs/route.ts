@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateEw } from '@/lib/ew-calculator'
 import { requireActiveUser } from '@/lib/admin-check'
@@ -696,20 +696,21 @@ export async function POST(request: Request) {
     //   퇴근보고 + 명일 출근보고를 한 번에 제출해도 알림은 퇴근보고 채널 1건만.
     //   D+1 work_logs row는 위에서 INSERT/UPDATE 되지만 별도 출근보고 채널 알림은
     //   호출하지 않는다 (명일 본인이 출근완료 시 그때 출근보고 채널로 알림 발송).
-    // resubmitLogId 흐름은 deprecated — 항상 worklog_submitted로 발송 (재제출 알림 X)
-    // 2026-05-19 v1.21: await 처리. fire-and-forget 시 Vercel function 응답 후 종료되어
-    // sendToMake retry promise가 끊겨 알림 누락(최승현 5/19 18:23). maxDuration=60s로 retry 보장.
-    await notifyWorkLogSubmitted(notifyPayload)
+    // v1.83.12 — Next.js after()로 응답 후 백그라운드 보장.
+    //   2026-05-19 사고 회고(최승현 18:23 알림 누락)는 'void' fire-and-forget이 Vercel
+    //   컨테이너 종료에 잘려서 발생. after()는 응답 후에도 끝까지 실행 보장 — 안전.
+    after(() => notifyWorkLogSubmitted(notifyPayload))
 
     // ─── submissions 로그 ─────────────────────────────────────────
+    // v1.83.12 — recordSubmission도 after()로 백그라운드 (audit 로그는 응답 흐름에서 분리).
     const submittedNow = new Date().toISOString()
-    await recordSubmission({
+    const checkOutSubmissionPayload = {
       user_id: user.id,
       user_email: user.email!,
       name: body.name ?? null,
       division: userDivision,
       team: userTeam,
-      report_type: 'check_out',
+      report_type: 'check_out' as const,
       target_date: body.leaveDate ?? '',
       submitted_at: submittedNow,
       work_log_id: workLogId,
@@ -740,16 +741,17 @@ export async function POST(request: Request) {
       work_type_code: calcResult.workTypeCode,
       work_sub_type: calcResult.workSubType,
       attendance_record_type: body.attendanceRecordType || null,
-    })
+    }
+    after(() => recordSubmission(checkOutSubmissionPayload))
 
     if (isCheckInProgress && body.expectedStartDate) {
-      await recordSubmission({
+      const checkInSubmissionPayload = {
         user_id: user.id,
         user_email: user.email!,
         name: body.name ?? null,
         division: userDivision,
         team: userTeam,
-        report_type: 'check_in',
+        report_type: 'check_in' as const,
         target_date: body.expectedStartDate,
         submitted_at: submittedNow,
         work_log_id: workLogId,
@@ -762,7 +764,8 @@ export async function POST(request: Request) {
         work_type_label: body.workTypeLabel,
         work_sub_type: body.workSubType ?? null,
         attendance_record_type: body.attendanceRecordType,
-      })
+      }
+      after(() => recordSubmission(checkInSubmissionPayload))
     }
 
     return NextResponse.json({
