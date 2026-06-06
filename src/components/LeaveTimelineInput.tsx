@@ -25,7 +25,7 @@
  *   - else              → morning_half
  */
 
-import { Plane, AlertCircle, Info, ExternalLink } from 'lucide-react'
+import { Plane, AlertCircle, Info } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { LeaveTimeline } from '@/types/leave-timeline'
 import {
@@ -38,7 +38,6 @@ import {
   LEAVE_START_HHMM_OPTIONS,
   LEAVE_END_HHMM_OPTIONS,
 } from '@/lib/leave-timeline'
-import { NPM_URL } from '@/lib/constants/external-links'
 import CustomDropdown from '@/components/ui/CustomDropdown'
 
 interface LeaveTimelineInputProps {
@@ -144,12 +143,6 @@ export default function LeaveTimelineInput({ value, onChange, disabled, alwaysEn
       onChange([])
     } else {
       pushItem(DEFAULT_START, DEFAULT_END, true)
-      // v1.83 — 휴가 등록 ON 시점에 NPM 바로가기 새 탭으로 안내.
-      // 별도 NPM 상신이 필수라는 정책을 즉시 시각화 (팝업 차단 시 안내 박스의 링크가 fallback).
-      // alwaysEnabled 모드(VacationRegisterModal)는 체크박스가 없어 이 트리거 자체가 발생 X.
-      if (typeof window !== 'undefined') {
-        window.open(NPM_URL, '_blank', 'noopener,noreferrer')
-      }
     }
   }
 
@@ -259,21 +252,11 @@ export default function LeaveTimelineInput({ value, onChange, disabled, alwaysEn
             </div>
           )}
 
-          {/* v1.83 — NPM 상신 별도 안내 + 바로가기 링크. 휴가 등록 펼침과 동시에 노출. */}
+          {/* v1.83 — NPM 상신 별도 안내. 휴가 등록 펼침과 동시에 노출.
+              명시 NPM 링크는 우하단 '휴가 등록' 버튼 클릭 흐름이 대신 처리 (VacationRegisterModal). */}
           <div className="flex items-start gap-1.5 text-[11px] text-warning-text bg-warning-bg border border-warning-border rounded-md px-2 py-1.5 leading-snug">
             <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <div>{LEAVE_NPM_NOTICE}</div>
-              <a
-                href={NPM_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-info-text hover:underline font-medium"
-              >
-                NPM 바로가기
-                <ExternalLink className="h-3 w-3" aria-hidden />
-              </a>
-            </div>
+            <span>{LEAVE_NPM_NOTICE}</span>
           </div>
         </div>
       )}
