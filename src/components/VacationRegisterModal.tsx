@@ -148,10 +148,12 @@ export default function VacationRegisterModal({
       }
       setResult(data as BulkLeaveResult)
       onSuccess(data as BulkLeaveResult)
-      // v1.83 — 일괄 등록 성공(created > 0) 시 NPM 바로가기 새 탭으로 안내.
-      // 모두 skip(이미 등록된 날짜)인 케이스는 NPM 열지 않음.
+      // v1.83 — 일괄 등록 성공(created > 0) 시 NPM 바로가기 confirm 후 새 탭으로 안내.
+      // 사용자가 NPM 상신을 지금 하지 않을 수도 있어 confirm으로 선택지 제공.
+      // 모두 skip(이미 등록된 날짜)인 케이스는 confirm/NPM 모두 skip.
       if (typeof window !== 'undefined' && (data as BulkLeaveResult).created > 0) {
-        window.open(NPM_URL, '_blank', 'noopener,noreferrer')
+        const ok = window.confirm('N-Click 휴가가 등록되었습니다.\nNPM으로 이동하여 휴가를 상신하시겠습니까?')
+        if (ok) window.open(NPM_URL, '_blank', 'noopener,noreferrer')
       }
     } catch (err: unknown) {
       const m = err instanceof Error ? err.message : String(err)
