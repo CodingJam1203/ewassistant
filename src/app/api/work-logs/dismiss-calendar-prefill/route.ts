@@ -153,12 +153,10 @@ export async function POST(request: Request) {
     workLogId = inserted.id as string
   }
 
-  // vacation-sync — 두 가지 경로:
-  //  (a) 기존 row의 leave_timeline에 calendar source 항목이 있던 경우 — diff 기반 events.delete
-  //  (b) v1.61.3 — caller가 leaveSource='gcal' + leaveEventId 명시한 경우. work_log row 없거나
-  //      leave_timeline에 항목 없어도, fake prev entry 만들어서 events.delete trigger.
-  //      org_calendar_events에서 fetch된 GCal 휴가를 N-Click 표시에서 가리는 동시에 Google Calendar
-  //      이벤트도 같이 삭제 (사용자가 N-Click에 한 번도 등록 안 한 GCal-only 휴가).
+  // v1.83.10 — 응답 latency 최적화. vacation-sync (Google events.delete) + audit를
+  //   fire-and-forget으로 분리. UI 즉시 갱신 — Google 이벤트 삭제는 백그라운드.
+  //   dismissed_google_event_ids에 이미 박혀있어서 다음 lookup 시점부터 N-Click 표시에서
+  //   숨겨지므로 Google delete가 약간 늦어도 사용자 경험상 무영향.
   const shouldGcalDelete = leaveSource === 'gcal' && leaveEventId
   const effectivePrev: LeaveTimeline = shouldGcalDelete
     ? [
@@ -176,46 +174,54 @@ export async function POST(request: Request) {
         },
       ]
     : prevLeaveTimeline
+
+  // 응답 즉시 — Google sync + audit는 백그라운드.
+  const response = NextResponse.json({ ok: true, workLogId })
+
   if (effectivePrev.length > 0) {
-    try {
-      const result = await syncLeaveTimelineWithGoogle({
-        adminClient,
-        userEmail: user.email!,
-        userDisplayName: displayName,
-        leaveDate: date,
-        prev: effectivePrev,
-        next: nextLeaveTimeline,
-      })
-      if (result.changed && result.updatedTimeline && workLogId) {
-        await adminClient
-          .from('work_logs')
-          .update({ leave_timeline: result.updatedTimeline.length > 0 ? result.updatedTimeline : null })
-          .eq('id', workLogId)
+    void (async () => {
+      try {
+        const result = await syncLeaveTimelineWithGoogle({
+          adminClient,
+          userEmail: user.email!,
+          userDisplayName: displayName,
+          leaveDate: date,
+          prev: effectivePrev,
+          next: nextLeaveTimeline,
+        })
+        if (result.changed && result.updatedTimeline && workLogId) {
+          await adminClient
+            .from('work_logs')
+            .update({ leave_timeline: result.updatedTimeline.length > 0 ? result.updatedTimeline : null })
+            .eq('id', workLogId)
+        }
+      } catch (err) {
+        console.warn('[dismiss-calendar-prefill] vacation-sync failed (non-fatal):', err)
       }
-    } catch (err) {
-      console.warn('[dismiss-calendar-prefill] vacation-sync failed (non-fatal):', err)
-    }
+    })()
   }
 
-  // audit
-  try {
-    const meta = extractRequestMeta(request)
-    await recordAudit({
-      action: 'work_log_dismiss_calendar_prefill',
-      actorId: user.id,
-      actorEmail: user.email ?? null,
-      targetTable: 'work_logs',
-      targetId: workLogId,
-      details: {
-        leave_date: date,
-        was_existing: !!existing,
-        prev: prevLeaveTimeline,
-        next: nextLeaveTimeline,
-      },
-      ipAddress: meta.ipAddress,
-      userAgent: meta.userAgent,
-    })
-  } catch { /* silent */ }
+  // audit (fire-and-forget)
+  void (async () => {
+    try {
+      const meta = extractRequestMeta(request)
+      await recordAudit({
+        action: 'work_log_dismiss_calendar_prefill',
+        actorId: user.id,
+        actorEmail: user.email ?? null,
+        targetTable: 'work_logs',
+        targetId: workLogId,
+        details: {
+          leave_date: date,
+          was_existing: !!existing,
+          prev: prevLeaveTimeline,
+          next: nextLeaveTimeline,
+        },
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+      })
+    } catch { /* silent */ }
+  })()
 
-  return NextResponse.json({ ok: true, workLogId })
+  return response
 }
