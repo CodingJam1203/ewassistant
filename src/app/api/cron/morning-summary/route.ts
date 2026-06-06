@@ -273,9 +273,13 @@ export async function GET(request: Request) {
       } else if (calendarHit?.leaveType) {
         leaveType = calendarHit.leaveType
         leaveLabel = calendarHit.leaveLabel ?? '휴가'
-        // 캘린더 라벨이 자유 텍스트면 표준 라벨로 보정
-        const stdType = parseLeaveLabel(leaveLabel)
-        if (stdType) leaveType = stdType
+        // v1.83.2 — 라벨에 specific 반차 키워드(반차)가 있을 때만 라벨 기반 override.
+        // 단순 '휴가'/'연차' 등은 시간 기반(decideLeaveType) 결과를 신뢰 (short-time 휴가가
+        // full_day로 잘못 잡히던 leave-judge.ts 동일 패턴 버그 fix와 동일 룰).
+        if (leaveLabel.includes('반차')) {
+          const stdType = parseLeaveLabel(leaveLabel)
+          if (stdType) leaveType = stdType
+        }
       }
 
       // 분류 — TypeScript narrowing을 위해 leaveType을 직접 비교

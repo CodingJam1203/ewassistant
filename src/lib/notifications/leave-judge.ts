@@ -36,10 +36,15 @@ export function judgeLeave(args: {
 
   const cal = args.calendarLookup
   if (cal?.leaveType) {
-    // 캘린더 라벨이 자유 텍스트면 표준 라벨로 보정 (morning-summary 기존 로직과 일치)
-    const stdType = cal.leaveLabel ? parseLeaveLabel(cal.leaveLabel) : null
+    // 라벨 텍스트에 specific 반차 키워드(반차/반반차)가 있을 때만 라벨 기반으로 override.
+    // 단순 '휴가'/'연차' 등 full_day 키워드는 parseLeaveLabel이 무조건 full_day로 매핑하지만,
+    // 시간 기반(decideLeaveType)이 morning_half/afternoon_half로 더 정확하므로 시간 결과 유지.
+    // v1.83.2 (2026-06-06): 10:00~11:00 짧은 시간 휴가가 종일로 잘못 판정되던 버그 fix.
+    const labelHint = (cal.leaveLabel ?? '').includes('반차')
+      ? parseLeaveLabel(cal.leaveLabel ?? '')
+      : null
     return {
-      leaveType: stdType ?? cal.leaveType,
+      leaveType: labelHint ?? cal.leaveType,
       leaveLabel: cal.leaveLabel ?? '휴가',
     }
   }
