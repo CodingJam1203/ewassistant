@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   // 그 일자의 본인 active row 1건
   const { data: existing } = await adminClient
     .from('work_logs')
-    .select('id, leave_timeline')
+    .select('id, leave_timeline, dismissed_google_event_ids')
     .eq('user_email', user.email!)
     .eq('leave_date', date)
     .eq('is_deleted', false)
@@ -77,11 +77,21 @@ export async function POST(request: Request) {
     // calendar source 항목 제거 (manual은 유지)
     nextLeaveTimeline = prevLeaveTimeline.filter(it => it?.source !== 'calendar')
 
+    // v1.83.7 — leaveEventId가 들어왔으면 dismissed_google_event_ids 배열에 append.
+    //   같은 event_id가 다시 sync되어도 차단 유지. 다른 event_id(신규 휴가)는 정상 노출.
+    const prevDismissedIds = Array.isArray(existing.dismissed_google_event_ids)
+      ? (existing.dismissed_google_event_ids as string[])
+      : []
+    const nextDismissedIds = leaveEventId && !prevDismissedIds.includes(leaveEventId)
+      ? [...prevDismissedIds, leaveEventId]
+      : prevDismissedIds
+
     const { error: updErr } = await adminClient
       .from('work_logs')
       .update({
         leave_timeline: nextLeaveTimeline.length > 0 ? nextLeaveTimeline : null,
         calendar_prefill_dismissed: true,
+        dismissed_google_event_ids: nextDismissedIds.length > 0 ? nextDismissedIds : null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', workLogId)

@@ -182,20 +182,23 @@ export async function fetchOrgCalendarLookup(args: {
     return { enabled: true, fetchFailed: true, byEmail }
   }
 
-  // v1.83.6 — dismissed 마커 조회. 사용자가 [이 휴가 취소] 누른 (email, date) 쌍은
-  // Google 캘린더 vacation 분배 시 leaveType 채우기 skip → 모달/캘린더에 휴가 안 보임.
-  // (시트 lookup은 mergeSheetDataIntoLookup 내부에 이미 dismissed 체크 있음 — Google 메인 흐름엔 누락이었던 게 v1.83.6 버그)
-  const dismissedKeys = new Set<string>()
+  // v1.83.7 — dismissed event_id 조회 (event_id 단위 정밀화).
+  //   사용자가 [이 휴가 취소] 누른 특정 google_event_id만 차단.
+  //   다른 event_id의 신규 휴가는 정상 노출 — v1.83.6의 날짜 단위 차단이 새 휴가까지 막던 버그 fix.
+  const dismissedEventIdsByKey = new Map<string, Set<string>>()
   try {
     const { data: dismissedRows } = await adminClient
       .from('work_logs')
-      .select('user_email, leave_date')
+      .select('user_email, leave_date, dismissed_google_event_ids')
       .in('user_email', emails)
       .in('leave_date', dates)
       .eq('calendar_prefill_dismissed', true)
       .eq('is_deleted', false)
-    for (const r of (dismissedRows ?? []) as Array<{ user_email: string; leave_date: string }>) {
-      dismissedKeys.add(`${r.user_email.toLowerCase()}::${r.leave_date}`)
+    for (const r of (dismissedRows ?? []) as Array<{ user_email: string; leave_date: string; dismissed_google_event_ids: string[] | null }>) {
+      const ids = Array.isArray(r.dismissed_google_event_ids) ? r.dismissed_google_event_ids : []
+      if (ids.length === 0) continue
+      const k = `${r.user_email.toLowerCase()}::${r.leave_date}`
+      dismissedEventIdsByKey.set(k, new Set(ids))
     }
   } catch (err) {
     console.warn('[org-calendar/lookup] dismissed lookup failed:', err)
@@ -253,11 +256,11 @@ export async function fetchOrgCalendarLookup(args: {
         if (!dateSet.has(dateIso)) continue
         const lookup = rec[dateIso]
         if (isVacation) {
-          // v1.83.6 — dismissed 마커 있는 (email, date) 쌍은 Google vacation 무시.
-          //   사용자가 [이 휴가 취소] 누른 일자라 즉시 안 보여야 함.
-          //   (Google events.delete가 best-effort로 호출되지만 org_calendar_events 캐시가
-          //    stale일 수 있어 dismissed 마커로 확정 차단.)
-          if (dismissedKeys.has(`${email}::${dateIso}`)) {
+          // v1.83.7 — event_id 단위 dismissed 체크.
+          //   사용자가 [이 휴가 취소] 누른 그 event_id만 차단.
+          //   다른 event_id(신규 휴가)는 정상 노출 → 같은 일자에 새로 등록한 휴가가 차단되던 문제 해소.
+          const dismissedSet = dismissedEventIdsByKey.get(`${email}::${dateIso}`)
+          if (r.google_event_id && dismissedSet?.has(r.google_event_id)) {
             continue
           }
           if (lookup.leaveType === null) {
