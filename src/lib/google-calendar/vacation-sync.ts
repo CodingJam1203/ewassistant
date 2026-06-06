@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getGoogleCalendarClient, extractCalendarRawId } from './client'
 import type { LeaveTimeline, LeaveTimelineItem } from '@/types/leave-timeline'
 import { getUserCalendarMode, modePushesLeaveToGCal } from '@/lib/org-calendar/calendar-mode'
+import { extractFirstName } from '@/lib/users/first-name'
 
 interface VacationCalendar {
   id: string
@@ -91,39 +92,45 @@ function addDaysToKstDate(yyyymmdd: string, n: number): string {
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`
 }
 
-/** actualMinutes → 캘린더 타이틀용 시간 표기 ("3H" / "0.5H" / "8H") */
-function formatHoursLabel(minutes: number): string {
-  const hours = minutes / 60
-  return Number.isInteger(hours) ? `${hours}H` : `${hours.toFixed(1)}H`
+/** HH:mm 또는 '24:00' → KST ISO 시각. 24:00은 다음날 00:00:00으로 정규화. */
+function buildKstIso(date: string, hhmm: string): string {
+  if (hhmm === '24:00') return `${addDaysToKstDate(date, 1)}T00:00:00+09:00`
+  return `${date}T${hhmm}:00+09:00`
 }
 
 /** entry → Google event requestBody
  *
- *  정책 (2026-05-20 사용자 결정): 부분/종일 구분 없이 모두 종일 이벤트로 push.
- *  타이틀에 휴가시간을 텍스트로 명시 — 예 "[홍길동] 3H 휴가" / "[홍길동] 8H 휴가".
- *  사유: 캘린더에 시간블록으로 박히면 회의실/일정 충돌 처럼 보여 잘못 해석됨.
- *       종일 + 텍스트 시간이 사용자/팀에 가장 명확.
+ *  v1.83 정책 변경 (2026-06-06 사용자 결정):
+ *    - 시작/끝 시간을 그대로 dateTime 모드로 push (종일 이벤트 X)
+ *    - 제목: "[재민] 휴가 09:00~18:00" — first-name(성 trim) + 시간 명시. 'NH 휴가' 라벨 제거
+ *    - 기존 종일 이벤트 마이그레이션 X — 신규 등록부터 시간 모드
+ *
+ *  이전 정책 (2026-05-20): 부분/종일 구분 없이 모두 종일. 타이틀에 'NH 휴가'.
  */
 function buildVacationEventBody(
   leaveDate: string,
   userDisplayName: string,
   entry: LeaveTimelineItem,
 ): import('googleapis').calendar_v3.Schema$Event {
-  const title = `[${userDisplayName}] ${formatHoursLabel(entry.actualMinutes)} 휴가`
+  const firstName = extractFirstName(userDisplayName) || userDisplayName || '담당자'
+  const title = `[${firstName}] 휴가 ${entry.startTime}~${entry.endTime}`
   return {
     summary: title,
-    start: { date: leaveDate },
-    end:   { date: addDaysToKstDate(leaveDate, 1) },  // exclusive
+    start: { dateTime: buildKstIso(leaveDate, entry.startTime), timeZone: 'Asia/Seoul' },
+    end:   { dateTime: buildKstIso(leaveDate, entry.endTime),   timeZone: 'Asia/Seoul' },
     // N-Click이 만든 휴가임을 박제 — sync 시 inferEventType이 제목 추측 없이 vacation으로 신뢰.
     extendedProperties: { private: { nclickType: 'vacation' } },
   }
 }
 
 /** 두 entry가 Google 측 변경을 요구하는지 (내용 diff)
- *  종일 이벤트 + "NH 휴가" 타이틀만 사용하므로 actualMinutes 변화만 영향.
+ *  v1.83 — 시간 모드 push로 변경되어 actualMinutes + startTime + endTime 변화 모두 영향.
+ *         시간만 바꿔도(예: 09:00→10:00, 폭 동일) update가 발동되도록.
  */
 function entryChanged(a: LeaveTimelineItem, b: LeaveTimelineItem): boolean {
   return a.actualMinutes !== b.actualMinutes
+    || a.startTime !== b.startTime
+    || a.endTime !== b.endTime
 }
 
 export interface SyncVacationResult {
