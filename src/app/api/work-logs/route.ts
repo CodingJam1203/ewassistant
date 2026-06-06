@@ -269,32 +269,23 @@ export async function POST(request: Request) {
         { raw: calcResult.actualWorkMinutes, snapped: snappedActualMin })
     }
 
+    // v1.83.15 Phase 4 — 독립 query 2건 (user_profiles + existing D-day work_log) Promise.all 병렬.
+    //   Supabase query는 throw하지 않고 .error로 반환 → Promise.all 안전.
+    //   직렬 → 병렬로 round-trip 1번 절약 (~100~200ms).
+    const adminClient = createAdminClient()
     let userDivision: string | null = null
     let userTeam: string | null = null
     let userNotifyTeam: string | null = null
-    try {
-      const adminClientForProfile = createAdminClient()
-      const { data: profileSnap } = await adminClientForProfile
+    let workLogId: string | null = null
+    let dDayPrevLeaveTimeline: import('@/types/leave-timeline').LeaveTimeline = []
+
+    const [profileResult, existingResult] = await Promise.all([
+      adminClient
         .from('user_profiles')
         .select('division, team, notify_team')
         .eq('id', user.id)
-        .single()
-      userDivision = profileSnap?.division ?? null
-      userTeam = profileSnap?.team ?? null
-      userNotifyTeam = profileSnap?.notify_team ?? null
-    } catch {
-      // 무시
-    }
-
-    const adminClient = createAdminClient()
-
-    // ─── D-day row UPSERT ───────────────────────────────────────────────────
-    // leave_date=body.leaveDate 매칭. 있으면 UPDATE, 없으면 INSERT.
-    // Phase 1.5b — prev leave_timeline을 같이 받아 Google sync diff 산출에 사용
-    let workLogId: string | null = null
-    let dDayPrevLeaveTimeline: import('@/types/leave-timeline').LeaveTimeline = []
-    {
-      const { data: existing } = await adminClient
+        .single(),
+      adminClient
         .from('work_logs')
         .select('id, leave_timeline')
         .eq('user_email', user.email!)
@@ -302,11 +293,18 @@ export async function POST(request: Request) {
         .eq('is_deleted', false)
         .order('created_at', { ascending: false })
         .limit(1)
-        .maybeSingle()
-      workLogId = existing?.id ?? null
-      const prevLt = (existing as { leave_timeline?: import('@/types/leave-timeline').LeaveTimeline } | null)?.leave_timeline
-      dDayPrevLeaveTimeline = Array.isArray(prevLt) ? prevLt : []
-    }
+        .maybeSingle(),
+    ])
+
+    const profileSnap = profileResult.data
+    userDivision = profileSnap?.division ?? null
+    userTeam = profileSnap?.team ?? null
+    userNotifyTeam = profileSnap?.notify_team ?? null
+
+    const existing = existingResult.data
+    workLogId = existing?.id ?? null
+    const prevLt = (existing as { leave_timeline?: import('@/types/leave-timeline').LeaveTimeline } | null)?.leave_timeline
+    dDayPrevLeaveTimeline = Array.isArray(prevLt) ? prevLt : []
 
     const dDayData: Record<string, unknown> = {
       name: body.name,
