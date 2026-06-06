@@ -242,10 +242,22 @@ export default function LeaveTimelineInput({ value, onChange, disabled, alwaysEn
             </span>
           </label>
 
-          {/* 계산 결과 */}
+          {/* 계산 결과 — 8H 초과 시 빨간색으로 강조 */}
           <div className="text-[12px] text-text-primary font-medium">
-            → 휴가 시간: <span className={leaveType === 'full_day' ? 'text-info-text' : ''}>{formatHoursAndMinutes(minutes)}</span>
+            → 휴가 시간: <span className={
+              minutes > 480 ? 'text-danger-text font-semibold'
+              : leaveType === 'full_day' ? 'text-info-text'
+              : ''
+            }>{formatHoursAndMinutes(minutes)}</span>
           </div>
+
+          {/* v1.83 — 8H 초과 알럿. 부모 폼은 validateLeaveTimeline 통해 submit 차단. */}
+          {minutes > 480 && (
+            <div className="flex items-start gap-1.5 text-[11px] text-danger-text bg-danger-bg border border-danger-border rounded-md px-2 py-1.5 leading-snug">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span><strong className="font-semibold">휴가 시간을 8H 이하로 설정해주세요.</strong> 하루 휴가는 최대 8시간까지 등록할 수 있습니다.</span>
+            </div>
+          )}
 
           {/* v1.83 — NPM 상신 별도 안내 + 바로가기 링크. 휴가 등록 펼침과 동시에 노출. */}
           <div className="flex items-start gap-1.5 text-[11px] text-warning-text bg-warning-bg border border-warning-border rounded-md px-2 py-1.5 leading-snug">

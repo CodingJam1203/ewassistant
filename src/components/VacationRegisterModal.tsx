@@ -121,6 +121,11 @@ export default function VacationRegisterModal({
       setError('휴가 시간을 입력해주세요.')
       return
     }
+    if (item.roundedMinutes > 480) {
+      // v1.83 — 하루 휴가 최대 8H. UI 버튼 disabled로 1차 차단, 여기서 fail-closed 2차 가드.
+      setError('휴가 시간을 8H 이하로 설정해주세요. 하루 휴가는 최대 8시간까지 등록할 수 있습니다.')
+      return
+    }
     setSubmitting(true)
     try {
       const res = await fetch('/api/work-logs/bulk-leave', {
@@ -309,7 +314,13 @@ export default function VacationRegisterModal({
               <Button variant="secondary" type="button" onClick={onClose} disabled={submitting}>
                 취소
               </Button>
-              <Button variant="primary" type="submit" loading={submitting} disabled={submitting}>
+              {/* v1.83 — 휴가 시간 8H 초과 시 버튼 비활성화 (LeaveTimelineInput에 빨간 알럿 동시 노출) */}
+              <Button
+                variant="primary"
+                type="submit"
+                loading={submitting}
+                disabled={submitting || (leaveTimeline[0]?.roundedMinutes ?? 0) > 480}
+              >
                 {submitting ? '등록 중...' : '휴가 등록'}
               </Button>
             </div>

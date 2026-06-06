@@ -226,6 +226,9 @@ export function validateLeaveTimeline(timeline: LeaveTimeline): LeaveValidationE
     } else if (it.roundedMinutes % 30 !== 0) {
       // 30분 단위 정책 — UI는 30분 step이지만 API 우회 / legacy 클라이언트 방어
       errors.push({ message: '휴가 차감시간은 30분 단위여야 합니다.', index: i })
+    } else if (it.roundedMinutes > 480) {
+      // v1.83 — 하루 휴가 최대 8H. 초과 입력 차단 (UI는 알럿, API는 fail-closed).
+      errors.push({ message: '휴가 시간을 8H 이하로 설정해주세요.', index: i })
     }
   })
 
