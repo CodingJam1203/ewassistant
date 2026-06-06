@@ -325,6 +325,14 @@ export default function CalendarDayDetailModal({
               {calendar.leaveLabel && (() => {
                 const lvSrc = (calendar as { leaveSource?: 'gcal' | 'sheet' | null }).leaveSource ?? null
                 const lvEventId = (calendar as { leaveEventId?: string | null }).leaveEventId ?? null
+                // v1.83.8 — Google 시간 박스 휴가는 시간 같이 노출 ('휴가 17:00~18:00' 형태).
+                //   leaveStartTime/leaveEndTime은 Google 시간 박스에서만 채워짐(시트/종일 박스는 null).
+                //   null이면 종일 의도 → 라벨만 노출.
+                const lvStart = (calendar as { leaveStartTime?: string | null }).leaveStartTime ?? null
+                const lvEnd   = (calendar as { leaveEndTime?:   string | null }).leaveEndTime   ?? null
+                const badgeText = (lvStart && lvEnd)
+                  ? `${calendar.leaveLabel} ${lvStart}~${lvEnd}`
+                  : calendar.leaveLabel
                 const isGcal = lvSrc === 'gcal'
                 const sourceHint = isGcal ? 'Google 캘린더 (양방향 동기화)' : '시트에서 자동 인식'
                 const actionLabel = isGcal ? '이 휴가 취소' : '이 일자에서 가리기'
@@ -333,7 +341,7 @@ export default function CalendarDayDetailModal({
                   : `${date} 휴가를 N-Click 표시에서 가리시겠습니까?\n\n※ 시트 원본은 자동으로 빠지지 않습니다. 영구 삭제는 캘린더 시트에서 직접 수정해주세요.`
                 return (
                   <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant="warning" dot>{calendar.leaveLabel}</Badge>
+                    <Badge variant="warning" dot>{badgeText}</Badge>
                     <span className="text-[12px] text-text-muted">{sourceHint}</span>
                     <button
                       type="button"
