@@ -100,12 +100,12 @@ function buildKstIso(date: string, hhmm: string): string {
 
 /** entry → Google event requestBody
  *
- *  v1.83 정책 변경 (2026-06-06 사용자 결정):
- *    - 시작/끝 시간을 그대로 dateTime 모드로 push (종일 이벤트 X)
- *    - 제목: "[재민] 휴가 09:00~18:00" — first-name(성 trim) + 시간 명시. 'NH 휴가' 라벨 제거
+ *  v1.83 정책 (2026-06-06):
+ *    - 시작/끝 시간을 그대로 dateTime 모드로 push (Google에 시간 박스로 노출)
+ *    - 제목 first-name(성 trim) + 시간/종일 표기:
+ *        · 종일(full_day) → '[재민] 휴가 (종일)' — 시간은 dateTime 필드에 이미 박혀 있어 제목 중복 표시 X
+ *        · 부분(반차/시간) → '[재민] 휴가 09:00~14:00'
  *    - 기존 종일 이벤트 마이그레이션 X — 신규 등록부터 시간 모드
- *
- *  이전 정책 (2026-05-20): 부분/종일 구분 없이 모두 종일. 타이틀에 'NH 휴가'.
  */
 function buildVacationEventBody(
   leaveDate: string,
@@ -113,7 +113,10 @@ function buildVacationEventBody(
   entry: LeaveTimelineItem,
 ): import('googleapis').calendar_v3.Schema$Event {
   const firstName = extractFirstName(userDisplayName) || userDisplayName || '담당자'
-  const title = `[${firstName}] 휴가 ${entry.startTime}~${entry.endTime}`
+  const isFullDay = entry.leaveType === 'full_day'
+  const title = isFullDay
+    ? `[${firstName}] 휴가 (종일)`
+    : `[${firstName}] 휴가 ${entry.startTime}~${entry.endTime}`
   return {
     summary: title,
     start: { dateTime: buildKstIso(leaveDate, entry.startTime), timeZone: 'Asia/Seoul' },
