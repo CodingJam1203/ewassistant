@@ -54,6 +54,11 @@ const bodySchema = z.object({
   // 하위호환: 옛 leaveType(enum)도 허용 — 들어오면 분으로 환산.
   leaveMinutes: z.number().int().min(30).max(480).multipleOf(30).optional(),
   leaveType: z.enum(['full_day', 'morning_half', 'afternoon_half']).optional(),
+  // v1.83 — 사용자 입력 시간 명시 시 leave_timeline에 그대로 박힘.
+  //   누락 시 LEAVE_TYPE_DEFINITIONS fallback (예: full_day → 09:00~18:00)
+  //   현재 VacationRegisterModal은 미전달, 향후 admin tool에서 시간 명시 가능.
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$|^24:00$/, '시작 시간 형식이 올바르지 않습니다.').optional(),
+  endTime:   z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$|^24:00$/, '종료 시간 형식이 올바르지 않습니다.').optional(),
   excludeWeekends: z.boolean().optional(),
   note: z.string().max(200).optional(),
 }).refine(d => d.leaveMinutes != null || d.leaveType != null, {
@@ -141,7 +146,11 @@ export async function POST(request: Request) {
       }
 
       // 선택한 휴가 시간(분)을 차감 분으로 그대로 사용 (LeaveTimelineInput과 동일 정책)
-      const leaveItem = buildLeaveItem(leaveType, '휴가', 'manual', leaveMinutes)
+      // v1.83 — body에 startTime/endTime 명시되어 있으면 그대로 박힘, 아니면 fallback.
+      const leaveItem = buildLeaveItem(
+        leaveType, '휴가', 'manual', leaveMinutes,
+        parsed.data.startTime, parsed.data.endTime,
+      )
       const leaveTimeline: LeaveTimeline = [leaveItem]
 
       const workLocationTimeline: WorkLocationTimeline | null = isFullDay
