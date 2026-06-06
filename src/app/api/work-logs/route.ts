@@ -572,34 +572,43 @@ export async function POST(request: Request) {
       }
 
       // ─── Phase 1.5b — N-Click → Google 휴가 push (D+1) ────────────────────
-      try {
-        const { syncLeaveTimelineWithGoogle } = await import('@/lib/google-calendar/vacation-sync')
-        const result = await syncLeaveTimelineWithGoogle({
-          adminClient,
-          userEmail: user.email!,
-          userDisplayName: body.name || user.email!,
-          leaveDate: nextDate,
-          prev: dPlus1PrevLeaveTimeline,
-          next: expectedLeaveTimeline ?? [],
-        })
-        vacationSyncDPlus1 = result
-        if (result.changed && result.updatedTimeline) {
-          await adminClient
-            .from('work_logs')
-            .update({ leave_timeline: result.updatedTimeline })
-            .eq('user_email', user.email!)
-            .eq('leave_date', nextDate)
-            .eq('is_deleted', false)
+      // v1.83.13 — D+1 sync는 after()로 응답 후 백그라운드 실행.
+      //   D-day sync는 await 유지(응답에 google_event_id 즉시 박힘 → 사용자 재편집 안전).
+      //   D+1은 다음 날 row라 사용자가 응답 직후 즉시 편집할 가능성 낮음 → race 위험 낮음.
+      //   응답 latency 1~30s 절약.
+      vacationSyncDPlus1 = { background: true }
+      const userEmailForSync = user.email!
+      const userDisplayName = body.name || user.email!
+      const dPlus1PrevSnapshot = dPlus1PrevLeaveTimeline
+      const dPlus1NextSnapshot = expectedLeaveTimeline ?? []
+      after(async () => {
+        try {
+          const { syncLeaveTimelineWithGoogle } = await import('@/lib/google-calendar/vacation-sync')
+          const result = await syncLeaveTimelineWithGoogle({
+            adminClient,
+            userEmail: userEmailForSync,
+            userDisplayName,
+            leaveDate: nextDate,
+            prev: dPlus1PrevSnapshot,
+            next: dPlus1NextSnapshot,
+          })
+          if (result.changed && result.updatedTimeline) {
+            await adminClient
+              .from('work_logs')
+              .update({ leave_timeline: result.updatedTimeline })
+              .eq('user_email', userEmailForSync)
+              .eq('leave_date', nextDate)
+              .eq('is_deleted', false)
+          }
+        } catch (vacationSyncErr) {
+          console.error('[work-logs POST] vacation sync failed (D+1 background, non-fatal):', vacationSyncErr)
         }
-      } catch (vacationSyncErr) {
-        const msg = vacationSyncErr instanceof Error ? vacationSyncErr.message : String(vacationSyncErr)
-        console.error('[work-logs POST] vacation sync failed (D+1, non-fatal):', vacationSyncErr)
-        vacationSyncDPlus1 = { thrown: msg }
-      }
+      })
 
       // v1.50 (2026-05-27) — 사전등록 알림 (D+1 분기).
-      // 본부 `notify_on_advance_checkin=true` 일 때만 발송. INSERT/UPDATE 무관.
-      await maybeNotifyAdvanceCheckin({
+      // 본부 `notify_on_advance_checkin=true` 일 때만 발송.
+      // v1.83.13 — after()로 응답 후 백그라운드 실행 보장.
+      const advancePayload = {
         adminClient,
         userEmail: (user.email ?? '').toLowerCase(),
         userName: body.name ?? '',
@@ -611,7 +620,8 @@ export async function POST(request: Request) {
         plannedEnd: dPlus1PlannedEnd,
         plannedLocation: nextWorkLocation,
         memo: typeof body.expectedWorkContent === 'string' ? body.expectedWorkContent.trim() || null : null,
-      })
+      }
+      after(() => maybeNotifyAdvanceCheckin(advancePayload))
     }
 
     // ─── daily_work_status: 폼의 출퇴근 시간 = 실제 출퇴근으로 저장 ─────────────
