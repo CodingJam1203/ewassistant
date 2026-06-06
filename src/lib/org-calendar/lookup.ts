@@ -182,6 +182,25 @@ export async function fetchOrgCalendarLookup(args: {
     return { enabled: true, fetchFailed: true, byEmail }
   }
 
+  // v1.83.6 — dismissed 마커 조회. 사용자가 [이 휴가 취소] 누른 (email, date) 쌍은
+  // Google 캘린더 vacation 분배 시 leaveType 채우기 skip → 모달/캘린더에 휴가 안 보임.
+  // (시트 lookup은 mergeSheetDataIntoLookup 내부에 이미 dismissed 체크 있음 — Google 메인 흐름엔 누락이었던 게 v1.83.6 버그)
+  const dismissedKeys = new Set<string>()
+  try {
+    const { data: dismissedRows } = await adminClient
+      .from('work_logs')
+      .select('user_email, leave_date')
+      .in('user_email', emails)
+      .in('leave_date', dates)
+      .eq('calendar_prefill_dismissed', true)
+      .eq('is_deleted', false)
+    for (const r of (dismissedRows ?? []) as Array<{ user_email: string; leave_date: string }>) {
+      dismissedKeys.add(`${r.user_email.toLowerCase()}::${r.leave_date}`)
+    }
+  } catch (err) {
+    console.warn('[org-calendar/lookup] dismissed lookup failed:', err)
+  }
+
   // 날짜별 KST 경계 (시각 이벤트 매핑용)
   const dateSet = new Set(dates)
   const dayBoundsMs = new Map<string, { start: number; end: number }>()
@@ -234,6 +253,13 @@ export async function fetchOrgCalendarLookup(args: {
         if (!dateSet.has(dateIso)) continue
         const lookup = rec[dateIso]
         if (isVacation) {
+          // v1.83.6 — dismissed 마커 있는 (email, date) 쌍은 Google vacation 무시.
+          //   사용자가 [이 휴가 취소] 누른 일자라 즉시 안 보여야 함.
+          //   (Google events.delete가 best-effort로 호출되지만 org_calendar_events 캐시가
+          //    stale일 수 있어 dismissed 마커로 확정 차단.)
+          if (dismissedKeys.has(`${email}::${dateIso}`)) {
+            continue
+          }
           if (lookup.leaveType === null) {
             lookup.leaveType = decideLeaveType(evStartMs, evEndMs, r.is_all_day, cleanedTitle, r.start_at, r.end_at)
             lookup.leaveLabel = cleanedTitle || '휴가'
