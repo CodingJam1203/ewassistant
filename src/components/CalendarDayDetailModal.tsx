@@ -334,15 +334,21 @@ export default function CalendarDayDetailModal({
                   ? `${calendar.leaveLabel} ${lvStart}~${lvEnd}`
                   : calendar.leaveLabel
                 const isGcal = lvSrc === 'gcal'
-                const sourceHint = isGcal ? 'Google 캘린더 (양방향 동기화)' : '시트에서 자동 인식'
+                // v1.83.18 — sheet 출처(단방향)는 점선 외곽선 + 투명 배경으로 readonly 시각화.
+                //   gcal 양방향과 한 눈에 구분되도록 Badge className override.
+                const badgeOverride = !isGcal ? 'bg-transparent border-dashed text-warning-text/80' : undefined
+                const sourceHint = isGcal ? 'Google 캘린더 (양방향 동기화)' : '시트에서 자동 인식 (단방향 — 수정은 시트에서)'
                 const actionLabel = isGcal ? '이 휴가 취소' : '이 일자에서 가리기'
                 const confirmMsg = isGcal
                   ? `${date} 휴가를 취소하시겠습니까?\n\nGoogle 캘린더에서도 자동으로 삭제됩니다.`
                   : `${date} 휴가를 N-Click 표시에서 가리시겠습니까?\n\n※ 시트 원본은 자동으로 빠지지 않습니다. 영구 삭제는 캘린더 시트에서 직접 수정해주세요.`
                 return (
                   <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant="warning" dot>{badgeText}</Badge>
-                    <span className="text-[12px] text-text-muted">{sourceHint}</span>
+                    <Badge variant="warning" dot className={badgeOverride}>{badgeText}</Badge>
+                    <span className={cn(
+                      'text-[12px]',
+                      isGcal ? 'text-text-muted' : 'text-text-secondary italic',
+                    )}>{sourceHint}</span>
                     <button
                       type="button"
                       onClick={async () => {
@@ -383,6 +389,9 @@ export default function CalendarDayDetailModal({
                       : ev.startTime
                         ? `${ev.startTime}~ ${ev.title}`
                         : `(종일) ${ev.title}`
+                    // v1.83.18 — 단방향(시트) 출처 일정은 muted 색 + 옅은 italic으로 readonly 시각화.
+                    //   gcal 양방향은 기존 hover/edit 가능 스타일 유지.
+                    const isSheet = ev.source === 'sheet'
                     // Phase 1.5e — id가 있는 chunk만 클릭 가능 (org_calendar_events row 식별)
                     if (ev.id && onEditEvent) {
                       return (
@@ -390,15 +399,26 @@ export default function CalendarDayDetailModal({
                           <button
                             type="button"
                             onClick={() => onEditEvent(ev)}
-                            className="text-left w-full rounded-md px-1.5 py-0.5 hover:bg-primary-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
-                            title="클릭해서 수정"
+                            className={cn(
+                              'text-left w-full rounded-md px-1.5 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500',
+                              isSheet
+                                ? 'text-text-secondary italic hover:bg-surface-muted'
+                                : 'hover:bg-primary-50',
+                            )}
+                            title={isSheet ? '시트 출처 — 보기만 가능 (수정은 시트에서)' : '클릭해서 수정'}
                           >
                             {text}
+                            {isSheet && <span className="ml-1.5 text-[10px] text-text-muted">· 시트</span>}
                           </button>
                         </li>
                       )
                     }
-                    return <li key={i} className="px-1.5">{text}</li>
+                    return (
+                      <li key={i} className={cn('px-1.5', isSheet && 'text-text-secondary italic')}>
+                        {text}
+                        {isSheet && <span className="ml-1.5 text-[10px] text-text-muted">· 시트</span>}
+                      </li>
+                    )
                   })}
                 </ul>
               )}
