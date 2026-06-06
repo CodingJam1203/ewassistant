@@ -235,13 +235,19 @@ export default function LeaveTimelineInput({ value, onChange, disabled, alwaysEn
             </span>
           </label>
 
-          {/* 계산 결과 — 8H 초과 시 빨간색으로 강조 */}
-          <div className="text-[12px] text-text-primary font-medium">
-            → 휴가 시간: <span className={
-              minutes > 480 ? 'text-danger-text font-semibold'
-              : leaveType === 'full_day' ? 'text-info-text'
-              : ''
+          {/* 계산 결과 — 8H 종일은 강조 배지, 8H 초과 시 빨간색 */}
+          <div className="flex items-center gap-1.5 text-[12px] text-text-primary font-medium flex-wrap">
+            <span>→ 휴가 시간:</span>
+            <span className={
+              minutes > 480 ? 'text-danger-text font-bold text-[14px]'
+              : minutes === 480 ? 'text-success-text font-bold text-[14px]'
+              : 'text-text-primary'
             }>{formatHoursAndMinutes(minutes)}</span>
+            {minutes === 480 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold text-success-text bg-success-bg border border-success-border">
+                ✓ 종일 휴가
+              </span>
+            )}
           </div>
 
           {/* v1.83 — 8H 초과 알럿. 부모 폼은 validateLeaveTimeline 통해 submit 차단. */}
