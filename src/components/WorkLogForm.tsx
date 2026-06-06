@@ -628,6 +628,9 @@ export default function WorkLogForm({
   const calendarPrefillTriedRef = useRef(false)
   // v1.60.7 — Spreadsheet calendar prefill 무시 마커. expected-timeline 응답에서 set.
   const calendarPrefillDismissedRef = useRef(false)
+  // v1.83.9 — event_id 단위 차단. 사용자가 [이 휴가 취소] 누른 event_id만 차단.
+  //   새 event_id의 휴가가 들어오면 정상 prefill.
+  const dismissedEventIdsRef = useRef<Set<string>>(new Set<string>())
   useEffect(() => {
     if (calendarPrefillTriedRef.current) return
     const date = formValues.leaveDate
@@ -641,8 +644,11 @@ export default function WorkLogForm({
       .then(r => (r.ok ? r.json() : null))
       .then((data: UserCalendarLookup | null) => {
         if (cancelled || !data?.leaveType) return
-        // v1.60.7 — 사용자가 이전에 calendar source를 [일정 삭제]한 일자면 prefill skip.
-        if (calendarPrefillDismissedRef.current) return
+        // v1.83.9 — event_id 단위 차단. lookup의 leaveEventId가 dismissed list에 있으면 skip.
+        //   list에 없는 새 event_id는 정상 prefill (이전 dismiss 일자에 새 휴가 등록 케이스).
+        //   sheet 출처 등 event_id 없으면 차단 X (시트 dismissed는 lookup 단계에서 이미 적용).
+        const leaveEventId = (data as UserCalendarLookup & { leaveEventId?: string | null }).leaveEventId ?? null
+        if (leaveEventId && dismissedEventIdsRef.current.has(leaveEventId)) return
         // 다시 한 번 체크 — fetch 사이 사용자가 입력했을 수도 있음
         const stillEmpty = ((formValues.leaveTimeline ?? []) as LeaveTimeline).length === 0
         if (!stillEmpty) return
@@ -703,8 +709,13 @@ export default function WorkLogForm({
         checkedInAt?: string | null
         hasExisting?: boolean
         calendarPrefillDismissed?: boolean
+        dismissedGoogleEventIds?: string[]
       } | null) => {
-        if (data) calendarPrefillDismissedRef.current = !!data.calendarPrefillDismissed
+        if (data) {
+          calendarPrefillDismissedRef.current = !!data.calendarPrefillDismissed
+          // v1.83.9 — event_id 단위 차단 list
+          dismissedEventIdsRef.current = new Set<string>(data.dismissedGoogleEventIds ?? [])
+        }
         if (!data?.hasExisting) {
           // 2026-05-19 v1.8: leaveDate 변경 시 새 일자에 보고가 없으면 default로 reset.
           // 이전 leaveDate의 prefill 값(startTime/endTime)이 끌려가지 않게 명시 reset.

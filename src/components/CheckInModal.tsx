@@ -143,6 +143,9 @@ export default function CheckInModal({
   // v1.60.7 — Spreadsheet calendar prefill 무시 마커. expected-timeline 응답에서 받음.
   // calendar-events effect에서 leaveType prefill 시 이 ref가 true면 skip.
   const calendarPrefillDismissedRef = useRef(false)
+  // v1.83.9 — event_id 단위 차단. 사용자가 [이 휴가 취소] 누른 event_id만 차단.
+  //   새 event_id의 휴가는 정상 prefill (이전 dismiss 일자에 새 휴가 등록 케이스).
+  const dismissedEventIdsRef = useRef<Set<string>>(new Set<string>())
   const [deleting, setDeleting] = useState(false)
   // Phase 1.5d (CheckInModal 확장 — 2026-05-21):
   //   종일 휴가 prefill + 근무 의도 신호 동시 입력 시 confirm 모달.
@@ -190,12 +193,15 @@ export default function CheckInModal({
           workContent?: string | null
           workLogId?: string | null
           calendarPrefillDismissed?: boolean
+          dismissedGoogleEventIds?: string[]
         }
         if (cancelled) return
         // work_log_id — today 모드의 partial delete에서 필요
         setWorkLogId(data.workLogId ?? null)
         // v1.60.7 — dismissed 마커 보관. calendar-events effect에서 prefill 제외 조건으로 사용.
         calendarPrefillDismissedRef.current = !!data.calendarPrefillDismissed
+        // v1.83.9 — event_id 단위 차단 list
+        dismissedEventIdsRef.current = new Set<string>(data.dismissedGoogleEventIds ?? [])
 
         // 케이스 판별
         // todayKst 비교용 — KST yyyy-mm-dd
@@ -344,8 +350,11 @@ export default function CheckInModal({
         setCalendarLookup(data)
         // functional update — work_logs prefill effect와 race 안전.
         // 이미 leaveTimeline이 set 되어 있으면(work_logs 또는 사용자 입력) 유지.
-        // v1.60.7 — 사용자가 이전에 calendar source를 [일정 삭제]한 일자면 prefill skip.
-        if (data.leaveType && !calendarPrefillDismissedRef.current) {
+        // v1.83.9 — event_id 단위 prefill 차단. lookup의 leaveEventId가 dismissed list에 있을 때만 skip.
+        //   새 event_id의 휴가는 정상 prefill.
+        const leaveEventIdCal = (data as UserCalendarLookup & { leaveEventId?: string | null }).leaveEventId ?? null
+        const blockedByEventId = !!(leaveEventIdCal && dismissedEventIdsRef.current.has(leaveEventIdCal))
+        if (data.leaveType && !blockedByEventId) {
           setLeaveTimeline(prev => {
             if (Array.isArray(prev) && prev.length > 0) return prev
             // v1.83.5 — Google 시간 박스: leaveStartTime/leaveEndTime + 점심 차감된 leaveDeductionMinutes 박힘.

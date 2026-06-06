@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   // 그 일자의 본인 active row 1건
   const { data: existing } = await adminClient
     .from('work_logs')
-    .select('id, leave_timeline, dismissed_google_event_ids')
+    .select('id, leave_timeline, dismissed_google_event_ids, work_location, work_location_timeline')
     .eq('user_email', user.email!)
     .eq('leave_date', date)
     .eq('is_deleted', false)
@@ -86,14 +86,25 @@ export async function POST(request: Request) {
       ? [...prevDismissedIds, leaveEventId]
       : prevDismissedIds
 
+    // v1.83.9 — 이전 휴가 등록 흔적인 work_location='휴가' 잔재 정리.
+    //   bulk-leave 또는 풀데이 휴가가 박힌 row가 dismiss됐는데 work_location만 남아서
+    //   다음 출퇴근보고 모달이 '휴가' 칩으로 잘못 prefill되던 문제 해소.
+    //   사용자가 직접 입력한 다른 work_location은 보존.
+    const shouldResetWorkLocation = existing.work_location === '휴가'
+    const updates: Record<string, unknown> = {
+      leave_timeline: nextLeaveTimeline.length > 0 ? nextLeaveTimeline : null,
+      calendar_prefill_dismissed: true,
+      dismissed_google_event_ids: nextDismissedIds.length > 0 ? nextDismissedIds : null,
+      updated_at: new Date().toISOString(),
+    }
+    if (shouldResetWorkLocation) {
+      updates.work_location = ''
+      updates.work_location_timeline = null
+    }
+
     const { error: updErr } = await adminClient
       .from('work_logs')
-      .update({
-        leave_timeline: nextLeaveTimeline.length > 0 ? nextLeaveTimeline : null,
-        calendar_prefill_dismissed: true,
-        dismissed_google_event_ids: nextDismissedIds.length > 0 ? nextDismissedIds : null,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updates)
       .eq('id', workLogId)
       .eq('is_deleted', false)
     if (updErr) {

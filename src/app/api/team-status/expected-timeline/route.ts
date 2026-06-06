@@ -59,7 +59,7 @@ export async function GET(request: Request) {
     // 이미 D-day에 출근보고를 작성한 적이 있다면 그 값으로 prefill (수정 가능)
     const { data: bodyLog } = await adminClient
       .from('work_logs')
-      .select('id, start_time, end_time, work_location, work_location_timeline, leave_timeline, planned_work_locations, work_content, calendar_prefill_dismissed')
+      .select('id, start_time, end_time, work_location, work_location_timeline, leave_timeline, planned_work_locations, work_content, calendar_prefill_dismissed, dismissed_google_event_ids')
       .eq('user_email', user.email!)
       .eq('leave_date', date)
       .eq('is_deleted', false)
@@ -80,6 +80,10 @@ export async function GET(request: Request) {
       // 모달이 받은 leaveTimeline 그대로 form state에 prefill → Spreadsheet 잔재 안 보임.
       const rawLeave = Array.isArray(bodyLog.leave_timeline) ? bodyLog.leave_timeline as LeaveTimeline : null
       const dismissed = !!bodyLog.calendar_prefill_dismissed
+      // v1.83.9 — 모달이 calendar prefill 차단을 event_id 단위로 판단하기 위해 같이 반환.
+      const dismissedGoogleEventIds: string[] = Array.isArray(bodyLog.dismissed_google_event_ids)
+        ? bodyLog.dismissed_google_event_ids as string[]
+        : []
       const filteredLeave: LeaveTimeline | null = rawLeave && rawLeave.length > 0
         ? (dismissed ? rawLeave.filter(it => it?.source !== 'calendar') : rawLeave)
         : null
@@ -141,6 +145,8 @@ export async function GET(request: Request) {
         workLogId: (bodyLog.id as string | null) ?? null,
         // v1.60.7 — 클라이언트가 calendar-events fetch 결과를 prefill할 때 이 값을 보고 skip
         calendarPrefillDismissed: dismissed,
+        // v1.83.9 — event_id 단위 정밀 차단 (모달이 새 휴가의 event_id가 dismissed list에 없으면 prefill 진행)
+        dismissedGoogleEventIds,
       })
     }
 
