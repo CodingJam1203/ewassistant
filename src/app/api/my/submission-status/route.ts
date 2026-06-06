@@ -21,7 +21,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isKoreanHoliday, getKoreanHolidayName, isSaturday, isSunday } from '@/lib/kr-holidays'
 import { getKstTodayDateString } from '@/lib/utils/date'
-import type { LeaveTimeline } from '@/types/leave-timeline'
+import type { LeaveTimeline, LeaveType } from '@/types/leave-timeline'
 import { isCalendarEnabled, getCalendarRangeBatch, parseCell } from '@/lib/leave-calendar'
 
 // Vercel Hobby 기본 10s — 1개월치 work_logs 2번 쿼리가 콜드스타트에서 종종 타임아웃 → 30s로 여유
@@ -43,7 +43,7 @@ export interface DayStatusEntry {
   isHoliday: boolean
   holidayName: string | null
   status: DayStatus
-  leaveType: 'full_day' | 'morning_half' | 'afternoon_half' | null
+  leaveType: LeaveType | null
   /** 작성된 출근보고 work_log id (있으면) — 클라가 수정 모달 띄울 때 사용 */
   checkInLogId: string | null
   /** 작성된 퇴근보고 work_log id (있으면) */

@@ -16,7 +16,7 @@ import { isWeekendDate } from '@/lib/utils/date'
 import { isKoreanHoliday } from '@/lib/kr-holidays'
 import { loadTeamCronFlags, isCronFlagOn } from '@/lib/notifications/cron-flags'
 import type { WorkLocations } from '@/types/work-locations-v2'
-import type { LeaveTimeline } from '@/types/leave-timeline'
+import type { LeaveTimeline, LeaveType } from '@/types/leave-timeline'
 
 /** planned_work_locations(WorkLocations 배열) → 표시용 string ("사무실 → 재택") */
 function fmtPlannedLocations(planned: WorkLocations | null | undefined): string | null {
@@ -108,7 +108,7 @@ export async function GET(request: Request) {
   // 안 잡힘 → 별도 조회해 미보고 대신 🌴 휴가로 표시.
   // v1.62: 캘린더(org_calendar_events)에만 휴가 등록된 사용자도 미보고 false positive 방지를 위해
   // 같은 leaveMap에 머지. judgeLeave 공용 헬퍼로 3단 우선순위 통일.
-  const leaveMap = new Map<string, { type: 'full_day' | 'morning_half' | 'afternoon_half'; label: string }>()
+  const leaveMap = new Map<string, { type: LeaveType; label: string }>()
   const todayLeaveTimelineByEmail = new Map<string, LeaveTimeline | null>()
   {
     const { data: leaveRows } = await adminClient

@@ -16,7 +16,7 @@ import { isWeekendDate } from '@/lib/utils/date'
 import { isKoreanHoliday } from '@/lib/kr-holidays'
 import { loadTeamCronFlags, isCronFlagOn } from '@/lib/notifications/cron-flags'
 import type { WorkLocations } from '@/types/work-locations-v2'
-import type { LeaveTimeline } from '@/types/leave-timeline'
+import type { LeaveTimeline, LeaveType } from '@/types/leave-timeline'
 
 /** planned_work_locations(WorkLocations 배열) → 표시용 string ("사무실 → 재택") */
 function fmtPlannedLocations(planned: WorkLocations | null | undefined): string | null {
@@ -105,7 +105,7 @@ export async function GET(request: Request) {
   // - work_logs.leave_timeline 첫 항목 (full_day/morning_half/afternoon_half)
   // - + 캘린더(org_calendar_events) 휴가 머지 (judgeLeave 공용 헬퍼로 3단 우선순위 통일)
   //   → 캘린더에만 등록된 휴가도 미보고 대신 🌴로 표시됨 (false positive fix)
-  const leaveMap = new Map<string, { type: 'full_day' | 'morning_half' | 'afternoon_half'; label: string }>()
+  const leaveMap = new Map<string, { type: LeaveType; label: string }>()
   const todayLeaveTimelineByEmail = new Map<string, LeaveTimeline | null>()
   {
     const { data: leaveRows } = await adminClient

@@ -100,6 +100,13 @@ export interface UserCalendarLookup {
    * dismiss endpoint가 이걸로 events.delete 대상 캘린더 식별.
    */
   leaveOrgCalendarId?: string | null
+  /**
+   * v1.83.3 — Google 시간 박스 휴가의 KST 'HH:mm'.
+   * 종일 박스(is_all_day)나 시트 출처는 null/undefined.
+   * CheckInModal/WorkLogForm이 buildLeaveItem 호출 시 그대로 전달 → leave_timeline에 박힘.
+   */
+  leaveStartTime?: string | null
+  leaveEndTime?: string | null
   /** 일반 일정 목록 (휴가 키워드 제외) */
   events: CalendarEventChunk[]
   /** 셀 원본 텍스트 (디버그용) */

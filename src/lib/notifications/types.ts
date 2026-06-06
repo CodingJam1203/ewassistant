@@ -1,6 +1,6 @@
 import type { WorkLocationTimeline } from '@/types/work-location-timeline'
 import type { WorkLocations } from '@/types/work-locations-v2'
-import type { LeaveTimeline } from '@/types/leave-timeline'
+import type { LeaveTimeline, LeaveType } from '@/types/leave-timeline'
 
 // ─── 이벤트 타입 ─────────────────────────────────────────────────────────────
 
@@ -22,6 +22,7 @@ export type EventType =
   | 'daily_morning_summary'
   | 'missing_report_nudge'      // 미보고 현황에서 리더/관리자가 수동 발송하는 알림
   | 'leader_review_nudge'       // v1.73 — 리더 관리 뷰에서 리더가 미상신/오상신 보고에 대해 수동 발송
+  | 'leader_review_resolution_requested' // v1.76 — 본인이 EW 미상신/오상신 처리 후 리더에게 해지요청 발송
 
 // ─── 페이로드 타입 ────────────────────────────────────────────────────────────
 
@@ -263,7 +264,7 @@ export interface DailyCheckinReminderData {
     /** 다음날 출근보고 작성됨 여부 — 1줄 per person 새 포맷에서 ✅/⚠️ 표식 */
     hasReport?: boolean
     /** v1.58: 대상일 휴가 — full_day면 미보고 대신 🌴 휴가로 표시(미보고 통계 제외). 반차는 출근보고 필요해 미보고 유지 */
-    leaveType?: 'full_day' | 'morning_half' | 'afternoon_half' | null
+    leaveType?: LeaveType | null
     leaveLabel?: string | null
   }>
   /**
@@ -323,6 +324,25 @@ export interface LeaderReviewNudgePayload {
   note?: string | null
 }
 
+/**
+ * v1.76 — EW 미상신/오상신 처리 후 본인이 리더에게 해지요청 발송 payload.
+ * 라우팅: nudge와 동일하게 대상자 본부/팀 출퇴근보고 채널로.
+ */
+export interface LeaderReviewResolutionRequestedPayload {
+  /** 요청자 표시명 (이메일 노출 금지) */
+  name: string
+  /** 대상 보고 일자 */
+  date: string
+  /** 보고 종류 — 라우팅 채널 결정 */
+  reportKind: 'check_in' | 'check_out'
+  /** 현재 리뷰 상태 (사용자가 처리한 것이 missing인지 wrong인지) */
+  status: 'missing' | 'wrong'
+  /** 라우팅용 본부 */
+  division: string
+  /** 라우팅용 팀 (본부 직속이면 notify_team 흡수) */
+  team: string
+}
+
 export interface MorningSummaryData {
   division: string           // 라우팅용
   team: string               // 라우팅용
@@ -330,7 +350,7 @@ export interface MorningSummaryData {
   yesterdayDate: string
 
   /** 🏖️ 오늘 휴가/반차자 (종일/오전/오후) */
-  leaveSection?: Array<{ name: string; label: string; leaveType: 'full_day' | 'morning_half' | 'afternoon_half' }>
+  leaveSection?: Array<{ name: string; label: string; leaveType: LeaveType }>
   /** ✅ 오늘 출근보고 작성 완료 */
   completedSection?: Array<{ name: string; status: string }>
   /** ⚠️ 오늘 출근보고 필요 (휴가 없음/오후반차자 + 미작성) */

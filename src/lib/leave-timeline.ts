@@ -89,22 +89,23 @@ export function computeLeaveMinutes(
 }
 
 /**
- * v1.75 — 시작 시각 + 실 휴가 분 → leaveType 분류.
+ * v1.83.3 — 사용자 직접 입력 분류 (LeaveTimelineInput / VacationRegisterModal).
  *
- *   - 실휴가 ≥ 480 (8H)      → full_day
- *   - 시작 ≥ 13:00           → afternoon_half
- *   - else                   → morning_half
+ *   - 실휴가 == 480 (정확 8H)  → full_day
+ *   - 그 외 양수              → hourly
  *
- * EW 차감(v1.59 정책)은 full_day만 적용. 반차는 표시·캘린더·상태 용도.
+ * 반차(morning_half/afternoon_half) 신규 생성 X. 사용자 직접 입력 경로에서는 분류
+ * 자체를 단순화. EW 차감(v1.59 정책)은 full_day만 적용 — hourly는 차감 0(기존 8H 미만 정책 동일).
+ *
+ * startHhmm 인자는 호출자 시그니처 보존 위해 유지 (룰 내 미사용).
  */
 export function classifyLeaveTypeByRange(
-  startHhmm: string,
+  _startHhmm: string,
   minutes: number,
 ): LeaveType | null {
   if (minutes <= 0) return null
-  if (minutes >= 480) return 'full_day'
-  const s = toMinutes(startHhmm)
-  return s >= 13 * 60 ? 'afternoon_half' : 'morning_half'
+  if (minutes === 480) return 'full_day'
+  return 'hourly'
 }
 
 // ─── 휴가: 파싱 / 빌드 ────────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { UserCalendarLookup, CalendarEventChunk } from '@/types/leave-calendar'
 import type { LeaveType } from '@/types/leave-timeline'
 import { parseCell } from '@/lib/leave-calendar'
+import { parseLeaveLabel } from '@/lib/leave-timeline'
 import { normalizeName } from '@/lib/org-calendar/name-match'
 
 /** ISO → KST 'HH:mm' */
@@ -45,18 +46,31 @@ export function stripBracketPrefix(title: string): string {
   return title.replace(/^\[[^\]]*\]\s*/, '')
 }
 
-/** vacation 이벤트의 시간 범위 → LeaveType 분류 */
-export function decideLeaveType(startMs: number, endMs: number, isAllDay: boolean): LeaveType {
-  if (isAllDay) return 'full_day'
-  const duration = endMs - startMs
-  if (duration >= 480 * 60 * 1000) return 'full_day'
-  const startKstHour = new Date(startMs).getUTCHours() + 9
-  const endKstHour   = new Date(endMs).getUTCHours()   + 9
-  const sh = startKstHour % 24
-  const eh = endKstHour % 24
-  if (eh <= 14) return 'morning_half'
-  if (sh >= 14) return 'afternoon_half'
-  return 'morning_half'
+/**
+ * Google 캘린더 vacation 이벤트 → LeaveType 분류 (v1.83.3).
+ *
+ * 정책:
+ *   - 종일 박스(is_all_day=true) — 시간 정보 없음 → 라벨 텍스트 기반.
+ *       · '오전반차' → morning_half / '오후반차' → afternoon_half / '반차' → morning_half
+ *       · 그 외 (단순 '휴가'/'연차'/'월차' 등) → full_day
+ *   - 시간 박스(is_all_day=false) — 시간 우선 (텍스트 무시).
+ *       · duration 정확 8H → full_day
+ *       · 그 외 → hourly (시간 그대로 박힘)
+ */
+export function decideLeaveType(
+  startMs: number,
+  endMs: number,
+  isAllDay: boolean,
+  title: string | null,
+): LeaveType {
+  if (isAllDay) {
+    // 텍스트 기반 (parseLeaveLabel) — 시트와 동일 룰
+    return parseLeaveLabel(title) ?? 'full_day'
+  }
+  // 시간 박스 — 시간 기반. 텍스트 무시.
+  const durationMin = Math.round((endMs - startMs) / 60_000)
+  if (durationMin === 480) return 'full_day'
+  return 'hourly'
 }
 
 interface OrgCalendarRow {
@@ -192,8 +206,15 @@ export async function fetchOrgCalendarLookup(args: {
         const lookup = rec[dateIso]
         if (isVacation) {
           if (lookup.leaveType === null) {
-            lookup.leaveType = decideLeaveType(evStartMs, evEndMs, r.is_all_day)
+            lookup.leaveType = decideLeaveType(evStartMs, evEndMs, r.is_all_day, cleanedTitle)
             lookup.leaveLabel = cleanedTitle || '휴가'
+            // v1.83.3 — 시간 박스(hourly/full_day-by-duration)는 시간 정보를 lookup에 박아
+            // CheckInModal/WorkLogForm에서 buildLeaveItem 호출 시 그 시각이 leave_timeline에 그대로 들어감.
+            // 종일 박스는 startTime/endTime null → buildLeaveItem이 LEAVE_TYPE_DEFINITIONS fallback 사용.
+            if (!r.is_all_day) {
+              lookup.leaveStartTime = toKstTime(r.start_at)
+              lookup.leaveEndTime   = toKstTime(r.end_at)
+            }
             lookup.raw = cleanedTitle || null
             // v1.61.3 — GCal 출처 + events.delete용 식별자 박제
             lookup.leaveSource = 'gcal'

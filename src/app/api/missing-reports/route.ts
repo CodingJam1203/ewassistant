@@ -27,7 +27,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isKoreanHoliday, isSaturday, isSunday } from '@/lib/kr-holidays'
 import { getKstTodayDateString } from '@/lib/utils/date'
-import type { LeaveTimeline } from '@/types/leave-timeline'
+import type { LeaveTimeline, LeaveType } from '@/types/leave-timeline'
 import { DIVISION_DIRECT_FILTER } from '@/lib/org'
 import { fetchOrgCalendarLookup } from '@/lib/org-calendar/lookup'
 
@@ -165,7 +165,7 @@ export async function GET(request: Request) {
     interface PerCell {
       checkInLogId: string | null
       checkOutLogId: string | null
-      leaveType: 'full_day' | 'morning_half' | 'afternoon_half' | null
+      leaveType: LeaveType | null
     }
     const cells = new Map<string, PerCell>()  // key = `${email}|${date}`
     const cellKey = (email: string, date: string) => `${email}|${date}`

@@ -67,7 +67,7 @@ const chipZ = z.object({
 
 const leaveItemZ = z.object({
   kind: z.literal('leave'),
-  leaveType: z.enum(['full_day', 'morning_half', 'afternoon_half']),
+  leaveType: z.enum(['full_day', 'morning_half', 'afternoon_half', 'hourly']),
   label: z.string(),
   startTime: z.string(),
   endTime: z.string(),
@@ -648,7 +648,11 @@ export default function WorkLogForm({
         if (!stillEmpty) return
         setValue(
           'leaveTimeline',
-          [buildLeaveItem(data.leaveType, data.leaveLabel ?? undefined, 'calendar')],
+          // v1.83.3 — Google 시간 박스의 leaveStartTime/leaveEndTime 그대로 leave_timeline에 박힘.
+          [buildLeaveItem(
+            data.leaveType, data.leaveLabel ?? undefined, 'calendar', undefined,
+            data.leaveStartTime ?? undefined, data.leaveEndTime ?? undefined,
+          )],
           { shouldDirty: false, shouldValidate: false },
         )
       })

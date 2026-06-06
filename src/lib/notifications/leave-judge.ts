@@ -16,7 +16,6 @@
 
 import type { LeaveTimeline, LeaveType } from '@/types/leave-timeline'
 import type { UserCalendarLookup } from '@/types/leave-calendar'
-import { parseLeaveLabel } from '@/lib/leave-timeline'
 
 export interface LeaveJudgment {
   leaveType: LeaveType | null
@@ -36,15 +35,13 @@ export function judgeLeave(args: {
 
   const cal = args.calendarLookup
   if (cal?.leaveType) {
-    // 라벨 텍스트에 specific 반차 키워드(반차/반반차)가 있을 때만 라벨 기반으로 override.
-    // 단순 '휴가'/'연차' 등 full_day 키워드는 parseLeaveLabel이 무조건 full_day로 매핑하지만,
-    // 시간 기반(decideLeaveType)이 morning_half/afternoon_half로 더 정확하므로 시간 결과 유지.
-    // v1.83.2 (2026-06-06): 10:00~11:00 짧은 시간 휴가가 종일로 잘못 판정되던 버그 fix.
-    const labelHint = (cal.leaveLabel ?? '').includes('반차')
-      ? parseLeaveLabel(cal.leaveLabel ?? '')
-      : null
+    // v1.83.3 — lookup의 leaveType은 이미 출처별 적절히 분류됨:
+    //   · Google 종일 박스: decideLeaveType이 parseLeaveLabel 적용 (반차 텍스트 → morning_half 등)
+    //   · Google 시간 박스: 시간 기반 (hourly / full_day-by-duration)
+    //   · 시트: parseCell이 텍스트 기반
+    // 추가 라벨 override 불필요. lookup 결과 그대로 신뢰.
     return {
-      leaveType: labelHint ?? cal.leaveType,
+      leaveType: cal.leaveType,
       leaveLabel: cal.leaveLabel ?? '휴가',
     }
   }
