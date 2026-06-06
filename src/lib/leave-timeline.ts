@@ -273,12 +273,19 @@ export function hasSubFullDayLeave(timeline: LeaveTimeline | null | undefined): 
 }
 
 /**
- * v1.59 안내 멘트 — LeaveTimelineInput inline notice (legacy).
- * v1.60부터 LeaveTimelineInput 자체는 출퇴근보고에서 hide → 이 상수는 LeaveTimelineInput 단독
- * 사용처(현재 없음)에 보존만. 폼에서는 [[buildSubFullDayLeaveNotice]] 가 동적 카피 사용.
+ * v1.83 — 8H 미만 휴가 안내 멘트. LeaveTimelineInput inline notice.
+ * 이전(v1.59): '8시간 미만의 휴가는 EW 시간에서 차감되지 않습니다. 휴게의 형태로 퇴근보고 시 직접 등록해주세요.'
+ * v1.83 변경: 문장 단순화. 차감 안 된다는 부정적 표현 제거.
  */
 export const SUB_FULL_DAY_LEAVE_NOTICE =
-  '8시간 미만의 휴가는 EW 시간에서 차감되지 않습니다. 휴게의 형태로 퇴근보고 시 직접 등록해주세요.'
+  '8시간 미만의 휴가는 퇴근보고 시 직접 휴게의 형태로 등록해주세요.'
+
+/**
+ * v1.83 — 휴가 등록 시 NPM 상신 별도 안내. LeaveTimelineInput 휴가 영역 펼침 시 노출.
+ * N-Click/캘린더에만 박힌다는 점 + NPM 별도 상신이 필요하다는 점을 사용자에게 명시.
+ */
+export const LEAVE_NPM_NOTICE =
+  "해당 휴가는 'N-Click', 등록된 '캘린더'에만 등록됩니다. 실제 NPM 상신은 직접 진행해주세요."
 
 /**
  * v1.60 — 8H 미만 휴가용 read-only 안내 카피 (출퇴근보고/출근완료 모달).

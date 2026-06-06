@@ -4,9 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
-
-const EW_URL = 'https://working.univ.me/Home'
-const NPM_URL = 'https://intra.univ.me/Approval/AprCreateDoc'
+import { EW_URL, NPM_URL } from '@/lib/constants/external-links'
 
 export interface NavbarLinksProps {
   links: Array<{ href: string; label: string }>

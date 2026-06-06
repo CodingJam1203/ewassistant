@@ -23,6 +23,7 @@ import { Button, Field, Input, DateInputWithDow } from '@/components/ui'
 import LeaveTimelineInput from '@/components/LeaveTimelineInput'
 import { buildLeaveItem } from '@/lib/leave-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
+import { NPM_URL } from '@/lib/constants/external-links'
 import { cn } from '@/lib/utils/cn'
 import { useRegisterModalOpen } from '@/contexts/ModalOpenContext'
 
@@ -142,6 +143,11 @@ export default function VacationRegisterModal({
       }
       setResult(data as BulkLeaveResult)
       onSuccess(data as BulkLeaveResult)
+      // v1.83 — 일괄 등록 성공(created > 0) 시 NPM 바로가기 새 탭으로 안내.
+      // 모두 skip(이미 등록된 날짜)인 케이스는 NPM 열지 않음.
+      if (typeof window !== 'undefined' && (data as BulkLeaveResult).created > 0) {
+        window.open(NPM_URL, '_blank', 'noopener,noreferrer')
+      }
     } catch (err: unknown) {
       const m = err instanceof Error ? err.message : String(err)
       setError(`네트워크 오류: ${m}`)
