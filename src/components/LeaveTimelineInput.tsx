@@ -43,6 +43,12 @@ interface LeaveTimelineInputProps {
   value: LeaveTimeline
   onChange: (next: LeaveTimeline) => void
   disabled?: boolean
+  /**
+   * v1.83 — true면 '휴가 등록' 체크박스 숨김 + 항상 펼친 상태로 노출.
+   * VacationRegisterModal 같이 휴가 입력이 필수인 폼에서 사용.
+   * default false (출퇴근보고 모달은 체크박스 패턴 유지).
+   */
+  alwaysEnabled?: boolean
 }
 
 // Phase B — 사용자 mode가 sheet_only일 때 시트 동기화 안내. 모든 mount에서 1회 fetch.
@@ -90,14 +96,14 @@ function formatHoursAndMinutes(minutes: number): string {
 const DEFAULT_START = '09:00'
 const DEFAULT_END   = '18:00'
 
-export default function LeaveTimelineInput({ value, onChange, disabled }: LeaveTimelineInputProps) {
+export default function LeaveTimelineInput({ value, onChange, disabled, alwaysEnabled = false }: LeaveTimelineInputProps) {
   const userMode = useUserCalendarMode()
   // v1.59 — 8H 미만 휴가 안내 (캘린더 자동 prefill 케이스 포함)
   const showSubFullDayNotice = hasSubFullDayLeave(value)
 
   // 기존 row prefill: value의 첫 항목에서 startTime/endTime 복원
   const first = value?.[0]
-  const enabled = !!first
+  const enabled = alwaysEnabled || !!first
   const start = first?.startTime ?? DEFAULT_START
   const end   = first?.endTime   ?? DEFAULT_END
 
@@ -170,23 +176,25 @@ export default function LeaveTimelineInput({ value, onChange, disabled }: LeaveT
         </div>
       )}
 
-      {/* 휴가 등록 토글 */}
-      <label className="inline-flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={enabled}
-          onChange={handleToggleEnabled}
-          disabled={disabled}
-          className="h-3.5 w-3.5"
-          aria-label="휴가 등록"
-        />
-        <Plane className="h-3.5 w-3.5 text-warning-text shrink-0" aria-hidden />
-        <span>휴가 등록</span>
-      </label>
+      {/* 휴가 등록 토글 — alwaysEnabled 모드에서는 hide */}
+      {!alwaysEnabled && (
+        <label className="inline-flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={handleToggleEnabled}
+            disabled={disabled}
+            className="h-3.5 w-3.5"
+            aria-label="휴가 등록"
+          />
+          <Plane className="h-3.5 w-3.5 text-warning-text shrink-0" aria-hidden />
+          <span>휴가 등록</span>
+        </label>
+      )}
 
       {/* 휴가 입력 영역 — enabled일 때만 펼침 */}
       {enabled && (
-        <div className="pl-5 space-y-1.5">
+        <div className={alwaysEnabled ? 'space-y-1.5' : 'pl-5 space-y-1.5'}>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[12px] text-text-muted">시작</span>
             <CustomDropdown

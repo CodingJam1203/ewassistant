@@ -20,8 +20,9 @@
 import { useEffect, useState } from 'react'
 import { X, Plane } from 'lucide-react'
 import { Button, Field, Input, DateInputWithDow } from '@/components/ui'
-import CustomDropdown from '@/components/ui/CustomDropdown'
-import { LEAVE_TIME_OPTIONS } from '@/lib/leave-timeline'
+import LeaveTimelineInput from '@/components/LeaveTimelineInput'
+import { buildLeaveItem } from '@/lib/leave-timeline'
+import type { LeaveTimeline } from '@/types/leave-timeline'
 import { cn } from '@/lib/utils/cn'
 import { useRegisterModalOpen } from '@/contexts/ModalOpenContext'
 
@@ -41,10 +42,10 @@ interface BulkLeaveResult {
   skippedDates: string[]
 }
 
-// 30분 단위 휴가 시간 옵션 ('휴가 없음'(0) 제외 — 등록 모달은 최소 30분)
-const VACATION_TIME_OPTIONS = LEAVE_TIME_OPTIONS
-  .filter(o => o.minutes > 0)
-  .map(o => ({ value: String(o.minutes), label: o.minutes === 480 ? `${o.label} (종일)` : o.label }))
+// v1.83 — 기본값 09:00~18:00 종일 휴가 (LeaveTimelineInput과 동일 정책)
+function buildDefaultLeaveTimeline(): LeaveTimeline {
+  return [buildLeaveItem('full_day', '휴가', 'manual', 480, '09:00', '18:00')]
+}
 
 export default function VacationRegisterModal({
   initialStartDate,
@@ -57,8 +58,8 @@ export default function VacationRegisterModal({
   const today = new Date().toISOString().slice(0, 10)
   const [startDate, setStartDate] = useState(initialStartDate ?? today)
   const [endDate, setEndDate]     = useState(initialEndDate ?? initialStartDate ?? today)
-  // 휴가 시간(분) — default 480(종일). 30분 단위.
-  const [leaveMinutes, setLeaveMinutes] = useState<number>(480)
+  // v1.83 — 휴가 시간 입력은 LeaveTimelineInput과 동일 모델 (시작/끝/점심토글)
+  const [leaveTimeline, setLeaveTimeline] = useState<LeaveTimeline>(buildDefaultLeaveTimeline())
   const [excludeWeekends, setExcludeWeekends] = useState(true)
   const [note, setNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -114,6 +115,11 @@ export default function VacationRegisterModal({
       setError('시작일이 종료일보다 늦습니다.')
       return
     }
+    const item = leaveTimeline[0]
+    if (!item || !item.roundedMinutes) {
+      setError('휴가 시간을 입력해주세요.')
+      return
+    }
     setSubmitting(true)
     try {
       const res = await fetch('/api/work-logs/bulk-leave', {
@@ -122,7 +128,9 @@ export default function VacationRegisterModal({
         body: JSON.stringify({
           startDate,
           endDate,
-          leaveMinutes,
+          leaveMinutes: item.roundedMinutes,
+          startTime: item.startTime,
+          endTime:   item.endTime,
           excludeWeekends,
           note: note.trim() || undefined,
         }),
@@ -226,14 +234,14 @@ export default function VacationRegisterModal({
               </Field>
             </div>
 
-            <Field label="휴가 시간" required hint="30분 단위로 선택. 8:00은 종일 휴가입니다.">
-              <CustomDropdown
-                value={String(leaveMinutes)}
-                onChange={v => setLeaveMinutes(parseInt(v, 10))}
-                options={VACATION_TIME_OPTIONS}
-                ariaLabel="휴가 시간"
-                className="w-full"
-              />
+            <Field label="휴가 시간" required hint="시작·종료 시각을 직접 입력하세요. 기본값 09:00~18:00 + 점심 포함 = 8H (종일).">
+              <div className="rounded-[10px] border border-border-strong bg-surface px-3 py-2">
+                <LeaveTimelineInput
+                  value={leaveTimeline}
+                  onChange={setLeaveTimeline}
+                  alwaysEnabled
+                />
+              </div>
             </Field>
 
             <Field label="옵션">
@@ -266,7 +274,7 @@ export default function VacationRegisterModal({
             >
               💡 이미 보고가 있는 날짜는 건너뜁니다 — 캘린더에서 확인 후 직접 수정해주세요.
               <br />
-              종일(8H) 외 부분 휴가는 기본 시작/종료 시각(예: 오전반차 09:00~14:00)으로 등록됩니다. 시각을 다르게 입력하려면 캘린더 셀의 출퇴근보고에서 직접 조정해주세요.
+              위 휴가 시간(시작·종료·점심 포함 여부)이 등록될 모든 row에 동일하게 들어갑니다.
             </div>
 
             {/* pre-submit 안내 — 선택한 범위 내 이미 보고된 날 미리 표시 */}
