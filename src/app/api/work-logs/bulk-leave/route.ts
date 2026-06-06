@@ -30,7 +30,7 @@
  *     createdDates: string[],
  *   }
  */
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { z } from 'zod'
 import { requireActiveUser } from '@/lib/admin-check'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -222,40 +222,45 @@ export async function POST(request: Request) {
 
       createdDates.push(date)
 
-      // Phase 1.5b 확장 (2026-05-21) — bulk-leave도 Google 휴가 캘린더에 push.
-      // 종전엔 /api/work-logs POST hook에만 push가 있어 VacationRegisterModal(bulk-leave)로
-      // 등록한 휴가가 Google·일정관리 뷰에 반영 안 되던 버그 (5/28·5/29 QA 보고). best-effort.
-      try {
-        const { syncLeaveTimelineWithGoogle } = await import('@/lib/google-calendar/vacation-sync')
-        const syncResult = await syncLeaveTimelineWithGoogle({
-          adminClient,
-          userEmail: user.email!,
-          userDisplayName: displayName,
-          leaveDate: date,
-          prev: [],
-          next: leaveTimeline,
-        })
-        if (syncResult.changed && syncResult.updatedTimeline && created?.id) {
-          await adminClient
-            .from('work_logs')
-            .update({ leave_timeline: syncResult.updatedTimeline })
-            .eq('id', created.id)
+      // v1.83.14 — Google sync + recordSubmission을 after()로 백그라운드 분리.
+      //   N일 휴가 등록 시 N × (1~5초) Google API 호출이 응답을 지연시키던 문제 해소.
+      //   work_logs INSERT는 직렬 유지 — 정확한 createdDates/skippedDates 응답 보장.
+      //   사용자가 bulk 휴가 등록 직후 그 휴가를 즉시 편집할 가능성 낮아 google_event_id race 위험 작음.
+      const createdId = created?.id
+      const syncSnapshot = leaveTimeline
+      after(async () => {
+        try {
+          const { syncLeaveTimelineWithGoogle } = await import('@/lib/google-calendar/vacation-sync')
+          const syncResult = await syncLeaveTimelineWithGoogle({
+            adminClient,
+            userEmail: user.email!,
+            userDisplayName: displayName,
+            leaveDate: date,
+            prev: [],
+            next: syncSnapshot,
+          })
+          if (syncResult.changed && syncResult.updatedTimeline && createdId) {
+            await adminClient
+              .from('work_logs')
+              .update({ leave_timeline: syncResult.updatedTimeline })
+              .eq('id', createdId)
+          }
+        } catch (syncErr) {
+          console.error('[bulk-leave] vacation sync failed (background, non-fatal):', date, syncErr)
         }
-      } catch (syncErr) {
-        console.error('[bulk-leave] vacation sync failed (non-fatal):', date, syncErr)
-      }
+      })
 
-      // submission 로그 기록 (퇴근보고 family로 기록 — 휴가는 퇴근 family에 매칭)
-      await recordSubmission({
+      // submission 로그 기록 (퇴근보고 family — 휴가는 퇴근 family에 매칭). after()로 백그라운드.
+      const submissionPayload = {
         user_id: user.id,
         user_email: user.email!,
         name: displayName,
         division: userDivision,
         team: userTeam,
-        report_type: 'check_out',
+        report_type: 'check_out' as const,
         target_date: date,
         submitted_at: new Date().toISOString(),
-        work_log_id: created?.id ?? null,
+        work_log_id: createdId ?? null,
         start_time: startTime,
         end_time: endTime,
         break_time: '00:00:00',
@@ -271,7 +276,8 @@ export async function POST(request: Request) {
         work_type_label: '기본근무 등록',
         work_type_code: calcResult.workTypeCode,
         attendance_record_type: '스킵(누락퇴근보고, 퇴근보고 수정)',
-      })
+      }
+      after(() => recordSubmission(submissionPayload))
     }
 
     return NextResponse.json({
