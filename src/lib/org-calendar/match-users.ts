@@ -133,6 +133,22 @@ function extractBracketNames(title: string): string[] {
     .filter(s => s.length >= 2 && /[가-힣A-Za-z]/.test(s))
 }
 
+/**
+ * v1.83.19 — title 시작이 "한글이름 -" / "한글이름:" / "한글이름 " 패턴이면 첫 토큰 추출.
+ *   예: "이정영 - 워크샵 TFT 회의" → "이정영"
+ *   예: "고려대 삼성E&A 설명회"   → "고려대" (사용자 정확 일치 X → 후속 단계에서 매칭 0)
+ *   예: "이성훈 - 이정영 미팅"   → "이성훈" (첫 토큰만 — 중간 이름은 매칭 X)
+ *
+ * 보수적 룰:
+ *   - 한글 2~4글자만 추출 (영문/숫자/대괄호 X)
+ *   - 직후가 공백/하이픈/콜론/중점 등 구분자여야 함 (이름의 일부가 아니라 분리된 토큰)
+ *   - 매칭은 matchUsers에서 byName 풀네임 정확 일치만 적용 → 잘못된 사용자 매칭 방지
+ */
+function extractLeadingName(title: string): string | null {
+  const m = title.trim().match(/^([가-힣]{2,4})(?=[\s\-:·,|])/)
+  return m ? m[1] : null
+}
+
 interface MatchInput {
   title: string
   attendeeEmails: string[]
@@ -150,6 +166,18 @@ export function matchUsers(ev: MatchInput, lookup: UserLookup): string[] {
   for (const e of ev.attendeeEmails) {
     const u = lookup.byEmail.get(e.toLowerCase().trim())
     if (u) matched.add(u.email)
+  }
+
+  // v1.83.19 — 3) title 시작 첫 토큰이 풀네임이면 매칭 (대괄호 없는 컨벤션 지원).
+  //   예: "이정영 - 워크샵 TFT 회의" → 이정영 매칭.
+  //   풀네임 정확 일치만 적용(suffix X) → 잘못된 매칭 위험 차단.
+  //   기존 대괄호/attendee 매칭과 합집합(Set)으로 dedupe.
+  const leadingName = extractLeadingName(ev.title ?? '')
+  if (leadingName) {
+    const list = lookup.byName.get(leadingName)
+    if (list && list.length > 0) {
+      for (const u of list) matched.add(u.email)
+    }
   }
 
   // 2) title 대괄호 안 토큰 매칭 — 풀네임 → suffix → alias 순서.
