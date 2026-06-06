@@ -267,13 +267,48 @@ function extractLeaveBadge(row: SubmissionRow | null): { label: string; isFullDa
 export default function MyHistoryCalendar({
   onEditWorkLog, onCreateCheckIn, onCreateCheckOut, refreshKey = 0,
 }: MyHistoryCalendarProps) {
+  // v1.76 — 본인이 EW 처리 완료 후 리더에게 해지요청. 1회만 가능.
+  // useCallback은 deps에 leaderReviewByDate가 있어 매 변경마다 재생성됨 (의도된 동작).
+  const handleResolutionRequest = useCallback(async (targetDate: string, leaderStatus: 'missing' | 'wrong') => {
+    const ok = window.confirm(
+      `${targetDate} EW ${leaderStatus === 'missing' ? '미상신' : '오상신'} 처리 완료를 리더에게 알리시겠어요?\n\n(요청은 1회만 가능합니다.)`
+    )
+    if (!ok) return
+    setResolutionRequestBusy(targetDate)
+    try {
+      const res = await fetch('/api/my/leader-reviews/resolution-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ target_date: targetDate, report_kind: 'check_out' }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(`해지요청 실패: ${data?.error ?? '알 수 없는 오류'}`)
+        return
+      }
+      setLeaderReviewByDate(prev => {
+        const cur = prev[targetDate]
+        if (!cur) return prev
+        return {
+          ...prev,
+          [targetDate]: { ...cur, resolution_requested_at: data.resolution_requested_at ?? new Date().toISOString() },
+        }
+      })
+    } finally {
+      setResolutionRequestBusy(null)
+    }
+  }, [])
+
   // 현재 보고 있는 월 (그 월의 1일 기준 Date 객체)
   const [cursor, setCursor] = useState<Date>(() => startOfMonth(new Date()))
   const [workLogs, setWorkLogs] = useState<WorkLogRow[]>([])
   const [calendar, setCalendar] = useState<Record<string, UserCalendarLookup>>({})
   const [statusMap, setStatusMap] = useState<Map<string, DayStatus>>(new Map())
   /** v1.73 Phase 6 — 본인 미상신/오상신 review map (체크완료/미선택은 응답에 없음) */
-  const [leaderReviewByDate, setLeaderReviewByDate] = useState<Record<string, { status: 'missing' | 'wrong'; note: string | null }>>({})
+  const [leaderReviewByDate, setLeaderReviewByDate] = useState<Record<string, { status: 'missing' | 'wrong'; note: string | null; resolution_requested_at: string | null }>>({})
+  // v1.76 — 해지요청 진행중인 date (낙관적 업데이트용)
+  const [resolutionRequestBusy, setResolutionRequestBusy] = useState<string | null>(null)
   const [statusSummary, setStatusSummary] = useState<SubmissionStatusResponse['summary'] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -371,9 +406,20 @@ export default function MyHistoryCalendar({
         { credentials: 'same-origin' },
       )
       if (res.ok) {
-        const data = await res.json().catch(() => null) as { byDate?: Record<string, { status: 'missing' | 'wrong'; note: string | null }> } | null
+        // v1.76 — resolution_requested_at도 함께
+        const data = await res.json().catch(() => null) as {
+          byDate?: Record<string, { status: 'missing' | 'wrong'; note: string | null; resolution_requested_at?: string | null }>
+        } | null
         if (data?.byDate) {
-          setLeaderReviewByDate(data.byDate)
+          const normalized: Record<string, { status: 'missing' | 'wrong'; note: string | null; resolution_requested_at: string | null }> = {}
+          for (const [date, entry] of Object.entries(data.byDate)) {
+            normalized[date] = {
+              status: entry.status,
+              note: entry.note ?? null,
+              resolution_requested_at: entry.resolution_requested_at ?? null,
+            }
+          }
+          setLeaderReviewByDate(normalized)
         } else {
           setLeaderReviewByDate({})
         }
@@ -577,6 +623,8 @@ export default function MyHistoryCalendar({
               status={statusMap.get(day.date) ?? null}
               leaderReview={leaderReviewByDate[day.date] ?? null}
               onClick={() => setSelectedDate(day.date)}
+              onResolutionRequest={handleResolutionRequest}
+              resolutionBusy={resolutionRequestBusy === day.date}
             />
           ))}
         </div>
@@ -709,7 +757,15 @@ const STATUS_BAR_COLOR: Record<DayStatus, string> = {
   future:           'bg-transparent',
 }
 
-function DayCell({ data, status, leaderReview, onClick }: { data: DayData; status: DayStatus | null; leaderReview: { status: 'missing' | 'wrong'; note: string | null } | null; onClick: () => void }) {
+function DayCell({ data, status, leaderReview, onClick, onResolutionRequest, resolutionBusy }: {
+  data: DayData
+  status: DayStatus | null
+  leaderReview: { status: 'missing' | 'wrong'; note: string | null; resolution_requested_at: string | null } | null
+  onClick: () => void
+  /** v1.76 — 본인 EW 처리 완료 해지요청 콜백 */
+  onResolutionRequest: (date: string, leaderStatus: 'missing' | 'wrong') => void
+  resolutionBusy: boolean
+}) {
   const items = buildDisplayItems(data)
   const dayNum = getDate(new Date(data.date + 'T00:00:00'))
 
@@ -756,17 +812,41 @@ function DayCell({ data, status, leaderReview, onClick }: { data: DayData; statu
             {status === 'missing_all' ? '미보고' : '퇴근누락'}
           </span>
         )}
-        {/* v1.73 Phase 6 — 리더 미상신/오상신 칩 (체크완료/미선택은 노출 X) */}
+        {/* v1.73 Phase 6 — 리더 미상신/오상신 칩 (체크완료/미선택은 노출 X)
+            v1.76 — 본인이 처리 완료 후 해지요청 가능. 칩 다음에 별도 버튼 또는 '요청완료' 표시. */}
         {data.inMonth && leaderReview && (
-          <span
-            className="inline-flex items-center text-[10px] font-semibold px-1.5 rounded-full leading-[16px] shrink-0 bg-red-600 text-white"
-            title={
-              (leaderReview.status === 'missing' ? '리더 표시: EW미상신' : '리더 표시: EW오상신') +
-              (leaderReview.note ? `\n메모: ${leaderReview.note}` : '')
-            }
-          >
-            {leaderReview.status === 'missing' ? 'EW미상신' : 'EW오상신'}
-          </span>
+          <>
+            <span
+              className="inline-flex items-center text-[10px] font-semibold px-1.5 rounded-full leading-[16px] shrink-0 bg-red-600 text-white"
+              title={
+                (leaderReview.status === 'missing' ? '리더 표시: EW미상신' : '리더 표시: EW오상신') +
+                (leaderReview.note ? `\n메모: ${leaderReview.note}` : '')
+              }
+            >
+              {leaderReview.status === 'missing' ? 'EW미상신' : 'EW오상신'}
+            </span>
+            {leaderReview.resolution_requested_at ? (
+              <span
+                className="inline-flex items-center text-[10px] font-semibold px-1.5 rounded-full leading-[16px] shrink-0 bg-surface-muted text-text-secondary border border-border"
+                title={`해지요청 발송: ${leaderReview.resolution_requested_at.slice(0, 16).replace('T', ' ')}`}
+              >
+                ✓ 요청완료
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onResolutionRequest(data.date, leaderReview.status)
+                }}
+                disabled={resolutionBusy}
+                className="inline-flex items-center text-[10px] font-semibold px-1.5 rounded-full leading-[16px] shrink-0 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+                title="EW 처리 완료를 리더에게 알리고 해지요청 보내기 (1회만 가능)"
+              >
+                ✅ 해지요청
+              </button>
+            )}
+          </>
         )}
       </div>
       <div className="flex flex-col gap-0.5">
@@ -869,7 +949,17 @@ function DayListItem({
 
 // ─── 셀 표시 항목 빌드 ────────────────────────────────────────────────────────
 
-type ItemTone = 'primary' | 'planned' | 'success' | 'warning' | 'info' | 'neutral'
+type ItemTone =
+  | 'primary'
+  | 'planned'
+  | 'success'
+  | 'warning'
+  | 'info'
+  | 'neutral'
+  // v1.83.17 — 단방향(시트) 출처용 readonly 변형. 양방향(gcal)은 기존 warning/info 그대로.
+  // 사용자가 "수정 불가"임을 시각으로 즉시 인지하도록 점선 외곽선 + opacity 톤.
+  | 'warning-readonly'
+  | 'info-readonly'
 
 interface DisplayItem {
   tone: ItemTone
@@ -896,6 +986,9 @@ const ITEM_STYLE: Record<ItemTone, string> = {
   warning: 'bg-warning-bg text-warning-text border border-warning-border',
   info:    'bg-info-bg text-info-text border border-info-border',
   neutral: 'bg-surface-muted text-text-secondary border border-border',
+  // v1.83.17 — readonly: 같은 hue지만 채움 약화 + 점선 외곽선 → 수정 불가(단방향) 시각 신호
+  'warning-readonly': 'bg-transparent text-warning-text/70 border border-dashed border-warning-border',
+  'info-readonly':    'bg-transparent text-text-secondary border border-dashed border-info-border',
 }
 
 /**
@@ -1009,23 +1102,27 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
   // 4) Google 휴가 라벨 (별개로 표시 — N-Click 휴가와 시각적 구분).
   //    과거 날짜 + work_log 없음 → "(자동인정)" 라벨 추가:
   //    /api/work-hours에서 시간 계산에 자동 합산되는 케이스 명시.
+  //    v1.83.17 — leaveSource 'sheet'(단방향)이면 readonly tone으로 수정 불가 시각화.
   const cal = data.calendar
   if (cal?.leaveLabel && !leaveBadge) {
     const todayStr = format(new Date(), 'yyyy-MM-dd')
     const isPast = data.date < todayStr
     const noWorkLog = !data.checkIn && !data.checkOut
     const isAutoRecognized = isPast && noWorkLog
+    const isSheetLeave = cal.leaveSource === 'sheet'
     out.push({
-      tone: 'warning',
+      tone: isSheetLeave ? 'warning-readonly' : 'warning',
       icon: <Plane className="h-3 w-3" aria-hidden />,
       text: `Google: ${cal.leaveLabel}${isAutoRecognized ? ' (자동인정)' : ''}`,
-      title: isAutoRecognized
-        ? 'Google 캘린더 휴가 — 시간 계산 자동 인정'
-        : 'Google 캘린더 휴가',
+      title: isSheetLeave
+        ? '시트 캘린더 휴가 (단방향 — 시트에서 직접 수정)'
+        : (isAutoRecognized
+            ? 'Google 캘린더 휴가 — 시간 계산 자동 인정'
+            : 'Google 캘린더 휴가 (양방향 동기화)'),
     })
   }
 
-  // 5) Google 일정 (휴가 아닌)
+  // 5) Google 일정 (휴가 아닌). v1.83.17 — ev.source 'sheet'이면 readonly tone.
   if (cal?.events && cal.events.length > 0) {
     for (const ev of cal.events) {
       const t = ev.startTime && ev.endTime
@@ -1033,7 +1130,12 @@ function buildDisplayItems(data: DayData): DisplayItem[] {
         : ev.startTime
           ? `${ev.startTime}~ ${ev.title}`
           : `(종일) ${ev.title}`
-      out.push({ tone: 'info', text: t, title: 'Google 일정' })
+      const isSheetEvent = ev.source === 'sheet'
+      out.push({
+        tone: isSheetEvent ? 'info-readonly' : 'info',
+        text: t,
+        title: isSheetEvent ? '시트 일정 (단방향 — 시트에서 직접 수정)' : 'Google 일정 (양방향 동기화)',
+      })
     }
   }
 
