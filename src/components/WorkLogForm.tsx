@@ -648,10 +648,15 @@ export default function WorkLogForm({
         if (!stillEmpty) return
         setValue(
           'leaveTimeline',
-          // v1.83.3 — Google 시간 박스의 leaveStartTime/leaveEndTime 그대로 leave_timeline에 박힘.
+          // v1.83.5 — Google 시간 박스: leaveStartTime/leaveEndTime + 점심 차감된 leaveDeductionMinutes 박힘.
+          // 종일/시트: 모두 null → buildLeaveItem이 LEAVE_TYPE_DEFINITIONS fallback (full_day=09:00~18:00).
           [buildLeaveItem(
-            data.leaveType, data.leaveLabel ?? undefined, 'calendar', undefined,
-            data.leaveStartTime ?? undefined, data.leaveEndTime ?? undefined,
+            data.leaveType,
+            data.leaveLabel ?? undefined,
+            'calendar',
+            data.leaveDeductionMinutes ?? undefined,
+            data.leaveStartTime ?? undefined,
+            data.leaveEndTime ?? undefined,
           )],
           { shouldDirty: false, shouldValidate: false },
         )

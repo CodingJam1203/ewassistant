@@ -348,11 +348,15 @@ export default function CheckInModal({
         if (data.leaveType && !calendarPrefillDismissedRef.current) {
           setLeaveTimeline(prev => {
             if (Array.isArray(prev) && prev.length > 0) return prev
-            // v1.83.3 — Google 시간 박스 휴가는 lookup의 leaveStartTime/leaveEndTime 그대로 박힘.
-            // 종일/시트는 null → buildLeaveItem이 LEAVE_TYPE_DEFINITIONS fallback 사용.
+            // v1.83.5 — Google 시간 박스: leaveStartTime/leaveEndTime + 점심 차감된 leaveDeductionMinutes 박힘.
+            // 종일/시트: 모두 null → buildLeaveItem이 LEAVE_TYPE_DEFINITIONS fallback (full_day=09:00~18:00).
             return [buildLeaveItem(
-              data.leaveType!, data.leaveLabel ?? undefined, 'calendar', undefined,
-              data.leaveStartTime ?? undefined, data.leaveEndTime ?? undefined,
+              data.leaveType!,
+              data.leaveLabel ?? undefined,
+              'calendar',
+              data.leaveDeductionMinutes ?? undefined,
+              data.leaveStartTime ?? undefined,
+              data.leaveEndTime ?? undefined,
             )]
           })
         }

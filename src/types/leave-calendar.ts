@@ -107,6 +107,12 @@ export interface UserCalendarLookup {
    */
   leaveStartTime?: string | null
   leaveEndTime?: string | null
+  /**
+   * v1.83.5 — Google 시간 박스의 실 차감 분 (점심 12~13 포함이면 60분 자동 차감).
+   * prefill 시 buildLeaveItem deductionMinutes 인자로 전달.
+   * 종일 박스/시트는 null/undefined → buildLeaveItem이 LEAVE_TYPE_DEFINITIONS default 사용.
+   */
+  leaveDeductionMinutes?: number | null
   /** 일반 일정 목록 (휴가 키워드 제외) */
   events: CalendarEventChunk[]
   /** 셀 원본 텍스트 (디버그용) */

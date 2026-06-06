@@ -46,31 +46,60 @@ export function stripBracketPrefix(title: string): string {
   return title.replace(/^\[[^\]]*\]\s*/, '')
 }
 
+/** KST 시각 'HH:mm' → 분 단위 정수 */
+function hhmmToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number)
+  return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0)
+}
+
 /**
- * Google 캘린더 vacation 이벤트 → LeaveType 분류 (v1.83.3).
+ * Google 캘린더 시간 박스가 KST 점심시간(12:00~13:00)을 완전히 포함하는지.
+ * 정확한 룰: 시작 ≤ 12:00 AND 끝 ≥ 13:00.
+ */
+function rangeSpansLunch(startIso: string, endIso: string): boolean {
+  const startMin = hhmmToMinutes(toKstTime(startIso))
+  const endMin   = hhmmToMinutes(toKstTime(endIso))
+  return startMin <= 12 * 60 && endMin >= 13 * 60
+}
+
+/**
+ * Google 캘린더 vacation 이벤트 → LeaveType 분류 (v1.83.5).
  *
  * 정책:
  *   - 종일 박스(is_all_day=true) — 시간 정보 없음 → 라벨 텍스트 기반.
  *       · '오전반차' → morning_half / '오후반차' → afternoon_half / '반차' → morning_half
  *       · 그 외 (단순 '휴가'/'연차'/'월차' 등) → full_day
  *   - 시간 박스(is_all_day=false) — 시간 우선 (텍스트 무시).
- *       · duration 정확 8H → full_day
- *       · 그 외 → hourly (시간 그대로 박힘)
+ *       · 점심 12~13 포함이면 duration에서 60분 차감하여 실 휴가 분 산출
+ *       · 실 휴가 == 8H → full_day, 그 외 → hourly
  */
 export function decideLeaveType(
   startMs: number,
   endMs: number,
   isAllDay: boolean,
   title: string | null,
+  startIso?: string,
+  endIso?: string,
 ): LeaveType {
   if (isAllDay) {
-    // 텍스트 기반 (parseLeaveLabel) — 시트와 동일 룰
     return parseLeaveLabel(title) ?? 'full_day'
   }
-  // 시간 박스 — 시간 기반. 텍스트 무시.
   const durationMin = Math.round((endMs - startMs) / 60_000)
-  if (durationMin === 480) return 'full_day'
+  // v1.83.5 — 점심 12~13 포함이면 60분 차감 (사용자 직접 입력의 점심 토글과 동일 룰).
+  const lunchCut = startIso && endIso && rangeSpansLunch(startIso, endIso) ? 60 : 0
+  const effectiveMin = Math.max(0, durationMin - lunchCut)
+  if (effectiveMin === 480) return 'full_day'
   return 'hourly'
+}
+
+/**
+ * v1.83.5 — Google 시간 박스 휴가의 실 차감 분 (점심 자동 차감 후).
+ * lookup의 leaveDeductionMinutes에 박혀 CheckInModal/WorkLogForm prefill 시 사용.
+ */
+export function computeCalendarLeaveMinutes(startIso: string, endIso: string): number {
+  const durationMin = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60_000)
+  const lunchCut = rangeSpansLunch(startIso, endIso) ? 60 : 0
+  return Math.max(0, durationMin - lunchCut)
 }
 
 interface OrgCalendarRow {
@@ -206,14 +235,16 @@ export async function fetchOrgCalendarLookup(args: {
         const lookup = rec[dateIso]
         if (isVacation) {
           if (lookup.leaveType === null) {
-            lookup.leaveType = decideLeaveType(evStartMs, evEndMs, r.is_all_day, cleanedTitle)
+            lookup.leaveType = decideLeaveType(evStartMs, evEndMs, r.is_all_day, cleanedTitle, r.start_at, r.end_at)
             lookup.leaveLabel = cleanedTitle || '휴가'
             // v1.83.3 — 시간 박스(hourly/full_day-by-duration)는 시간 정보를 lookup에 박아
             // CheckInModal/WorkLogForm에서 buildLeaveItem 호출 시 그 시각이 leave_timeline에 그대로 들어감.
             // 종일 박스는 startTime/endTime null → buildLeaveItem이 LEAVE_TYPE_DEFINITIONS fallback 사용.
+            // v1.83.5 — 점심 자동 차감된 실 차감 분도 같이 박아 prefill 시 buildLeaveItem deductionMinutes 인자로 전달.
             if (!r.is_all_day) {
               lookup.leaveStartTime = toKstTime(r.start_at)
               lookup.leaveEndTime   = toKstTime(r.end_at)
+              lookup.leaveDeductionMinutes = computeCalendarLeaveMinutes(r.start_at, r.end_at)
             }
             lookup.raw = cleanedTitle || null
             // v1.61.3 — GCal 출처 + events.delete용 식별자 박제

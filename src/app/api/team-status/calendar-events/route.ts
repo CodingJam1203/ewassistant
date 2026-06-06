@@ -14,6 +14,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getKstTodayDateString } from '@/lib/utils/date'
 import { getUserCalendarLookup, isCalendarEnabled } from '@/lib/leave-calendar'
+import { fetchOrgCalendarLookup } from '@/lib/org-calendar/lookup'
 import type { UserCalendarLookup } from '@/types/leave-calendar'
 
 export async function GET(request: Request) {
@@ -77,23 +78,54 @@ export async function GET(request: Request) {
       }
     }
 
+    // v1.83.5 — Google 캘린더(org_calendar_events) lookup 항상 조회.
+    // 시트 미운영 본부도 Google 시간 박스 휴가가 prefill되도록.
+    const gcalResult = await fetchOrgCalendarLookup({
+      adminClient,
+      emails: [user.email!.toLowerCase()],
+      dates: [date],
+    }).catch(err => {
+      console.warn('[calendar-events] gcal lookup failed:', err)
+      return null
+    })
+    const gcalLookup = gcalResult?.byEmail.get(user.email!.toLowerCase())?.[date] ?? null
+
     if (!hasSheetSource) {
-      const empty: UserCalendarLookup = {
+      // 시트 미운영 → Google lookup 그대로 반환 (없으면 빈 lookup)
+      const result: UserCalendarLookup = gcalLookup ?? {
         enabled: true,
         leaveType: null,
         leaveLabel: null,
         events: [],
         raw: null,
       }
-      return NextResponse.json(empty)
+      return NextResponse.json(result)
     }
 
-    const lookup = await getUserCalendarLookup({
+    // 시트 운영 — 시트 lookup 가져오고 Google lookup과 머지.
+    const sheetLookup = await getUserCalendarLookup({
       date,
       department: profile.division,
       userName: profile.display_name,
     })
-    return NextResponse.json(lookup)
+
+    // 머지 정책 (v1.83.5):
+    //   · 휴가 — Google 우선 (사용자가 시간 박스로 명시한 시간 정보 신뢰), 없으면 시트 fallback
+    //   · 일반 일정 events — Google + 시트 둘 다 표시 (사용자 시각화 위해)
+    const merged: UserCalendarLookup = {
+      enabled: true,
+      leaveType:    gcalLookup?.leaveType    ?? sheetLookup.leaveType,
+      leaveLabel:   gcalLookup?.leaveLabel   ?? sheetLookup.leaveLabel,
+      leaveSource:  gcalLookup?.leaveSource  ?? sheetLookup.leaveSource,
+      leaveEventId: gcalLookup?.leaveEventId ?? sheetLookup.leaveEventId,
+      leaveOrgCalendarId: gcalLookup?.leaveOrgCalendarId ?? sheetLookup.leaveOrgCalendarId,
+      leaveStartTime:       gcalLookup?.leaveStartTime ?? null,
+      leaveEndTime:         gcalLookup?.leaveEndTime ?? null,
+      leaveDeductionMinutes: gcalLookup?.leaveDeductionMinutes ?? null,
+      events: [...(gcalLookup?.events ?? []), ...(sheetLookup.events ?? [])],
+      raw: gcalLookup?.raw ?? sheetLookup.raw,
+    }
+    return NextResponse.json(merged)
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[calendar-events] error:', message)
