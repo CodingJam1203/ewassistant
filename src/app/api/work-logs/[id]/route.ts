@@ -522,6 +522,14 @@ export async function PATCH(
       if (leaveTimelinePatch !== undefined) {
         updates.leave_timeline = leaveTimelinePatch
       }
+      // v1.83.16 — leave_timeline이 제거(null)되는데 work_location='휴가' 잔재로 남는 케이스 정리.
+      //   사용자가 휴가만 OFF하고 work_location 안 건드리면 finalWorkLocation이 fallback으로
+      //   log.work_location='휴가'를 그대로 사용 → 잔재. 자동으로 빈값으로 reset.
+      //   v1.83.9의 dismiss-calendar-prefill과 동일 룰을 편집 경로에도 적용.
+      if (leaveTimelinePatch === null && updates.work_location === '휴가') {
+        updates.work_location = ''
+        updates.work_location_timeline = null
+      }
       if (body.breakAutoActualMinutes !== undefined) {
         updates.break_auto_actual_minutes = breakAutoActualMin
       }
