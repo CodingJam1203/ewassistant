@@ -229,8 +229,14 @@ export function matchUsers(ev: MatchInput, lookup: UserLookup): string[] {
 export type EventClassification = 'by_type' | 'by_title'
 export type InferredType = 'meeting' | 'vacation' | 'birthday' | 'other'
 
-/** 휴가로 인식할 제목 텍스트. 본부 제목 컨벤션에 맞춰 확장 가능. */
-const VACATION_KEYWORDS = /휴가|연차|반차|오전반차|오후반차|월차|반반차|오프|연월차|공가|안식월/
+/**
+ * 휴가로 인식할 제목 텍스트. 본부 제목 컨벤션에 맞춰 확장 가능.
+ *
+ * v1.83.21 (사용자 결정):
+ *   - '오프' 완전 제거 (오프닝/킥오프/오프사이트 false positive 광범위 + 휴가 의미 불명확)
+ *   - '병가', '경조', '경조사' 추가
+ */
+const VACATION_KEYWORDS = /휴가|연차|반차|오전반차|오후반차|월차|반반차|연월차|공가|안식월|병가|경조사|경조/
 
 function normalizeNclickType(raw: string | null | undefined): InferredType | null {
   if (raw === 'meeting' || raw === 'vacation' || raw === 'birthday' || raw === 'other') return raw
@@ -238,17 +244,17 @@ function normalizeNclickType(raw: string | null | undefined): InferredType | nul
 }
 
 /**
- * 이벤트 inferred_type 결정 (2026-05-21 — 캘린더별 분류 정책 + N-Click 속성 신뢰).
+ * 이벤트 inferred_type 결정.
  *
  * 우선순위:
- *   1. N-Click이 등록 시 심은 속성(extendedProperties.nclickType) — 어느 모드든 최우선 신뢰.
- *      제목 추측 없이 사용자가 고른 속성 그대로.
+ *   1. N-Click 속성(extendedProperties.nclickType) — 최우선.
  *   2. 생일 캘린더 → birthday.
  *   3. 분류 모드(event_classification):
- *      - 'by_type'  (분리 운영, 기본): 제목에 휴가 텍스트 있으면 vacation(meeting 캘린더의 휴가도 잡음),
- *        없으면 calendar_type 그대로. → 기존 동작 보존, 분리 본부 영향 0.
+ *      - 'by_type'  (분리 운영, 기본): **캘린더 유형 그대로** — 사용자가 등록한 캘린더 유형 신뢰.
+ *           v1.83.21 (사용자 결정): hasVacationText 자동 보정 제거. 안내 문구 "캘린더 유형 그대로 분류"와 일치.
+ *           미팅 캘린더에 휴가 잘못 등록한 케이스는 사용자가 캘린더를 옮겨야 함.
+ *           오프닝/킥오프 같은 텍스트가 휴가로 잘못 분류되던 false positive 해소.
  *      - 'by_title' (통합 운영): 제목에 휴가 텍스트 있을 때만 vacation, 없으면 meeting/other.
- *        한 캘린더에 휴가·미팅 섞어 쓰는 팀.
  */
 export function inferEventType(
   calendarType: InferredType,
@@ -263,18 +269,15 @@ export function inferEventType(
   // 2) 생일 캘린더
   if (calendarType === 'birthday') return 'birthday'
 
-  const t = title ?? ''
-  const hasVacationText = VACATION_KEYWORDS.test(t)
-
   // 3) 분류 모드
   if (classification === 'by_title') {
     // 통합 운영 — 제목에 휴가 텍스트 있을 때만 휴가. 없으면 회의성으로.
+    const hasVacationText = VACATION_KEYWORDS.test(title ?? '')
     if (hasVacationText) return 'vacation'
     return calendarType === 'other' ? 'other' : 'meeting'
   }
 
-  // by_type (분리 운영, 기본)
-  if (hasVacationText) return 'vacation'  // meeting/other 캘린더에 섞인 휴가 잡기
+  // v1.83.21 — by_type (분리 운영): 캘린더 유형 그대로. 텍스트 체크 X (사용자 안내 문구 일치).
   if (calendarType === 'vacation') return 'vacation'
   if (calendarType === 'meeting') return 'meeting'
   return 'other'
