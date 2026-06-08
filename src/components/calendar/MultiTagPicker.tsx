@@ -38,6 +38,9 @@ export interface PickerTag {
 export type PickerToken =
   | { kind: 'user'; key: string; label: string; email: string }
   | { kind: 'tag';  key: string; label: string; tagId: string }
+  // v1.83.22 — title의 [...] 토큰이 user/tag로 매칭 안 된 케이스. 텍스트 그대로 보존.
+  //   매칭 실패 토큰을 무시하지 않고 사용자에게 노출 → 의도 보존 + 수정/삭제 가능.
+  | { kind: 'name'; key: string; label: string }
 
 interface MultiTagPickerProps {
   users: PickerUser[]
@@ -503,14 +506,26 @@ export default function MultiTagPicker({
             // chip label이 축약(예: "재민")일 때 hover 시 풀네임("김재민") tooltip
             const tooltip = t.kind === 'user'
               ? (fullNameByEmail.get(t.email.toLowerCase()) ?? t.label)
-              : t.label
+              : t.kind === 'name'
+                ? `매칭 안 된 텍스트: ${t.label} (사용자/태그로 연결 안 됨 — 그대로 저장됨)`
+                : t.label
+            // v1.83.22 — kind별 색상: user=파랑, tag=노랑, name=회색(매칭 실패 시각 신호)
+            const chipClass = t.kind === 'user'
+              ? 'bg-primary-50 text-primary-700 border-primary-200'
+              : t.kind === 'tag'
+                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                : 'bg-surface-muted text-text-secondary border-border border-dashed italic'
             return (
               <span
                 key={t.key}
                 title={tooltip}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border ${t.kind === 'user' ? 'bg-primary-50 text-primary-700 border-primary-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border ${chipClass}`}
               >
-                {t.kind === 'user' ? <UserIcon className="h-3 w-3" /> : <TagIcon className="h-3 w-3" />}
+                {t.kind === 'user'
+                  ? <UserIcon className="h-3 w-3" />
+                  : t.kind === 'tag'
+                    ? <TagIcon className="h-3 w-3" />
+                    : null /* name: 아이콘 없이 텍스트만 */}
                 {t.label}
                 <button
                   type="button"

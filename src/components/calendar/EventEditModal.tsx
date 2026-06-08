@@ -320,13 +320,15 @@ function extractTitleTokenStrings(title: string): string[] {
 /**
  * 수정 모드에서 title의 [토큰들]을 실제 PickerToken[]으로 복원.
  *
- * 매칭 규칙 (사람 우선):
- *   1) users에서 풀네임 정확 매칭 (예: "김재민" → 그 user)
- *   2) users에서 마지막 2글자 suffix 일치 — suffix가 unique이면 그 user 단독, 충돌이면 모두 추가
+ * 매칭 규칙 (v1.83.22 — 팀 우선순위 + 매칭 실패 시 name kind 토큰):
+ *   1) users에서 풀네임 정확 매칭
+ *   2) users에서 마지막 2글자 suffix 일치:
+ *      2-1) 캘린더의 팀과 같은 user 우선 (다른 팀 동명이인 제외)
+ *      2-2) 같은 팀 0건 → 같은 본부 user
+ *      2-3) 본부도 0건 → 모두 매칭 (fallback)
  *   3) tags에서 label 정확 매칭 (event의 calendar 본부 우선 + 그 안에서 team 우선)
  *   4) tags에서 alias_patterns 포함 (동일 우선순위)
- *
- * 매칭 못 한 토큰은 무시 (사용자가 다시 손으로 추가).
+ *   5) 모두 실패 → kind='name' 텍스트 토큰 (사용자에게 그대로 보존)
  */
 function reconstructTokens(
   title: string,
@@ -334,6 +336,9 @@ function reconstructTokens(
   tags: PickerTag[],
   eventCalendarDivisionId: string | null,
   eventCalendarTeamId: string | null,
+  /** v1.83.22 — suffix 매칭 시 팀/본부 비교용 (id가 아닌 name 비교 — PickerUser가 name만 가짐) */
+  eventCalendarDivisionName: string | null,
+  eventCalendarTeamName: string | null,
 ): PickerToken[] {
   const tokenStrs = extractTitleTokenStrings(title)
   if (tokenStrs.length === 0) return []
@@ -378,6 +383,13 @@ function reconstructTokens(
     addedKeys.add(key)
     out.push({ kind: 'tag', key, label: t.label, tagId: t.id })
   }
+  // v1.83.22 — 매칭 실패 토큰을 name kind로 보존
+  const pushName = (label: string) => {
+    const key = `name:${label}`
+    if (addedKeys.has(key)) return
+    addedKeys.add(key)
+    out.push({ kind: 'name', key, label })
+  }
 
   for (const tok of tokenStrs) {
     // 1) 풀네임
@@ -386,11 +398,21 @@ function reconstructTokens(
       for (const u of fullMatch) pushUser(u)
       continue
     }
-    // 2) suffix (2글자 토큰)
+    // 2) suffix (2글자 토큰) — v1.83.22 팀/본부 우선순위
     if (tok.length >= 2) {
       const sfxMatch = suffixToUsers.get(tok.length === 2 ? tok : tok.slice(-2))
       if (sfxMatch && sfxMatch.length > 0) {
-        for (const u of sfxMatch) pushUser(u)
+        // 같은 팀 user 우선 → 같은 본부 → fallback 모두
+        const sameTeam = eventCalendarTeamName
+          ? sfxMatch.filter(u => (u.team ?? '') === eventCalendarTeamName)
+          : []
+        const sameDiv = eventCalendarDivisionName
+          ? sfxMatch.filter(u => (u.division ?? '') === eventCalendarDivisionName)
+          : []
+        const target = sameTeam.length > 0 ? sameTeam
+                     : sameDiv.length > 0 ? sameDiv
+                     : sfxMatch  // 본부도 0이면 매우 드문 케이스 — 모두 매칭 fallback
+        for (const u of target) pushUser(u)
         continue
       }
     }
@@ -408,7 +430,8 @@ function reconstructTokens(
       pushTag(aliasMatches[0])
       continue
     }
-    // 그 외 — 매칭 실패. 무시.
+    // v1.83.22 — 5) 매칭 실패 → name kind 텍스트 토큰 (사용자에게 노출 + 그대로 저장)
+    pushName(tok)
   }
   return out
 }
@@ -483,14 +506,21 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved, re
         }
         // 수정 모드: title의 [토큰들] 부분을 PickerToken[]으로 복원
         if (!isCreate && tokens.length === 0 && initial?.title) {
-          // event의 캘린더 division/team 식별 — tag 매칭 점수에 사용
+          // event의 캘린더 division/team 식별 — tag 매칭 점수 + suffix 동명이인 팀 우선순위에 사용
           const evCal = json.calendars.find(c => c.id === initial.calendarId)
+          // v1.83.22 — division/team 이름도 lookup (PickerUser는 name 보유)
+          const evDivName = evCal ? (json.divisions.find(d => d.id === evCal.division_id)?.name ?? null) : null
+          const evTeamName = evCal?.team_id
+            ? (json.teams.find(t => t.id === evCal.team_id)?.name ?? null)
+            : null
           const reconstructed = reconstructTokens(
             initial.title,
             json.users,
             json.tags,
             evCal?.division_id ?? null,
             evCal?.team_id ?? null,
+            evDivName,
+            evTeamName,
           )
           if (reconstructed.length > 0) setTokens(reconstructed)
         }
