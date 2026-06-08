@@ -42,6 +42,8 @@ interface LeaderReviewRow {
   review_note: string | null
   reviewer_email: string | null
   reviewed_at: string | null
+  /** v1.76 — 본인이 EW 처리 후 리더에게 해지요청 보낸 시각 */
+  resolution_requested_at: string | null
 }
 
 interface ReviewableUser {
@@ -59,6 +61,8 @@ interface VirtualReview {
   review_note: string | null
   reviewer_email: string | null
   reviewed_at: string | null
+  /** v1.76 — 본인 해지요청 시각 */
+  resolution_requested_at: string | null
 }
 
 /** v1.75 — 비근무일 사유. 'full_day_leave': 종일 휴가 / 'holiday': 주말·공휴일.
@@ -235,6 +239,8 @@ export default function LeaderReviewsTable({
             review_note: null,
             reviewer_email: null,
             reviewed_at: new Date().toISOString(),
+            // v1.76 — 새로 박은 review는 해지요청 없음
+            resolution_requested_at: null,
           }]
         } else {
           newVirtual = filtered
@@ -522,6 +528,8 @@ interface MatrixCell {
   work_log_id: string | null
   review_status: ReviewStatus | null
   hasWorkLog: boolean
+  /** v1.76 — 본인이 EW 처리 후 리더에게 해지요청 보낸 시각. 매트릭스 강조 표시용. */
+  resolution_requested_at: string | null
 }
 
 interface MatrixViewProps {
@@ -577,6 +585,7 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, nonWorkDayByUserDat
         work_log_id: r.work_log_id,
         review_status: r.review_status,
         hasWorkLog: true,
+        resolution_requested_at: r.resolution_requested_at ?? null,
       })
     }
     for (const v of virtualReviews) {
@@ -584,6 +593,7 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, nonWorkDayByUserDat
         work_log_id: null,
         review_status: v.review_status,
         hasWorkLog: false,
+        resolution_requested_at: v.resolution_requested_at ?? null,
       })
     }
     return m
@@ -646,6 +656,7 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, nonWorkDayByUserDat
                   work_log_id: null,
                   review_status: null,
                   hasWorkLog: false,
+                  resolution_requested_at: null,
                 }
                 const busyKey = cell.work_log_id ?? `virtual:${u.email}|${d}`
                 const busy = busyRowId === busyKey
@@ -693,6 +704,15 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, nonWorkDayByUserDat
                       <option value="missing">⚠ EW미상신</option>
                       <option value="wrong">✗ EW오상신</option>
                     </select>
+                    {/* v1.76 — 본인이 해지요청 보낸 셀은 상단에 배지 표시 (확인 후 ✓ 체크 처리 안내) */}
+                    {(cell.review_status === 'missing' || cell.review_status === 'wrong') && cell.resolution_requested_at && (
+                      <div
+                        className="mt-0.5 inline-flex items-center justify-center gap-1 px-1 h-5 w-full text-[10px] rounded border border-amber-300 bg-amber-50 text-amber-800"
+                        title={`본인 해지요청 발송: ${cell.resolution_requested_at.slice(0, 16).replace('T', ' ')}\n확인 후 ✓ 체크로 변경해주세요.`}
+                      >
+                        🔔 해지요청
+                      </div>
+                    )}
                     {/* v1.74.20 — missing/wrong 셀에 알림 버튼 (select 아래 작게) */}
                     {(cell.review_status === 'missing' || cell.review_status === 'wrong') && (
                       <button

@@ -267,8 +267,18 @@ function extractLeaveBadge(row: SubmissionRow | null): { label: string; isFullDa
 export default function MyHistoryCalendar({
   onEditWorkLog, onCreateCheckIn, onCreateCheckOut, refreshKey = 0,
 }: MyHistoryCalendarProps) {
+  // 현재 보고 있는 월 (그 월의 1일 기준 Date 객체)
+  const [cursor, setCursor] = useState<Date>(() => startOfMonth(new Date()))
+  const [workLogs, setWorkLogs] = useState<WorkLogRow[]>([])
+  const [calendar, setCalendar] = useState<Record<string, UserCalendarLookup>>({})
+  const [statusMap, setStatusMap] = useState<Map<string, DayStatus>>(new Map())
+  /** v1.73 Phase 6 — 본인 미상신/오상신 review map (체크완료/미선택은 응답에 없음) */
+  const [leaderReviewByDate, setLeaderReviewByDate] = useState<Record<string, { status: 'missing' | 'wrong'; note: string | null; resolution_requested_at: string | null }>>({})
+  // v1.76 — 해지요청 진행중인 date (낙관적 업데이트용)
+  const [resolutionRequestBusy, setResolutionRequestBusy] = useState<string | null>(null)
+
   // v1.76 — 본인이 EW 처리 완료 후 리더에게 해지요청. 1회만 가능.
-  // useCallback은 deps에 leaderReviewByDate가 있어 매 변경마다 재생성됨 (의도된 동작).
+  // setter들이 위에서 선언된 후라 TDZ 안전.
   const handleResolutionRequest = useCallback(async (targetDate: string, leaderStatus: 'missing' | 'wrong') => {
     const ok = window.confirm(
       `${targetDate} EW ${leaderStatus === 'missing' ? '미상신' : '오상신'} 처리 완료를 리더에게 알리시겠어요?\n\n(요청은 1회만 가능합니다.)`
@@ -300,15 +310,6 @@ export default function MyHistoryCalendar({
     }
   }, [])
 
-  // 현재 보고 있는 월 (그 월의 1일 기준 Date 객체)
-  const [cursor, setCursor] = useState<Date>(() => startOfMonth(new Date()))
-  const [workLogs, setWorkLogs] = useState<WorkLogRow[]>([])
-  const [calendar, setCalendar] = useState<Record<string, UserCalendarLookup>>({})
-  const [statusMap, setStatusMap] = useState<Map<string, DayStatus>>(new Map())
-  /** v1.73 Phase 6 — 본인 미상신/오상신 review map (체크완료/미선택은 응답에 없음) */
-  const [leaderReviewByDate, setLeaderReviewByDate] = useState<Record<string, { status: 'missing' | 'wrong'; note: string | null; resolution_requested_at: string | null }>>({})
-  // v1.76 — 해지요청 진행중인 date (낙관적 업데이트용)
-  const [resolutionRequestBusy, setResolutionRequestBusy] = useState<string | null>(null)
   const [statusSummary, setStatusSummary] = useState<SubmissionStatusResponse['summary'] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

@@ -164,15 +164,17 @@ export async function GET(request: Request) {
   const wlRows = workLogs ?? []
 
   // leader_reviews 조회 (work_log 있든 없든) — target_user_email + target_date 기준
+  // v1.76 — resolution_requested_at도 가져옴 (리더 매트릭스 강조 표시용)
   const { data: reviews } = await adminClient
     .from('work_log_leader_reviews')
-    .select('work_log_id, target_user_email, target_date, status, note, reviewer_email, reviewed_at')
+    .select('work_log_id, target_user_email, target_date, status, note, reviewer_email, reviewed_at, resolution_requested_at')
     .in('target_user_email', emails)
     .gte('target_date', from)
     .lte('target_date', to)
 
   const reviewByTarget = new Map<string, {
     status: ReviewStatus; note: string | null; reviewer_email: string; reviewed_at: string; work_log_id: string | null;
+    resolution_requested_at: string | null;
   }>()
   for (const r of reviews ?? []) {
     const key = `${r.target_user_email}|${r.target_date}`
@@ -182,6 +184,7 @@ export async function GET(request: Request) {
       reviewer_email: r.reviewer_email as string,
       reviewed_at: r.reviewed_at as string,
       work_log_id: (r.work_log_id as string | null) ?? null,
+      resolution_requested_at: (r.resolution_requested_at as string | null) ?? null,
     })
   }
 
@@ -217,6 +220,8 @@ export async function GET(request: Request) {
       review_note: r?.note ?? null,
       reviewer_email: r?.reviewer_email ?? null,
       reviewed_at: r?.reviewed_at ?? null,
+      // v1.76 — 본인이 해지요청 보낸 시각 (있으면 리더 매트릭스에서 강조)
+      resolution_requested_at: r?.resolution_requested_at ?? null,
     }
   })
 
@@ -224,6 +229,7 @@ export async function GET(request: Request) {
   const virtualReviews: Array<{
     user_email: string; target_date: string; review_status: ReviewStatus;
     review_note: string | null; reviewer_email: string | null; reviewed_at: string | null;
+    resolution_requested_at: string | null;
   }> = []
   for (const r of reviews ?? []) {
     const key = `${r.target_user_email}|${r.target_date}`
@@ -235,6 +241,8 @@ export async function GET(request: Request) {
       review_note: (r.note as string | null) ?? null,
       reviewer_email: (r.reviewer_email as string | null) ?? null,
       reviewed_at: (r.reviewed_at as string | null) ?? null,
+      // v1.76 — 본인 해지요청 시각
+      resolution_requested_at: (r.resolution_requested_at as string | null) ?? null,
     })
   }
 

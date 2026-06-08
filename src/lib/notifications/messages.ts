@@ -17,6 +17,7 @@ import type {
   DailyCheckinReminderData,
   MissingReportNudgePayload,
   LeaderReviewNudgePayload,
+  LeaderReviewResolutionRequestedPayload,
   MorningSummaryData,
 } from './types'
 import { formatTimelineForTeams, getWorkLocations } from '@/lib/work-location-timeline'
@@ -789,6 +790,20 @@ export function buildMessage(eventType: EventType, payload: unknown): string {
         lines.push('')
         lines.push(`메모: ${p.note.trim()}`)
       }
+      lines.push('')
+      lines.push(cta())
+      return lines.join('\n')
+    }
+
+    case 'leader_review_resolution_requested': {
+      const p = payload as LeaderReviewResolutionRequestedPayload
+      const statusLabel = p.status === 'missing' ? 'EW미상신' : 'EW오상신'
+      const reportLabel = p.reportKind === 'check_in' ? '출근보고' : '퇴근보고'
+      const lines: string[] = []
+      lines.push(`✅ **${p.name}님, ${koreanDate(p.date)} ${reportLabel} 해지요청**`)
+      lines.push('')
+      lines.push(`이전에 **${statusLabel}**으로 표시되었던 건을 처리 완료하셨다고 합니다.`)
+      lines.push('리더 관리에서 확인 후 ✓ 체크 부탁드립니다.')
       lines.push('')
       lines.push(cta())
       return lines.join('\n')

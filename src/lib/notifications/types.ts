@@ -22,6 +22,7 @@ export type EventType =
   | 'daily_morning_summary'
   | 'missing_report_nudge'      // 미보고 현황에서 리더/관리자가 수동 발송하는 알림
   | 'leader_review_nudge'       // v1.73 — 리더 관리 뷰에서 리더가 미상신/오상신 보고에 대해 수동 발송
+  | 'leader_review_resolution_requested' // v1.76 — 본인이 EW 미상신/오상신 처리 후 리더에게 해지요청 발송
 
 // ─── 페이로드 타입 ────────────────────────────────────────────────────────────
 
@@ -321,6 +322,25 @@ export interface LeaderReviewNudgePayload {
   reviewerName: string
   /** 리더가 적은 메모 (선택) */
   note?: string | null
+}
+
+/**
+ * v1.76 — EW 미상신/오상신 처리 후 본인이 리더에게 해지요청 발송 payload.
+ * 라우팅: nudge와 동일하게 대상자 본부/팀 출퇴근보고 채널로.
+ */
+export interface LeaderReviewResolutionRequestedPayload {
+  /** 요청자 표시명 (이메일 노출 금지) */
+  name: string
+  /** 대상 보고 일자 */
+  date: string
+  /** 보고 종류 — 라우팅 채널 결정 */
+  reportKind: 'check_in' | 'check_out'
+  /** 현재 리뷰 상태 (사용자가 처리한 것이 missing인지 wrong인지) */
+  status: 'missing' | 'wrong'
+  /** 라우팅용 본부 */
+  division: string
+  /** 라우팅용 팀 (본부 직속이면 notify_team 흡수) */
+  team: string
 }
 
 export interface MorningSummaryData {

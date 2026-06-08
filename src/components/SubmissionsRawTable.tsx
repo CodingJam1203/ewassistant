@@ -398,7 +398,9 @@ export default function SubmissionsRawTable({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   // v1.74.17 — 본인 미상신/오상신 review (mine=true일 때만 fetch). target_date 기준 매칭.
-  const [myReviewByDate, setMyReviewByDate] = useState<Record<string, { status: 'missing' | 'wrong'; note: string | null }>>({})
+  const [myReviewByDate, setMyReviewByDate] = useState<Record<string, { status: 'missing' | 'wrong'; note: string | null; resolution_requested_at: string | null }>>({})
+  // v1.76 — 해지요청 진행중인 date 키 (낙관적 UI 갱신용)
+  const [resolutionRequestBusy, setResolutionRequestBusy] = useState<string | null>(null)
 
   const [reportType, setReportType] = useState<'' | 'check_in' | 'check_out'>('')
   const [updatedOnly, setUpdatedOnly] = useState(false)
@@ -506,15 +508,53 @@ export default function SubmissionsRawTable({
       .then((j) => {
         if (cancelled) return
         const byDate = j?.byDate ?? {}
-        const out: Record<string, { status: 'missing' | 'wrong'; note: string | null }> = {}
-        for (const [date, entry] of Object.entries(byDate as Record<string, { status: 'missing' | 'wrong'; note: string | null }>)) {
-          out[date] = { status: entry.status, note: entry.note ?? null }
+        const out: Record<string, { status: 'missing' | 'wrong'; note: string | null; resolution_requested_at: string | null }> = {}
+        for (const [date, entry] of Object.entries(byDate as Record<string, { status: 'missing' | 'wrong'; note: string | null; resolution_requested_at: string | null }>)) {
+          out[date] = {
+            status: entry.status,
+            note: entry.note ?? null,
+            // v1.76 — 해지요청 시각 (NULL이면 미요청 → 버튼 노출)
+            resolution_requested_at: entry.resolution_requested_at ?? null,
+          }
         }
         setMyReviewByDate(out)
       })
       .catch(() => { if (!cancelled) setMyReviewByDate({}) })
     return () => { cancelled = true }
   }, [mine, rows])
+
+  // v1.76 — 본인이 EW 처리 완료 후 리더에게 해지요청 발송.
+  // 성공 시 byDate에 resolution_requested_at 낙관 업데이트 → 버튼 disabled로 전환.
+  const handleResolutionRequest = useCallback(async (targetDate: string, reportKind: 'check_in' | 'check_out') => {
+    if (resolutionRequestBusy === targetDate) return
+    const cur = myReviewByDate[targetDate]
+    if (!cur || cur.resolution_requested_at) return
+    const ok = window.confirm(
+      `${targetDate} EW ${cur.status === 'missing' ? '미상신' : '오상신'} 처리 완료를 리더에게 알리시겠어요?\n\n(요청은 1회만 가능합니다.)`
+    )
+    if (!ok) return
+    setResolutionRequestBusy(targetDate)
+    try {
+      const res = await fetch('/api/my/leader-reviews/resolution-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ target_date: targetDate, report_kind: reportKind }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(`해지요청 실패: ${data?.error ?? '알 수 없는 오류'}`)
+        return
+      }
+      // 낙관적 업데이트
+      setMyReviewByDate(prev => ({
+        ...prev,
+        [targetDate]: { ...prev[targetDate], resolution_requested_at: data.resolution_requested_at ?? new Date().toISOString() },
+      }))
+    } finally {
+      setResolutionRequestBusy(null)
+    }
+  }, [myReviewByDate, resolutionRequestBusy])
 
   const processedRows = useMemo(() => {
     // Stage 0-4d: final mode는 이미 어댑터에서 (user, date) 단일 row로 압축됨.
@@ -722,6 +762,31 @@ export default function SubmissionsRawTable({
                           >
                             {myReview.status === 'missing' ? 'EW미상신' : 'EW오상신'}
                           </span>
+                        )}
+                        {/* v1.76 — 본인이 EW 처리 완료 후 리더에게 해지요청 버튼.
+                            resolution_requested_at NULL이면 클릭 가능, 있으면 '요청완료' disabled */}
+                        {myReview && (
+                          myReview.resolution_requested_at ? (
+                            <span
+                              className="inline-flex items-center text-[10px] font-semibold px-1.5 rounded-full leading-[16px] bg-surface-muted text-text-secondary border border-border"
+                              title={`해지요청 발송: ${myReview.resolution_requested_at.slice(0, 16).replace('T', ' ')}`}
+                            >
+                              ✓ 요청완료
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleResolutionRequest(
+                                r.target_date,
+                                r.report_type === 'check_in' ? 'check_in' : 'check_out',
+                              )}
+                              disabled={resolutionRequestBusy === r.target_date}
+                              className="inline-flex items-center text-[10px] font-semibold px-1.5 rounded-full leading-[16px] bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+                              title="EW 처리 완료를 리더에게 알리고 해지요청 보내기 (1회만 가능)"
+                            >
+                              ✅ 해지요청
+                            </button>
+                          )
                         )}
                       </div>
                     </Td>

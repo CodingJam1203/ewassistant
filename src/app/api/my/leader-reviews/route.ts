@@ -19,6 +19,8 @@ interface ByDateEntry {
   note: string | null
   work_log_id: string | null
   reviewed_at: string
+  /** v1.76 — 본인이 해지요청 보낸 시각. NULL이면 미요청 (해지요청 가능). */
+  resolution_requested_at: string | null
 }
 
 export async function GET(request: Request) {
@@ -37,9 +39,10 @@ export async function GET(request: Request) {
 
   const email = user.email.toLowerCase()
   // v1.74 — target_user_email + target_date 기준 직접 조회 (work_log_id 무관)
+  // v1.76 — resolution_requested_at도 함께 가져옴 (해지요청 버튼 노출 여부 판단용)
   const { data: reviews } = await supabase
     .from('work_log_leader_reviews')
-    .select('target_date, status, note, work_log_id, reviewed_at')
+    .select('target_date, status, note, work_log_id, reviewed_at, resolution_requested_at')
     .eq('target_user_email', email)
     .gte('target_date', from)
     .lte('target_date', to)
@@ -52,6 +55,7 @@ export async function GET(request: Request) {
       note: (r.note as string | null) ?? null,
       work_log_id: (r.work_log_id as string | null) ?? null,
       reviewed_at: r.reviewed_at as string,
+      resolution_requested_at: (r.resolution_requested_at as string | null) ?? null,
     }
   }
 
