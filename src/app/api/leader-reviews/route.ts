@@ -153,7 +153,8 @@ export async function GET(request: Request) {
   const { data: workLogs } = await adminClient
     .from('work_logs')
     .select(
-      'id, user_email, leave_date, planned_start_time, planned_end_time, actual_start_time, actual_end_time, start_time, end_time, work_location, work_content, ew_value, leave_timeline, expected_leave_timeline',
+      // v1.83.25 — actual_work_time 추가 (리더 매트릭스 8H 면제 판정용)
+      'id, user_email, leave_date, planned_start_time, planned_end_time, actual_start_time, actual_end_time, start_time, end_time, work_location, work_content, ew_value, actual_work_time, leave_timeline, expected_leave_timeline',
     )
     .in('user_email', emails)
     .gte('leave_date', from)
@@ -216,6 +217,8 @@ export async function GET(request: Request) {
       work_location: (w.work_location as string | null) ?? null,
       work_content: (w.work_content as string | null) ?? null,
       ew_value: (w.ew_value as string | null) ?? null,
+      // v1.83.25 — 실근무시간 (interval → '08:00:00' 형식). 8H 정시 Nclick면제 판정용.
+      actual_work_time: (w.actual_work_time as string | null) ?? null,
       review_status: r?.status ?? null,
       review_note: r?.note ?? null,
       reviewer_email: r?.reviewer_email ?? null,

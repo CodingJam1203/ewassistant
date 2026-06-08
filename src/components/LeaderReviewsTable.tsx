@@ -38,6 +38,8 @@ interface LeaderReviewRow {
   work_location: string | null
   work_content: string | null
   ew_value: string | null
+  /** v1.83.25 — work_logs.actual_work_time. interval 직렬화 = 'HH:MM:SS'. '08:00:00'이면 정시 8H. */
+  actual_work_time: string | null
   review_status: ReviewStatus | null
   review_note: string | null
   reviewer_email: string | null
@@ -123,20 +125,33 @@ function statusLabel(status: ReviewStatus | null): string {
   }
 }
 
+/** v1.83.25 — actual_work_time(interval 'HH:MM:SS')이 정확히 8H('08:00:00')면 true.
+ * 정시 풀근무 → EW 상신 면제 케이스로 간주. */
+function isExactlyEightHours(actualWorkTime: string | null): boolean {
+  return actualWorkTime === '08:00:00'
+}
+
 /** v1.75 — 셀의 기본(미선택) 옵션 라벨. 우선순위:
  *   1) 종일 휴가 → 🌴 휴가
  *   2) 주말/공휴일 → 📅 휴일
- *   3) work_log 있음 → ✅ Nclick제출
- *   4) 그 외 평일 → ❌ Nclick미보고
- * 반차는 휴가로 보지 않음 — 기존 동작 그대로(3 또는 4).
+ *   3) work_log 있음 + 실근무 8H 정시 → ⚪ Nclick면제(8H) (v1.83.25)
+ *   4) work_log 있음 → ✅ Nclick제출
+ *   5) 그 외 평일 → ❌ Nclick미보고
+ * 반차는 휴가로 보지 않음 — 기존 동작 그대로(3, 4 또는 5).
  */
 function defaultCellLabel(args: {
   reason: NonWorkDayReason | undefined
   hasWorkLog: boolean
+  actualWorkTime?: string | null
 }): string {
   if (args.reason === 'full_day_leave') return '🌴 휴가'
   if (args.reason === 'holiday') return '📅 휴일'
-  return args.hasWorkLog ? '✅ Nclick제출' : '❌ Nclick미보고'
+  if (args.hasWorkLog) {
+    return isExactlyEightHours(args.actualWorkTime ?? null)
+      ? '⚪ Nclick면제(8H)'
+      : '✅ Nclick제출'
+  }
+  return '❌ Nclick미보고'
 }
 
 export default function LeaderReviewsTable({
@@ -462,6 +477,7 @@ export default function LeaderReviewsTable({
                         <option value="">{defaultCellLabel({
                           reason: data.nonWorkDayByUserDate?.[`${r.user_email}|${r.target_date}`],
                           hasWorkLog: !!r.work_log_id,
+                          actualWorkTime: r.actual_work_time,
                         })}</option>
                         <option value="checked">{statusLabel('checked')}</option>
                         <option value="missing">{statusLabel('missing')}</option>
@@ -539,6 +555,8 @@ interface MatrixCell {
   hasWorkLog: boolean
   /** v1.76 — 본인이 EW 처리 후 리더에게 해지요청 보낸 시각. 매트릭스 강조 표시용. */
   resolution_requested_at: string | null
+  /** v1.83.25 — actual_work_time (interval 'HH:MM:SS'). 8H 정시 면제 판정용. */
+  actual_work_time: string | null
 }
 
 interface MatrixViewProps {
@@ -595,6 +613,7 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, nonWorkDayByUserDat
         review_status: r.review_status,
         hasWorkLog: true,
         resolution_requested_at: r.resolution_requested_at ?? null,
+        actual_work_time: r.actual_work_time,
       })
     }
     for (const v of virtualReviews) {
@@ -603,6 +622,7 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, nonWorkDayByUserDat
         review_status: v.review_status,
         hasWorkLog: false,
         resolution_requested_at: v.resolution_requested_at ?? null,
+        actual_work_time: null,
       })
     }
     return m
@@ -666,6 +686,7 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, nonWorkDayByUserDat
                   review_status: null,
                   hasWorkLog: false,
                   resolution_requested_at: null,
+                  actual_work_time: null,
                 }
                 const busyKey = cell.work_log_id ?? `virtual:${u.email}|${d}`
                 const busy = busyRowId === busyKey
@@ -675,6 +696,7 @@ function MatrixView({ rows, virtualReviews, reviewableUsers, nonWorkDayByUserDat
                 const defaultLabel = defaultCellLabel({
                   reason: nonWorkReason,
                   hasWorkLog: cell.hasWorkLog,
+                  actualWorkTime: cell.actual_work_time,
                 })
                 return (
                   <td
