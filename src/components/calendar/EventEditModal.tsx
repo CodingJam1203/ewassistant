@@ -602,9 +602,19 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved, re
 
   const titlePreview = useMemo(() => {
     if (tokens.length === 0) return body || '(제목 없음)'
-    const tokenStr = tokens.map(t => t.label).join(', ')
+    // v1.83.24 — 저장될 title은 user token의 풀네임에서 성을 제거 (예: 정진성 → 진성).
+    // 화면 chip은 동명이인 구별 위해 풀네임 유지하지만, 구글캘린더로 push되는 title에는 first-name만.
+    const userByEmail = new Map<string, PickerUser>()
+    for (const u of data?.users ?? []) userByEmail.set(u.email.toLowerCase(), u)
+    const tokenStr = tokens.map(t => {
+      if (t.kind === 'user') {
+        const full = (userByEmail.get(t.email.toLowerCase())?.display_name ?? '').trim()
+        return full ? extractFirstName(full) : t.label
+      }
+      return t.label
+    }).join(', ')
     return `[${tokenStr}] ${body}`.trim()
-  }, [tokens, body])
+  }, [tokens, body, data])
 
   const calendarOptions = useMemo(() => {
     if (!data) return []
