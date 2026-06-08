@@ -156,11 +156,10 @@ export async function GET(request: Request) {
       : r.org_calendar
     return {
       id: r.id,
-      // v1.80 — title 의 `[이름1, 이름2 ...]` 또는 `[팀 라벨]` prefix 제거.
-      // lookup.ts(마이페이지 캘린더)에선 이미 stripBracketPrefix 적용 중이었는데
-      // 매트릭스 뷰 데이터 경로(/api/calendar/events)에만 누락되어 매트릭스에만
-      // prefix 가 그대로 노출되던 정합성 차이 해소.
+      // v1.80 — title 의 `[이름1, 이름2 ...]` 또는 `[팀 라벨]` prefix 제거 (매트릭스 표시용)
       title: stripBracketPrefix(r.title ?? ''),
+      // v1.83.23 — raw title (대괄호 포함). EventEditModal에서 토큰 reconstruct에 사용.
+      rawTitle: r.title ?? '',
       description: r.description,
       location: r.location,
       startAt: r.start_at,
@@ -240,6 +239,8 @@ interface SheetCacheRow {
 interface SheetEventLike {
   id: string
   title: string
+  /** v1.83.23 — gcal events와 응답 shape 일치 (sheet는 대괄호 prefix 없으니 title 그대로) */
+  rawTitle: string
   description: string | null
   location: string | null
   startAt: string
@@ -445,6 +446,7 @@ async function fetchSheetEvents(args: {
         out.push({
           id: `sheet:${sourceId}:${date}:${entryIdx}:${sheetName}`,
           title,
+          rawTitle: title,  // v1.83.23 — sheet는 대괄호 prefix 없음
           description: cellValue,  // 원본 cellValue 보존 (EventEditModal description 노출용)
           location: null,
           startAt,

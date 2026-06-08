@@ -28,6 +28,8 @@ type ViewMode = 'matrix' | 'month'
 interface ApiEvent {
   id: string
   title: string
+  /** v1.83.23 — 대괄호 prefix 포함된 원본 title. EventEditModal에서 토큰 reconstruct용 */
+  rawTitle?: string
   startAt: string
   endAt: string
   isAllDay: boolean
@@ -800,7 +802,8 @@ export default function CalendarMatrixPage() {
       readOnly: isSheetChip || isReadOnlyMode,
       initial: {
         id: ev.id,
-        title: ev.title,
+        // v1.83.23 — 토큰 reconstruct는 rawTitle(대괄호 포함) 우선, fallback으로 stripped title.
+        title: ev.rawTitle || ev.title,
         startAt: ev.startAt,
         endAt: ev.endAt,
         isAllDay: ev.isAllDay,
