@@ -467,6 +467,15 @@ export default function LeaderReviewsTable({
                         <option value="missing">{statusLabel('missing')}</option>
                         <option value="wrong">{statusLabel('wrong')}</option>
                       </select>
+                      {/* v1.76 — 본인이 처리 완료 후 해지요청 보낸 row 강조 (리더가 확인 후 ✓ 체크 안내) */}
+                      {(r.review_status === 'missing' || r.review_status === 'wrong') && r.resolution_requested_at && (
+                        <div
+                          className="mt-1 inline-flex items-center gap-1 px-1.5 h-5 text-[10px] rounded border border-amber-300 bg-amber-50 text-amber-800"
+                          title={`본인 해지요청 발송: ${r.resolution_requested_at.slice(0, 16).replace('T', ' ')}\n확인 후 ✓ 체크로 변경해주세요.`}
+                        >
+                          🔔 해지요청
+                        </div>
+                      )}
                     </Td>
                     <Td className="text-center">
                       {isAlert ? (
