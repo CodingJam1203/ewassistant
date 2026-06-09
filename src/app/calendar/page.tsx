@@ -20,6 +20,7 @@ import { ArrowLeft, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight
 import CustomDropdown from '@/components/ui/CustomDropdown'
 import EventEditModal, { type EventEditInitial } from '@/components/calendar/EventEditModal'
 import { useDivisionPolicy } from '@/hooks/useDivisionPolicy'
+import { NPM_VACATION_URL } from '@/lib/constants/external-urls'
 import MonthGridView from '@/components/calendar/MonthGridView'
 
 type CalendarType = 'meeting' | 'vacation' | 'birthday' | 'other'
@@ -799,6 +800,39 @@ export default function CalendarMatrixPage() {
   /** chip(이벤트) 클릭 — 수정 모드. 셀 click(날짜 prefill)은 후속 작업으로 남겨둠.
    *  Phase B — 시트 chip(id 'sheet:' prefix) 또는 sheet_only/none mode면 readOnly로 열기. */
   const handleEventClick = useCallback((ev: ApiEvent) => {
+    // v1.77.3 — 정책 ON 본부(통합형 운영) 매트릭스 chip 분기:
+    //   - title에 "휴가" 포함 → NPM 상신 안내 + redirect (휴가 SoT는 NPM)
+    //   - 그 외 → readOnly + 시트 열기 모달 (시트가 SoT라 직접 수정 차단)
+    // title 휴리스틱은 통합형 캘린더의 inferred_type='meeting' 한계 때문 — 정확도는 시트 입력자가 일관된 prefix 유지에 달림.
+    if (policy.readOnlyCalendar) {
+      const rawTitle = ev.rawTitle || ev.title || ''
+      const isVacationByTitle = /휴가/.test(rawTitle)
+      if (isVacationByTitle) {
+        const ok = window.confirm(
+          '휴가는 NPM에서 등록·수정해주세요.\nNPM 상신 후 리더가 시트에 반영하면 N-Click에 자동 연동됩니다.\n\nNPM으로 이동할까요?',
+        )
+        if (ok) window.open(NPM_VACATION_URL, '_blank', 'noopener,noreferrer')
+        return
+      }
+      // 휴가 외 chip: 시트 SoT → readOnly 모달 (시트 열기 버튼 포함)
+      setModalState({
+        mode: 'edit',
+        readOnly: true,
+        initial: {
+          id: ev.id,
+          title: ev.rawTitle || ev.title,
+          startAt: ev.startAt,
+          endAt: ev.endAt,
+          isAllDay: ev.isAllDay,
+          inferredType: ev.inferredType,
+          calendarId: ev.calendarId,
+          rrule: ev.rrule,
+          recurringEventId: ev.recurringEventId,
+        },
+      })
+      return
+    }
+
     const isSheetChip = ev.id.startsWith('sheet:')
     const isReadOnlyMode = userMode === 'sheet_only' || userMode === 'none'
     setModalState({
@@ -817,7 +851,7 @@ export default function CalendarMatrixPage() {
         recurringEventId: ev.recurringEventId,
       },
     })
-  }, [userMode])
+  }, [userMode, policy.readOnlyCalendar])
 
   /** 모달에서 저장/삭제 성공 시 — 모달 닫고 force refresh 후 load */
   const handleModalSaved = useCallback(() => {
