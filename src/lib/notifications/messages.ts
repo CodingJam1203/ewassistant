@@ -141,7 +141,9 @@ function worklogBody(prefix: string, p: WorklogNotifyPayload): string {
     `🔹지각/당일 수정 : ${lateStr}`,
     `🔹근무내용 : ${p.workContent || '미입력'}`,
     ...checkinLines,
-    '🧡',
+    // v1.83 — 마카롱 메시지 있으면 🧡 + 텍스트, 없으면 라인 자체 미노출.
+    // 종전엔 항상 빈 '🧡' 한 줄이 박혀 있었음 (마카롱 hide 시기 흔적).
+    ...((p.thanksMacaron ?? '').trim() ? [`🧡 ${p.thanksMacaron!.trim()}`] : []),
     cta(),
   ].join('\n')
 }

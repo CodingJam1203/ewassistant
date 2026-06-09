@@ -705,6 +705,11 @@ export async function PATCH(
             changedFields.push({ kind: 'check_out', label: '지각사유', before: log.late_reason || '미입력', after: body.lateReason || '미입력' })
           }
         }
+        // v1.83 — 감사 마카롱 메시지 (복원). 본문 영역의 부가 텍스트라 check_out kind.
+        // body.thanksMacaron 가 명시적으로 들어왔을 때만 비교 (PATCH 가드와 동일).
+        if (body.thanksMacaron !== undefined && !strEq(log.thanks_macaron, body.thanksMacaron)) {
+          changedFields.push({ kind: 'check_out', label: '감사 마카롱', before: log.thanks_macaron || '미입력', after: body.thanksMacaron || '미입력' })
+        }
       }
 
       // 출근보고(D+1 expected_*) 영역 — isCheckOutOnly면 UI에 노출 안 됐으므로 skip

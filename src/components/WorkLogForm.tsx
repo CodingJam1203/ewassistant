@@ -126,6 +126,9 @@ const formSchema = z.object({
   plannedWorkLocations: z.array(chipZ).optional(),
   expectedLeaveTimeline: z.array(leaveItemZ).optional(),
 
+  /** v1.83 — 감사 마카롱 메시지. 옵셔널. 빈 값이면 알림에서 라인 자체 미노출. */
+  thanksMacaron: z.string().optional(),
+
   sendTeams: z.boolean().optional(),
 
   /** v1.64 — 8H 미만 근무 시 점심시간 가졌는지 사용자 선택. 기본값 false(=가짐).
@@ -510,6 +513,7 @@ export default function WorkLogForm({
           expectedEndTime: defaultExpectedEndTime,
           plannedWorkLocations: defaultPlannedLocations,
           expectedLeaveTimeline: (editingLog.expected_leave_timeline ?? []) as LeaveTimeline,
+          thanksMacaron: (editingLog.thanks_macaron as string | null) ?? '',
           sendTeams: true,
           // v1.64 — 수정 모달 재오픈 시 저장된 사용자 선택 복원. 양방향 전환 허용.
           lunchSkipped: !!editingLog.lunch_skipped,
@@ -543,6 +547,7 @@ export default function WorkLogForm({
           expectedWorkContent: '',
           plannedWorkLocations: defaultPlannedLocations,
           expectedLeaveTimeline: [] as LeaveTimeline,
+          thanksMacaron: '',
           sendTeams: true,
           // v1.64 — 기본값 false(=점심 가짐). 라디오 노출 시 사용자가 선택 가능.
           lunchSkipped: false,
@@ -1621,6 +1626,18 @@ export default function WorkLogForm({
               </div>
             </div>
           )}
+        </div>
+
+        {/* v1.83 — 감사 마카롱 메시지 (복원). 옵셔널. 빈 값이면 Teams 알림에서 🧡 라인 자체 미노출.
+            DB 컬럼 thanks_macaron 은 그대로 살아있어 PATCH/POST 모두 자동 박힘. */}
+        <div className="mt-6">
+          <label className="block text-sm font-medium text-text-primary">감사 마카롱 메시지 (선택)</label>
+          <textarea
+            rows={2}
+            placeholder="동료에게 전하고 싶은 감사 메시지를 적어주세요!"
+            {...register('thanksMacaron')}
+            className="mt-1 block w-full rounded-md border-border-strong shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm px-3 py-2 border"
+          />
         </div>
       </div>
       )}

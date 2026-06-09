@@ -77,6 +77,11 @@ export interface WorklogNotifyPayload {
    * 8H 이상 또는 종일 휴가에선 무시.
    */
   lunchSkipped?: boolean | null
+  /**
+   * v1.83 — 감사 마카롱 메시지 (복원). 빈 값/null 이면 알림에서 🧡 라인 자체 미노출.
+   * 값 있으면 "🧡 ${텍스트}" 라인 노출.
+   */
+  thanksMacaron?: string | null
 }
 
 /**
