@@ -404,14 +404,21 @@ async function fetchSheetEvents(args: {
         // 본부 일정 row는 GCal 본부 캘린더(team_id NULL)의 매칭 없는 events만 받음.
         const normSheetName = normalizeName(sheetName)
         let emails: string[] = []
+        // v1.77.4 — 매칭된 사용자의 teamId를 시트 event에 채움. 본부 row 오분류 방지.
+        // 다른 팀 사람의 시트 event가 본부 일정 행으로 떨어지던 문제 해결.
+        let resolvedTeamId: string | null = null
         const overrideUserId = overrideIndex.get(`${sourceId}::${normSheetName}`)
         if (overrideUserId) {
           const info = userIdToInfo.get(overrideUserId)
-          if (info) emails = [info.email]
+          if (info) {
+            emails = [info.email]
+            resolvedTeamId = info.teamId
+          }
         } else {
           const matched = sourceNameToUsers.get(`${sourceId}::${normSheetName}`)
           if (matched && matched.length === 1) {
             emails = [matched[0].email]
+            resolvedTeamId = matched[0].teamId
           }
         }
         if (emails.length === 0) { entryIdx++; continue }  // 매칭 없으면 시트 entry 무시
@@ -461,7 +468,7 @@ async function fetchSheetEvents(args: {
           calendarType: isVacation ? 'vacation' : 'other',
           divisionId: sourceInfo.divisionId,
           divisionName: sourceInfo.divisionName,
-          teamId: null,
+          teamId: resolvedTeamId,
           teamName: null,
         })
         entryIdx++
