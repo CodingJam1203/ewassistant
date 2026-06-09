@@ -37,6 +37,7 @@ import VacationRegisterModal from '@/components/VacationRegisterModal'
 import CalendarDayDetailModal from '@/components/CalendarDayDetailModal'
 import EventEditModal, { type EventEditInitial, type CalendarType } from '@/components/calendar/EventEditModal'
 import { useDivisionPolicy } from '@/hooks/useDivisionPolicy'
+import { NPM_VACATION_URL } from '@/lib/constants/external-urls'
 import type { SubmissionRow } from '@/components/SubmissionsRawTable'
 import type { UserCalendarLookup, CalendarEventChunk } from '@/types/leave-calendar'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
@@ -280,6 +281,18 @@ export default function MyHistoryCalendar({
 
   // v1.77 — 본인 본부 정책 (외부 캘린더 모드 + 시트 URL). EventEditModal에 disableVacationType 전달용.
   const policy = useDivisionPolicy()
+
+  // v1.77 — 정책 ON: 휴가 등록 클릭 시 N-Click 모달 대신 NPM으로 redirect (헤더 버튼 + 캘린더 셀 모두).
+  const handleVacationOpen = useCallback(() => {
+    if (policy.readOnlyCalendar) {
+      const ok = window.confirm(
+        '휴가는 NPM에서 등록해주세요.\nNPM 상신 후 리더가 시트에 등록하면 N-Click에 자동 연동됩니다.\n\nNPM으로 이동할까요?',
+      )
+      if (ok) window.open(NPM_VACATION_URL, '_blank', 'noopener,noreferrer')
+      return
+    }
+    setVacationOpen(true)
+  }, [policy.readOnlyCalendar])
 
   // v1.76 — 본인이 EW 처리 완료 후 리더에게 해지요청. 1회만 가능.
   // setter들이 위에서 선언된 후라 TDZ 안전.
@@ -590,7 +603,7 @@ export default function MyHistoryCalendar({
             <RefreshCw className={cn('h-4 w-4', (loading || syncing) && 'animate-spin')} aria-hidden />
             {syncing ? '동기화 중…' : '새로고침'}
           </Button>
-          <Button variant="primary" size="sm" onClick={() => setVacationOpen(true)}>
+          <Button variant="primary" size="sm" onClick={handleVacationOpen}>
             <CalendarPlus className="h-4 w-4" aria-hidden />
             휴가 등록
           </Button>
@@ -683,7 +696,9 @@ export default function MyHistoryCalendar({
           onRegisterVacation={() => {
             // 상세 모달에서 "이 날 휴가 등록" 클릭 시 휴가 모달로 전환
             // (selectedDate는 유지 — 휴가 모달의 시작/종료일 prefill에 쓰임)
-            setVacationOpen(true)
+            // v1.77.1 — 정책 ON 본부면 NPM redirect (방어적 분기. CalendarDayDetailModal이
+            // 자체로도 NPM 분기를 가지지만, 만일을 대비해 여기서도 차단).
+            handleVacationOpen()
           }}
           onCreateCheckIn={onCreateCheckIn ? () => {
             // 상세 모달 먼저 닫고 부모의 CheckInModal로 전환
