@@ -19,6 +19,7 @@ import { startOfMonth, endOfMonth, startOfWeek, endOfWeek } from 'date-fns'
 import { ArrowLeft, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight, Home, RefreshCw, Plus, Repeat, LayoutGrid, CalendarDays } from 'lucide-react'
 import CustomDropdown from '@/components/ui/CustomDropdown'
 import EventEditModal, { type EventEditInitial } from '@/components/calendar/EventEditModal'
+import { useDivisionPolicy } from '@/hooks/useDivisionPolicy'
 import MonthGridView from '@/components/calendar/MonthGridView'
 
 type CalendarType = 'meeting' | 'vacation' | 'birthday' | 'other'
@@ -416,6 +417,9 @@ export default function CalendarMatrixPage() {
   const [syncing, setSyncing] = useState(false)
   // mount 시 silent refresh 1회만 실행하도록 가드
   const didMountSyncRef = useRef(false)
+
+  // v1.77 — 본인 본부 정책. EventEditModal에 disableVacationType 전달용
+  const policy = useDivisionPolicy()
 
   // Phase 4.3 — 등록/수정 모달. Phase B — readOnly flag (시트 chip 또는 sheet_only/none mode)
   const [modalState, setModalState] = useState<
@@ -1182,6 +1186,7 @@ export default function CalendarMatrixPage() {
           isCreate={modalState.mode === 'create'}
           initial={modalState.initial}
           readOnly={modalState.readOnly}
+          disableVacationType={policy.readOnlyCalendar}
           onClose={() => setModalState(null)}
           onSaved={handleModalSaved}
         />

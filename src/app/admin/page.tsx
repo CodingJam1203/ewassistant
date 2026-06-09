@@ -30,6 +30,10 @@ interface OrgDivision {
   teams: OrgTeam[]
   /** v1.50: 본부별 사전등록 알림 정책. true면 planned_* 첫 등록 시점에 Teams 알림 발송. */
   notify_on_advance_checkin?: boolean
+  /** v1.77: 외부 캘린더 모드. true면 휴가는 NPM, 시트 출처 일정은 시트 redirect. GCal 일정은 양방향 유지. */
+  read_only_calendar?: boolean
+  /** v1.77: 본부 시트 URL (시트 source 등록되어 있으면). 정책 ON 시 일정 chip 클릭 redirect에 사용. */
+  sheet_url?: string | null
 }
 
 interface UserProfile {
@@ -180,6 +184,26 @@ function OrgManager({
     setBusy(false)
   }
 
+  /** v1.77 — 본부의 read_only_calendar (외부 캘린더 모드) 토글 */
+  const toggleDivisionReadOnlyCalendar = async (div: OrgDivision) => {
+    const current = div.read_only_calendar ?? false
+    const next = !current
+    const msg = next
+      ? `"${div.name}" 본부는 앞으로 외부 캘린더 모드로 동작합니다.\n\n- 휴가 등록: NPM 전자결재로 redirect\n- 시트 출처 일정 chip 클릭: 스프레드시트로 redirect\n- GCal 일정: 기존 양방향 sync 유지\n- 일정 등록 모달에서 '휴가' 속성 선택 불가\n\n계속하시겠습니까?`
+      : `"${div.name}" 본부는 앞으로 N-Click에서 휴가/일정 직접 등록·수정이 가능합니다 (기본 동작).\n\n계속하시겠습니까?`
+    if (!confirm(msg)) return
+    setBusy(true)
+    const res = await fetch(`/api/admin/org/divisions/${div.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ read_only_calendar: next }),
+    })
+    const data = await res.json()
+    if (!res.ok) { alert(data.error ?? '설정 변경 실패'); setBusy(false); return }
+    await onOrgChange()
+    setBusy(false)
+  }
+
   /** v1.51 — 팀의 cron 알림 ON/OFF 토글 (3종 중 하나) */
   const toggleTeamCronFlag = async (
     team: OrgTeam,
@@ -312,6 +336,24 @@ function OrgManager({
                       }
                     >
                       {(div.notify_on_advance_checkin ?? false) ? '출근등록 알림 ON' : '출근등록 알림 OFF'}
+                    </button>
+                    {/* v1.77 — 외부 캘린더 모드 토글 (휴가 NPM SoT, 시트 일정 redirect) */}
+                    <button
+                      onClick={() => toggleDivisionReadOnlyCalendar(div)}
+                      disabled={busy}
+                      className={
+                        'text-[10px] px-1.5 py-0.5 rounded-full border transition-colors mr-1 ' +
+                        ((div.read_only_calendar ?? false)
+                          ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                          : 'border-border bg-surface-muted text-text-muted hover:text-text-primary')
+                      }
+                      title={
+                        (div.read_only_calendar ?? false)
+                          ? '외부 캘린더 모드 ON: 휴가→NPM / 시트 일정→시트 redirect (클릭해서 OFF)'
+                          : '외부 캘린더 모드 OFF: N-Click에서 직접 등록·수정 (클릭해서 ON)'
+                      }
+                    >
+                      {(div.read_only_calendar ?? false) ? '📅 외부 캘린더 ON' : '📅 외부 캘린더 OFF'}
                     </button>
                     <button
                       onClick={() => { setEditingDiv(div.id); setEditDivName(div.name) }}

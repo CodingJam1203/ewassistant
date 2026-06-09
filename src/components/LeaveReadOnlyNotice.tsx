@@ -29,6 +29,8 @@ import { Plane, Calendar, ExternalLink } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { buildSubFullDayLeaveNotice } from '@/lib/leave-timeline'
 import type { LeaveTimeline } from '@/types/leave-timeline'
+import { useDivisionPolicy } from '@/hooks/useDivisionPolicy'
+import { NPM_VACATION_URL } from '@/lib/constants/external-urls'
 
 // v1.61 — 사용자 본부의 spreadsheet URL 1회 fetch.
 // 안내 박스에서 calendar source 일정에 [캘린더 시트 열기] deep link 노출.
@@ -65,33 +67,64 @@ export default function LeaveReadOnlyNotice({ value, labelPrefix, onRemove }: Le
   const subFullDays = entries.filter(e => e.item?.leaveType !== 'full_day' && (e.item?.roundedMinutes ?? 0) > 0)
   // v1.61 — 본부 시트 URL fetch (calendar source 항목 있을 때만 의미)
   const sheetUrl = useSheetSourceUrl()
+  // v1.77 — 외부 캘린더 모드 본부면 "취소" 버튼 → NPM 안내로 교체
+  const policy = useDivisionPolicy()
   if (fullDays.length === 0 && subFullDays.length === 0) return null
+
+  // v1.77 — 정책 ON 시 휴가는 NPM이 SoT라 "취소"는 NPM에서 처리해야 함.
+  // 출처(시트/GCal/manual) 무관 모든 휴가 박스에서 NPM 안내 + 바로가기로 통일.
+  const handleNpmRedirect = () => {
+    const ok = window.confirm(
+      '휴가는 NPM 및 스프레드시트에서 수정해주세요.\n(리더가 시트에 입력하면 N-Click에 자동 연동)\n\nNPM으로 이동할까요?',
+    )
+    if (ok) window.open(NPM_VACATION_URL, '_blank', 'noopener,noreferrer')
+  }
 
   const prefix = labelPrefix ?? '이 날'
 
   return (
     <div className="space-y-1.5">
-      {fullDays.map(({ item, originalIndex }) => (
-        <div
-          key={`full-${originalIndex}`}
-          className="flex items-start gap-2 text-[12px] text-warning-text bg-warning-bg border border-warning-border rounded-md px-2 py-1.5 leading-snug"
-        >
-          <Plane className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden />
-          <span className="flex-1">
-            <strong className="font-semibold">{prefix} 종일 휴가 등록됨</strong>
-            <span className="ml-1 text-text-muted">— 근무 시간 자동 처리</span>
-          </span>
-          {onRemove && (
-            <button
-              type="button"
-              onClick={() => onRemove(originalIndex)}
-              className="shrink-0 text-[11px] font-medium text-warning-text underline underline-offset-2 hover:text-warning-text/80"
-            >
-              이 휴가 취소
-            </button>
-          )}
-        </div>
-      ))}
+      {fullDays.map(({ item: _item, originalIndex }) => {
+        // v1.77 — 정책 ON: "이 휴가 취소" 대신 "👉 NPM 바로가기" + 안내문. NPM SoT.
+        void _item
+        return (
+          <div
+            key={`full-${originalIndex}`}
+            className="flex items-start gap-2 text-[12px] text-warning-text bg-warning-bg border border-warning-border rounded-md px-2 py-1.5 leading-snug"
+          >
+            <Plane className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden />
+            <span className="flex-1">
+              <strong className="font-semibold">{prefix} 종일 휴가 등록됨</strong>
+              <span className="ml-1 text-text-muted">— 근무 시간 자동 처리</span>
+              {policy.readOnlyCalendar && (
+                <span className="block mt-0.5 text-[11px] text-text-muted">
+                  ※ 휴가는 NPM 및 스프레드시트에서 수정해주세요. (리더가 시트에 입력하면 N-Click에 자동 연동)
+                </span>
+              )}
+            </span>
+            {policy.readOnlyCalendar ? (
+              <button
+                type="button"
+                onClick={handleNpmRedirect}
+                className="shrink-0 inline-flex items-center gap-0.5 text-[11px] font-medium text-warning-text underline underline-offset-2 hover:text-warning-text/80"
+                title="NPM 전자결재로 이동 (휴가 상신/취소)"
+              >
+                👉 NPM 바로가기
+              </button>
+            ) : (
+              onRemove && (
+                <button
+                  type="button"
+                  onClick={() => onRemove(originalIndex)}
+                  className="shrink-0 text-[11px] font-medium text-warning-text underline underline-offset-2 hover:text-warning-text/80"
+                >
+                  이 휴가 취소
+                </button>
+              )
+            )}
+          </div>
+        )
+      })}
       {subFullDays.map(({ item, originalIndex }) => {
         // v1.60.7 — Spreadsheet source 일정은 단방향 한계 안내 추가.
         // 사용자가 [일정 삭제] 누르면 work_logs에서 빠지지만 시트 원본은 그대로.

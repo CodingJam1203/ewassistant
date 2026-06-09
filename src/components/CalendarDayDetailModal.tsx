@@ -31,6 +31,8 @@ import type { SubmissionRow } from '@/components/SubmissionsRawTable'
 import type { UserCalendarLookup } from '@/types/leave-calendar'
 import type { LeaveTimeline, LeaveTimelineItem } from '@/types/leave-timeline'
 import { useRegisterModalOpen } from '@/contexts/ModalOpenContext'
+import { useDivisionPolicy } from '@/hooks/useDivisionPolicy'
+import { NPM_VACATION_URL } from '@/lib/constants/external-urls'
 
 export interface CalendarDayDetailModalProps {
   date: string  // YYYY-MM-DD
@@ -87,8 +89,31 @@ export default function CalendarDayDetailModal({
 }: CalendarDayDetailModalProps) {
   // Stage 4: 글로벌 모달 카운터 등록
   useRegisterModalOpen()
+  // v1.77 — 본인 본부 정책 (외부 캘린더 모드 여부 + 시트 URL)
+  const policy = useDivisionPolicy()
   const dayDate = parseISO(date)
   const dateLabel = format(dayDate, 'yyyy년 M월 d일 (EEE)', { locale: ko })
+
+  // v1.77 — 정책 ON일 때 휴가 등록 클릭 → confirm 후 NPM으로 새 탭 이동
+  const handleVacationClickNpm = () => {
+    const ok = window.confirm(
+      '휴가는 NPM에서 등록해주세요.\nNPM 상신 후 리더가 시트에 등록하면 N-Click에 자동 연동됩니다.\n\nNPM으로 이동할까요?',
+    )
+    if (ok) window.open(NPM_VACATION_URL, '_blank', 'noopener,noreferrer')
+  }
+
+  // v1.77 — 정책 ON + 시트 출처 일정 chip 클릭 → confirm 후 시트로 새 탭 이동
+  const handleSheetEventClick = () => {
+    if (!policy.sheetUrl) {
+      // eslint-disable-next-line no-alert
+      alert('시트 URL이 설정되지 않았습니다. 관리자에게 문의해주세요.')
+      return
+    }
+    const ok = window.confirm(
+      '일정은 스프레드시트에서 관리됩니다.\n시트로 이동하시겠습니까?',
+    )
+    if (ok) window.open(policy.sheetUrl, '_blank', 'noopener,noreferrer')
+  }
 
   const co = checkOut
   const ci = checkIn
@@ -393,19 +418,33 @@ export default function CalendarDayDetailModal({
                     //   gcal 양방향은 기존 hover/edit 가능 스타일 유지.
                     const isSheet = ev.source === 'sheet'
                     // Phase 1.5e — id가 있는 chunk만 클릭 가능 (org_calendar_events row 식별)
+                    // v1.77 — 정책 ON + 시트 출처 chip → 시트로 redirect. GCal 출처는 기존대로 EventEditModal.
                     if (ev.id && onEditEvent) {
+                      const handleClick = () => {
+                        if (policy.readOnlyCalendar && isSheet) {
+                          handleSheetEventClick()
+                        } else {
+                          onEditEvent(ev)
+                        }
+                      }
                       return (
                         <li key={ev.id ?? i}>
                           <button
                             type="button"
-                            onClick={() => onEditEvent(ev)}
+                            onClick={handleClick}
                             className={cn(
                               'text-left w-full rounded-md px-1.5 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500',
                               isSheet
                                 ? 'text-text-secondary italic hover:bg-surface-muted'
                                 : 'hover:bg-primary-50',
                             )}
-                            title={isSheet ? '시트 출처 — 보기만 가능 (수정은 시트에서)' : '클릭해서 수정'}
+                            title={
+                              policy.readOnlyCalendar && isSheet
+                                ? '시트 출처 — 클릭해서 스프레드시트로 이동'
+                                : isSheet
+                                  ? '시트 출처 — 보기만 가능 (수정은 시트에서)'
+                                  : '클릭해서 수정'
+                            }
                           >
                             {text}
                             {isSheet && <span className="ml-1.5 text-[10px] text-text-muted">· 시트</span>}
@@ -429,22 +468,35 @@ export default function CalendarDayDetailModal({
         {/* 푸터 */}
         <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-border bg-background/40 rounded-b-[20px]">
           <div className="flex items-center gap-2">
-            {onRegisterVacation && (
-              // 이미 출근/퇴근 보고가 있는 날은 bulk-leave가 안전장치로 skip하므로
-              // 버튼 대신 정확한 대안 경로(출근보고 수정 → 휴가 timeline)를 안내.
-              // (checkIn / checkOut prop은 work_log row가 실제로 있을 때만 non-null —
-              //  workLogToSubmissionPair의 hasCheckIn 가드 적용 후 정확.)
+            {/* v1.77 — 정책 ON: 휴가 등록은 NPM redirect (이미 보고된 날 안내문 우선) */}
+            {policy.readOnlyCalendar ? (
               (checkIn || checkOut) ? (
                 <span className="inline-flex items-center text-[12px] text-text-muted px-2 py-1 rounded-md bg-surface-muted">
-                  💡 이미 보고된 날 — 출근보고 수정(✏)에서 휴가 추가
+                  💡 휴가는 NPM에서 등록해주세요 (리더 시트 입력 후 연동)
                 </span>
               ) : (
-                <Button variant="secondary" size="sm" onClick={onRegisterVacation}>
+                <Button variant="secondary" size="sm" onClick={handleVacationClickNpm}>
                   <CalendarPlus className="h-4 w-4" aria-hidden />
-                  이 날 휴가 등록
+                  이 날 휴가 등록 (NPM)
                 </Button>
               )
+            ) : (
+              onRegisterVacation && (
+                // 이미 출근/퇴근 보고가 있는 날은 bulk-leave가 안전장치로 skip하므로
+                // 버튼 대신 정확한 대안 경로(출근보고 수정 → 휴가 timeline)를 안내.
+                (checkIn || checkOut) ? (
+                  <span className="inline-flex items-center text-[12px] text-text-muted px-2 py-1 rounded-md bg-surface-muted">
+                    💡 이미 보고된 날 — 출근보고 수정(✏)에서 휴가 추가
+                  </span>
+                ) : (
+                  <Button variant="secondary" size="sm" onClick={onRegisterVacation}>
+                    <CalendarPlus className="h-4 w-4" aria-hidden />
+                    이 날 휴가 등록
+                  </Button>
+                )
+              )
             )}
+            {/* v1.77 — 정책 ON 시 "+ 일정 등록"은 유지 (GCal에 등록). 정책 OFF는 기존 동작 */}
             {onCreateEvent && (
               <Button variant="secondary" size="sm" onClick={onCreateEvent}>
                 <CalendarPlus className="h-4 w-4" aria-hidden />

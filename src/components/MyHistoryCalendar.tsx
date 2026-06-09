@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils/cn'
 import VacationRegisterModal from '@/components/VacationRegisterModal'
 import CalendarDayDetailModal from '@/components/CalendarDayDetailModal'
 import EventEditModal, { type EventEditInitial, type CalendarType } from '@/components/calendar/EventEditModal'
+import { useDivisionPolicy } from '@/hooks/useDivisionPolicy'
 import type { SubmissionRow } from '@/components/SubmissionsRawTable'
 import type { UserCalendarLookup, CalendarEventChunk } from '@/types/leave-calendar'
 import { resolveDisplayLocations, formatChipsArrow } from '@/lib/work-locations-v2'
@@ -276,6 +277,9 @@ export default function MyHistoryCalendar({
   const [leaderReviewByDate, setLeaderReviewByDate] = useState<Record<string, { status: 'missing' | 'wrong'; note: string | null; resolution_requested_at: string | null }>>({})
   // v1.76 — 해지요청 진행중인 date (낙관적 업데이트용)
   const [resolutionRequestBusy, setResolutionRequestBusy] = useState<string | null>(null)
+
+  // v1.77 — 본인 본부 정책 (외부 캘린더 모드 + 시트 URL). EventEditModal에 disableVacationType 전달용.
+  const policy = useDivisionPolicy()
 
   // v1.76 — 본인이 EW 처리 완료 후 리더에게 해지요청. 1회만 가능.
   // setter들이 위에서 선언된 후라 TDZ 안전.
@@ -733,6 +737,7 @@ export default function MyHistoryCalendar({
         <EventEditModal
           isCreate={eventModal.isCreate}
           initial={eventModal.initial}
+          disableVacationType={policy.readOnlyCalendar}
           onClose={() => setEventModal(null)}
           onSaved={() => {
             setEventModal(null)

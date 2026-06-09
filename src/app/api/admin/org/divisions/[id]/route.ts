@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/admin-check'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-// PATCH /api/admin/org/divisions/[id] — 본부명 수정 + 알림 정책 토글
-// body: { name?: string, notify_on_advance_checkin?: boolean }
+// PATCH /api/admin/org/divisions/[id] — 본부명 수정 + 알림 정책 토글 + 외부 캘린더 모드 토글
+// body: { name?: string, notify_on_advance_checkin?: boolean, read_only_calendar?: boolean }
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -32,6 +32,14 @@ export async function PATCH(
       return NextResponse.json({ error: 'notify_on_advance_checkin은 boolean이어야 합니다.' }, { status: 400 })
     }
     updates.notify_on_advance_checkin = body.notify_on_advance_checkin
+  }
+
+  // v1.77 — 외부 캘린더 모드(read-only) 토글. true면 휴가/시트 일정 외부 시스템으로 redirect.
+  if (body.read_only_calendar !== undefined) {
+    if (typeof body.read_only_calendar !== 'boolean') {
+      return NextResponse.json({ error: 'read_only_calendar는 boolean이어야 합니다.' }, { status: 400 })
+    }
+    updates.read_only_calendar = body.read_only_calendar
   }
 
   if (Object.keys(updates).length === 0) {

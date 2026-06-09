@@ -65,6 +65,13 @@ interface EventEditModalProps {
   onSaved: () => void
   /** Phase B — true면 모든 input disabled + 저장/삭제 버튼 숨김. 시트 chip 또는 sheet_only/none mode. */
   readOnly?: boolean
+  /**
+   * v1.77 — true면 속성 라디오에서 "휴가" 옵션 제거.
+   * read_only_calendar 본부 사용자: 휴가는 NPM SoT라 EventEditModal로 등록·수정 차단.
+   * 기존 inferred_type='vacation' 이벤트가 수정 모드로 들어와도 휴가 옵션 노출 안 함
+   * (단 readOnly=true와 함께 들어오는 시트 chip 케이스는 어차피 input 모두 disabled).
+   */
+  disableVacationType?: boolean
 }
 
 /** 속성 라디오 옵션 — 라벨별 분류 type. 미팅/회의/행사는 모두 meeting(회의 캘린더 prefill). */
@@ -436,7 +443,7 @@ function reconstructTokens(
   return out
 }
 
-export default function EventEditModal({ isCreate, initial, onClose, onSaved, readOnly = false }: EventEditModalProps) {
+export default function EventEditModal({ isCreate, initial, onClose, onSaved, readOnly = false, disableVacationType = false }: EventEditModalProps) {
   const [data, setData] = useState<PickerData | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -783,20 +790,29 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved, re
               />
             </div>
 
-            {/* 속성 */}
+            {/* 속성 — v1.77: disableVacationType=true(외부 캘린더 모드)면 휴가 옵션 제거 */}
             <div>
-              <label className="block text-xs font-medium text-text-secondary mb-1">속성</label>
+              <label className="block text-xs font-medium text-text-secondary mb-1">
+                속성
+                {disableVacationType && (
+                  <span className="ml-1.5 text-[10px] font-normal text-text-muted">
+                    (휴가는 NPM에서 등록해주세요)
+                  </span>
+                )}
+              </label>
               <div className="inline-flex items-center rounded-[10px] border border-border-strong bg-surface overflow-hidden">
-                {ATTR_OPTIONS.map(o => (
-                  <button
-                    key={o.key}
-                    type="button"
-                    onClick={() => setAttrKey(o.key)}
-                    className={`h-9 px-3 text-xs font-medium ${attrKey === o.key ? 'bg-primary-600 text-white' : 'text-text-secondary hover:bg-surface-muted'}`}
-                  >
-                    {o.label}
-                  </button>
-                ))}
+                {ATTR_OPTIONS
+                  .filter(o => !disableVacationType || o.key !== 'vacation')
+                  .map(o => (
+                    <button
+                      key={o.key}
+                      type="button"
+                      onClick={() => setAttrKey(o.key)}
+                      className={`h-9 px-3 text-xs font-medium ${attrKey === o.key ? 'bg-primary-600 text-white' : 'text-text-secondary hover:bg-surface-muted'}`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
               </div>
             </div>
 
