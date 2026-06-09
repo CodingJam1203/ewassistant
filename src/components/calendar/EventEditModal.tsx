@@ -17,11 +17,12 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { X, Loader2, Trash2 } from 'lucide-react'
+import { X, Loader2, Trash2, ExternalLink } from 'lucide-react'
 import CustomDropdown from '@/components/ui/CustomDropdown'
 import TimeSelect from '@/components/TimeSelect'
 import MultiTagPicker, { buildSuffixCount, userShortLabel, type PickerToken, type PickerUser, type PickerTag } from './MultiTagPicker'
 import { extractFirstName } from '@/lib/users/first-name'
+import { useDivisionPolicy } from '@/hooks/useDivisionPolicy'
 
 export type CalendarType = 'meeting' | 'vacation' | 'birthday' | 'other'
 
@@ -448,6 +449,9 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved, re
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // v1.77.2 — readOnly(시트 출처) 모드일 때 본부 시트 URL 노출.
+  // 사용자가 "어디서 수정?" 헷갈리지 않게 모달에서 시트로 바로 갈 수 있는 액션 제공.
+  const policy = useDivisionPolicy()
 
   // form state
   const [tokens, setTokens] = useState<PickerToken[]>([])
@@ -771,6 +775,17 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved, re
           <div className="p-8 text-center text-sm text-danger-text">데이터 로드 실패</div>
         ) : (
           <div className={`flex-1 overflow-y-auto p-4 space-y-3 ${readOnly ? 'pointer-events-none opacity-70 select-text' : ''}`}>
+            {/* v1.77.2 — readOnly(시트 출처) 안내: 어디서 수정해야 하는지 본문 상단에서 명시. */}
+            {readOnly && (
+              <div className="rounded-md border border-warning-border bg-warning-bg/60 px-3 py-2 text-[12px] text-warning-text leading-snug">
+                이 일정은 외부 스프레드시트에서 관리됩니다. 수정·삭제는 시트에서 직접 해주세요.
+                {policy.sheetUrl && (
+                  <span className="block mt-0.5 text-text-muted">
+                    하단의 [📊 스프레드시트에서 수정] 버튼을 눌러 시트로 이동하세요.
+                  </span>
+                )}
+              </div>
+            )}
             {/* 태그 */}
             <div>
               <label className="block text-xs font-medium text-text-secondary mb-1">태그 (사람·그룹)</label>
@@ -1099,6 +1114,17 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved, re
             >
               <Trash2 className="h-4 w-4" /> 삭제
             </button>
+          ) : readOnly && policy.sheetUrl ? (
+            // v1.77.2 — 시트 출처 일정은 시트에서만 수정 가능. 모달에서 바로 시트로 이동.
+            <a
+              href={policy.sheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="h-9 px-3 text-sm rounded-[10px] border border-warning-border bg-warning-bg text-warning-text hover:bg-warning-bg/80 inline-flex items-center gap-1 font-medium"
+              title="외부 스프레드시트에서 일정 수정"
+            >
+              📊 스프레드시트에서 수정 <ExternalLink className="h-3.5 w-3.5" />
+            </a>
           ) : <span />}
           <div className="flex items-center gap-2">
             <button
