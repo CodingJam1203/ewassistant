@@ -16,6 +16,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 interface UserLookupRow {
   email: string
   display_name: string | null
+  /** v1.77.5 — suffix 매칭 본부 경계 확인용. division name (org_divisions.name 그대로). */
+  division: string | null
 }
 
 interface OrgTagRow {
@@ -44,6 +46,8 @@ export interface UserLookup {
    * 한 alias가 같은 scope 안 여러 tag에 등장하면 email들이 union(dedup).
    */
   byTagAlias: Map<string, Map<string, string[]>>
+  /** v1.77.5 — divisionId → division name 매핑. suffix 매칭 시 본부 경계 확인용. */
+  divisionIdToName: Map<string, string>
 }
 
 /**
@@ -51,11 +55,19 @@ export interface UserLookup {
  * sync 1회 호출당 1번만 fetch — match-users는 동기 함수.
  */
 export async function loadUserLookup(adminClient: SupabaseClient): Promise<UserLookup> {
-  // 사용자 + tag 병렬 fetch
-  const [usersRes, tagsRes] = await Promise.all([
-    adminClient.from('user_profiles').select('email, display_name').eq('is_active', true),
+  // 사용자 + tag + division 병렬 fetch
+  const [usersRes, tagsRes, divisionsRes] = await Promise.all([
+    adminClient.from('user_profiles').select('email, display_name, division').eq('is_active', true),
     adminClient.from('org_tags').select('division_id, team_id, label, alias_patterns, member_emails').eq('is_active', true),
+    adminClient.from('org_divisions').select('id, name'),
   ])
+
+  const divisionIdToName = new Map<string, string>()
+  if (!divisionsRes.error && divisionsRes.data) {
+    for (const d of divisionsRes.data) {
+      if (d.id && d.name) divisionIdToName.set(d.id, d.name)
+    }
+  }
 
   const byEmail = new Map<string, UserLookupRow>()
   const byName  = new Map<string, UserLookupRow[]>()
@@ -66,8 +78,9 @@ export async function loadUserLookup(adminClient: SupabaseClient): Promise<UserL
     for (const row of usersRes.data) {
       const email = (row.email ?? '').toLowerCase().trim()
       const name  = (row.display_name ?? '').trim()
+      const division = (row.division ?? '').trim() || null
       if (!email) continue
-      const obj: UserLookupRow = { email, display_name: name || null }
+      const obj: UserLookupRow = { email, display_name: name || null, division }
       byEmail.set(email, obj)
       if (name) {
         const list = byName.get(name) ?? []
@@ -112,7 +125,7 @@ export async function loadUserLookup(adminClient: SupabaseClient): Promise<UserL
     }
   }
 
-  return { byEmail, byName, byNameSuffix, byTagAlias }
+  return { byEmail, byName, byNameSuffix, byTagAlias, divisionIdToName }
 }
 
 /**
@@ -172,11 +185,15 @@ export function matchUsers(ev: MatchInput, lookup: UserLookup): string[] {
   //   예: "이정영 - 워크샵 TFT 회의" → 이정영 매칭.
   //   풀네임 정확 일치만 적용(suffix X) → 잘못된 매칭 위험 차단.
   //   기존 대괄호/attendee 매칭과 합집합(Set)으로 dedupe.
+  // v1.77.5 — leading name도 본부 경계 적용. 동명이인(다른 본부) 동시 매칭 방지.
   const leadingName = extractLeadingName(ev.title ?? '')
   if (leadingName) {
     const list = lookup.byName.get(leadingName)
     if (list && list.length > 0) {
-      for (const u of list) matched.add(u.email)
+      const evDivisionName = lookup.divisionIdToName.get(ev.divisionId) ?? null
+      const scoped = evDivisionName ? list.filter(u => u.division === evDivisionName) : list
+      const winners = scoped.length > 0 ? scoped : list
+      for (const u of winners) matched.add(u.email)
     }
   }
 
@@ -195,22 +212,36 @@ export function matchUsers(ev: MatchInput, lookup: UserLookup): string[] {
 
   for (const n of names) {
     // 2-1) 풀네임 (예: "박솔내" → "박솔내" user)
+    // v1.77.5 — 동명이인(같은 풀네임, 다른 본부) 동시 매칭 방지. 본부 안 사용자 우선,
+    // 없으면 fallback으로 전체 (외부 본부 attendee 케이스 보존).
     const fullList = lookup.byName.get(n)
     if (fullList && fullList.length > 0) {
-      for (const u of fullList) matched.add(u.email)
+      const evDivisionName = lookup.divisionIdToName.get(ev.divisionId) ?? null
+      const scoped = evDivisionName ? fullList.filter(u => u.division === evDivisionName) : fullList
+      const winners = scoped.length > 0 ? scoped : fullList
+      for (const u of winners) matched.add(u.email)
       continue
     }
     // 2-2) 마지막 2글자 suffix — "솔내" → 풀네임 끝이 "솔내"인 user들 (Apps Script 호환).
     // 이름 형태(순수 한글/영문) 토큰에만 적용. 공백·괄호가 섞인 라벨 토큰
     // ("마이스팀 A파트(승현팟)")에 suffix 휴리스틱을 쓰면 "팟)" 같은 의미 없는 suffix가
     // 우연히 매칭될 수 있으므로 alias 단계로 바로 넘어간다.
+    // v1.77.5 — 본부 경계 적용. suffix 휴리스틱은 cross-본부 동명이인 잘못 매칭이 일어나기 쉬워
+    // (예: HR임팩트 권영은 + HR커뮤 김영은 → "[영은] 한투 PT"가 두 사람 모두에게 매칭됨),
+    // 이벤트 캘린더의 division 안 사용자로만 한정. 외부 본부 attendee는 풀네임/attendee 단계에서 매칭됨.
     const isNameLike = /^[가-힣A-Za-z]+$/.test(n)
     if (isNameLike && n.length >= 2) {
       const suffix = n.slice(-2)
       const sList = lookup.byNameSuffix.get(suffix)
       if (sList && sList.length > 0) {
-        for (const u of sList) matched.add(u.email)
-        continue
+        const evDivisionName = lookup.divisionIdToName.get(ev.divisionId) ?? null
+        const scoped = evDivisionName
+          ? sList.filter(u => u.division === evDivisionName)
+          : sList
+        if (scoped.length > 0) {
+          for (const u of scoped) matched.add(u.email)
+          continue
+        }
       }
     }
     // 2-3) org_tags alias — team scope 우선, division 공용 fallback. 첫 매칭 win.
