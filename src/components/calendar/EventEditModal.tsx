@@ -582,10 +582,16 @@ export default function EventEditModal({ isCreate, initial, onClose, onSaved, re
 
     let pick: typeof data.calendars[number] | undefined
 
-    // 0) 통합형(by_title) 캘린더 우선 — 한 캘린더에 휴가·미팅 다 쌓는 팀.
-    //    속성과 무관하게 그 팀(또는 본부공용)의 통합 캘린더로 prefill. (생일은 제외 — 본부 공용 별도)
+    // 0) 통합형(by_title) 캘린더 우선 — 한 캘린더에 휴가·미팅 다 쌓는 팀/본부.
+    //    v1.79 (2026-06-14) — 팀 by_title은 calendar_type 일치 시만 prefill.
+    //    휴가 캘린더를 by_title로 잘못 등록한 셋업 오류에서 회의 속성도 휴가 캘린더로
+    //    prefill되던 문제 fix. 본부 공용 by_title은 통합형 의도 그대로 (calendar_type 무관) —
+    //    HR임팩트본부 공용은 본부 직속 회의·휴가 모두 받는 운영 패턴이라 예외.
+    //    (생일은 본부 공용 별도라 0순위 skip)
     if (!scopeIsDivision && targetTeamId) {
-      pick = inDiv.find(c => c.team_id === targetTeamId && c.event_classification === 'by_title')
+      // 팀 by_title: 선택한 속성과 캘린더 type이 일치할 때만 (오등록 방어)
+      pick = inDiv.find(c => c.team_id === targetTeamId && c.event_classification === 'by_title' && c.calendar_type === targetCalType)
+      // 본부 공용 by_title fallback: calendar_type 무관 (통합형 의도)
       if (!pick) pick = inDiv.find(c => c.team_id === null && c.event_classification === 'by_title')
     }
 
