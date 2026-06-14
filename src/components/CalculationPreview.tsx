@@ -51,7 +51,7 @@ export default function CalculationPreview({ result, error }: CalculationPreview
         : null
 
   return (
-    <div className="bg-surface border border-border rounded-2xl shadow-[var(--shadow-card)] overflow-hidden sticky top-6">
+    <div className="bg-surface border border-border rounded-2xl shadow-[var(--shadow-card)] overflow-hidden">
       <div className="px-5 py-4 border-b border-border bg-background">
         <h3 className="text-base font-semibold text-text-primary">계산 결과</h3>
       </div>

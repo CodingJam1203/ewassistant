@@ -262,10 +262,14 @@ export default function WorkLogModal({
                   onSubmitStateChange={handleFormStateChange}
                 />
               </div>
-              <div className="lg:col-span-1 space-y-4 lg:sticky lg:top-4 lg:self-start">
-                <CalculationPreview result={calculationResult} error={calculationError} />
+              {/* 사이드 패널: 뷰포트 높이로 제한해 sticky 시에도 잘리지 않게.
+                  계산결과는 길면 내부 스크롤, 제출/삭제 버튼은 패널 하단 고정. */}
+              <div className="lg:col-span-1 space-y-4 lg:space-y-0 lg:sticky lg:top-4 lg:self-start lg:flex lg:flex-col lg:max-h-[calc(100dvh-10rem)]">
+                <div className="lg:min-h-0 lg:overflow-y-auto space-y-4">
+                  <CalculationPreview result={calculationResult} error={calculationError} />
+                </div>
                 {/* desktop footer (사이드 컬럼) — 삭제(좌하단 stack) + submit. */}
-                <div className="hidden lg:block space-y-2">
+                <div className="hidden lg:block lg:shrink-0 lg:pt-4 space-y-2">
                   {DeleteButton}
                   {DesktopSubmitButton}
                   {deleteError && (
