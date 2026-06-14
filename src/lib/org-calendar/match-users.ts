@@ -175,11 +175,11 @@ interface MatchInput {
 export function matchUsers(ev: MatchInput, lookup: UserLookup): string[] {
   const matched = new Set<string>()
 
-  // 1) attendee 이메일 매칭
-  for (const e of ev.attendeeEmails) {
-    const u = lookup.byEmail.get(e.toLowerCase().trim())
-    if (u) matched.add(u.email)
-  }
+  // v1.78 — attendee 이메일 매칭 제거. Microsoft SSO 전환 + 사용자 이메일 도메인
+  //   변경(개인 gmail → 회사 도메인)으로 GCal attendee email은 user_profiles.email과
+  //   더 이상 일치 안 함. PROD 조사(1558건 / 100%)에서 attendee_emails 컬럼이 전부
+  //   NULL이라 매칭 발동 0건 → dead code 정리. 매칭은 이름·본부 경계(byName/leading/
+  //   suffix/alias) 만으로 단일화. attendee_emails 컬럼은 audit용으로 DB 보존.
 
   // v1.83.19 — 3) title 시작 첫 토큰이 풀네임이면 매칭 (대괄호 없는 컨벤션 지원).
   //   예: "이정영 - 워크샵 TFT 회의" → 이정영 매칭.
