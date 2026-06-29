@@ -3,8 +3,8 @@
 /**
  * 임시 N-Click 페이지(ewassistant.vercel.app) 서비스 종료 안내 팝업.
  *
- * 이 배포(ewassistant.*)는 통째로 "임시 페이지"라 항상 노출한다.
- * 닫으면 sessionStorage에 박제 → 같은 탭(세션)에서는 다시 안 뜸. 새 접속 시 재노출.
+ * 이 배포(ewassistant.*)는 통째로 "임시 페이지"라 매 접속/새로고침마다 항상 노출한다.
+ * 닫기는 현재 화면에서만 숨김 → 새로고침/재접속하면 다시 뜸 (종료일까지 반복 상기).
  *
  * 정식 배포링크: https://nclick.nhr.kr/
  */
@@ -14,29 +14,19 @@ import { X } from 'lucide-react'
 import { Button } from '@/components/ui'
 
 const OFFICIAL_URL = 'https://nclick.nhr.kr/'
-const DISMISS_KEY = 'nclick.migrationNotice.dismissed'
 
 export default function MigrationNotice() {
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    try {
-      if (sessionStorage.getItem(DISMISS_KEY) === '1') return
-    } catch {
-      // sessionStorage 접근 불가(시크릿 등) — 그냥 노출
-    }
     // 초기 렌더 직후 비동기로 표시 (동기 setState로 인한 cascading render 방지)
     const t = setTimeout(() => setVisible(true), 0)
     return () => clearTimeout(t)
   }, [])
 
   const handleClose = () => {
-    try {
-      sessionStorage.setItem(DISMISS_KEY, '1')
-    } catch {
-      /* noop */
-    }
+    // 박제하지 않음 — 새로고침/재접속하면 다시 노출됨.
     setVisible(false)
   }
 
