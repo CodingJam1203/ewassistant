@@ -83,7 +83,16 @@ function toPlainText(text: string): string {
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1\n$2')
 }
 
+/**
+ * 2026-06-29 — 임시 페이지(ewassistant) 사용 종료에 따라 모든 Teams 알림을 영구 차단.
+ * 정식(nclick.nhr.kr)으로 이전. 모든 발송 경로(즉시·cron·미보고·리더리뷰)가 이 게이트를
+ * 거치므로 여기서 한 번에 종료된다. 다시 켜려면 이 상수를 false로.
+ */
+const NOTIFICATIONS_DISABLED = true
+
 function isEnabled(eventType: EventType): boolean {
+  // 임시 페이지 은퇴 — 전체 알림 종료.
+  if (NOTIFICATIONS_DISABLED) return false
   // Preview 환경에서 `_2` override가 있으면 우선 적용 (Vercel 같은 이름 변수 제약 회피).
   if (envOverride('ENABLE_TEAMS_NOTIFY') === 'false') return false
   const key = EVENT_ENV_MAP[eventType]
