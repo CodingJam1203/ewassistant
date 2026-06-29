@@ -7,3 +7,6 @@
 
 export const EW_URL  = 'https://working.univ.me/Home'
 export const NPM_URL = 'https://intra.univ.me/Approval/AprCreateDoc'
+
+/** 정식 N-Click 배포 — 임시 페이지에서 정식으로 이동 안내 (Navbar 바로가기) */
+export const NCLICK_URL = 'https://nclick.nhr.kr/'

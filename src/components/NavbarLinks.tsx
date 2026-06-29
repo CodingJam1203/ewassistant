@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
-import { EW_URL, NPM_URL } from '@/lib/constants/external-links'
+import { NCLICK_URL } from '@/lib/constants/external-links'
 
 export interface NavbarLinksProps {
   links: Array<{ href: string; label: string }>
@@ -59,8 +59,7 @@ export default function NavbarLinks({ links, placement }: NavbarLinksProps) {
             </Link>
           )
         })}
-        <ExternalNavLink href={EW_URL}>EW 바로가기</ExternalNavLink>
-        <ExternalNavLink href={NPM_URL}>NPM 바로가기</ExternalNavLink>
+        <ExternalNavLink href={NCLICK_URL}>N-Click 바로가기</ExternalNavLink>
       </div>
     )
   }
@@ -87,21 +86,12 @@ export default function NavbarLinks({ links, placement }: NavbarLinksProps) {
           )
         })}
         <a
-          href={EW_URL}
+          href={NCLICK_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 h-9 px-3 rounded-full text-[13px] font-medium whitespace-nowrap text-primary-600 hover:bg-primary-50 transition-colors shrink-0"
         >
-          EW 바로가기
-          <ExternalLink className="h-3 w-3" aria-hidden />
-        </a>
-        <a
-          href={NPM_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 h-9 px-3 rounded-full text-[13px] font-medium whitespace-nowrap text-primary-600 hover:bg-primary-50 transition-colors shrink-0"
-        >
-          NPM 바로가기
+          N-Click 바로가기
           <ExternalLink className="h-3 w-3" aria-hidden />
         </a>
       </div>
